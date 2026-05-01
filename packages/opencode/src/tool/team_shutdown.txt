@@ -1,0 +1,3 @@
+Shut down the active team, cancelling all active teammate sessions and marking the team as closed.
+Use this when the team has completed its goal or needs to be terminated.
+This does not cancel the lead session.

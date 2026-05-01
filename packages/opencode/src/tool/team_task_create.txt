@@ -1,0 +1,4 @@
+Create a new shared task in the team's task list.
+Tasks track work items across the team and can have assignees, dependencies, and metadata.
+Dependency tasks must complete before dependent tasks can be claimed.
+Creating a task records tracking state only; it does not start or wake a teammate.

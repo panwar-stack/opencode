@@ -857,13 +857,17 @@ The `experimental` key contains options that are under active development.
 ```json title="opencode.json"
 {
   "$schema": "https://opencode.ai/config.json",
-  "experimental": {}
+  "experimental": {
+    "agent_teams": true
+  }
 }
 ```
 
 :::caution
 Experimental options are not stable. They may change or be removed without notice.
 :::
+
+The `agent_teams` option enables [Agent Teams](/docs/agent-teams), an experimental multi-agent orchestration workflow.
 
 ---
 

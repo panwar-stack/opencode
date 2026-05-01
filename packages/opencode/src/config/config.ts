@@ -305,6 +305,9 @@ export const Info = Schema.Struct({
       policies: Schema.optional(Schema.mutable(Schema.Array(ConfigExperimental.Policy))).annotate({
         description: "Policy statements applied to supported resources, such as provider access",
       }),
+      agent_teams: Schema.optional(Schema.Boolean).annotate({
+        description: "Enable agent teams for multi-agent orchestration",
+      }),
     }),
   ),
 }).annotate({ identifier: "Config" })

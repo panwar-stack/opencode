@@ -1,0 +1,3 @@
+Read pending messages addressed to the current team session.
+Use this when coordinating with teammates, waiting for a teammate result, or checking the team mailbox.
+Messages are marked delivered after this tool returns them.

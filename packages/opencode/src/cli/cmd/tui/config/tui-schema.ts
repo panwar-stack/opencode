@@ -70,6 +70,10 @@ export const Prompt = Schema.Struct({
   }),
 }).annotate({ description: "Prompt size settings" })
 
+export const TeammateMode = Schema.Literals(["auto", "in_process", "tmux"]).annotate({
+  description: "How teammate sessions are displayed. 'auto' defaults to in_process.",
+})
+
 export const TuiInfo = Schema.Struct({
   $schema: Schema.optional(Schema.String),
   theme: Schema.optional(Schema.String),
@@ -85,4 +89,5 @@ export const TuiInfo = Schema.Struct({
   scroll_acceleration: Schema.optional(ScrollAcceleration),
   diff_style: Schema.optional(DiffStyle),
   mouse: Schema.optional(Schema.Boolean).annotate({ description: "Enable or disable mouse capture (default: true)" }),
+  teammate_mode: Schema.optional(TeammateMode),
 })
