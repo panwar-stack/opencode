@@ -387,6 +387,7 @@ export type TuiState = {
   session: {
     count: () => number
     get: (sessionID: string) => Session | undefined
+    children: (sessionID: string) => ReadonlyArray<TuiSidebarTeamMember>
     diff: (sessionID: string) => ReadonlyArray<TuiSidebarFileItem>
     todo: (sessionID: string) => ReadonlyArray<TuiSidebarTodoItem>
     messages: (sessionID: string) => ReadonlyArray<Message>
@@ -446,6 +447,8 @@ export type TuiSidebarMcpItem = {
 export type TuiSidebarLspItem = Pick<LspStatus, "id" | "root" | "status">
 
 export type TuiSidebarTodoItem = Pick<Todo, "content" | "status">
+
+export type TuiSidebarTeamMember = Pick<Session, "id" | "parentID" | "title">
 
 export type TuiSidebarFileItem = {
   file: string

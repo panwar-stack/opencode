@@ -1,6 +1,7 @@
-import { createMemo, createSignal, Show } from "solid-js"
+import { createMemo, createResource, createSignal, Show } from "solid-js"
 import { useRouteData } from "@tui/context/route"
 import { useSync } from "@tui/context/sync"
+import { useSDK } from "@tui/context/sdk"
 import { useTheme } from "@tui/context/theme"
 import { SplitBorder } from "@tui/component/border"
 import type { AssistantMessage } from "@opencode-ai/sdk/v2"
@@ -11,12 +12,34 @@ import { useCommandShortcut, useOpencodeKeymap } from "../../keymap"
 export function SubagentFooter() {
   const route = useRouteData("session")
   const sync = useSync()
+  const sdk = useSDK()
   const messages = createMemo(() => sync.data.message[route.sessionID] ?? [])
   const session = createMemo(() => sync.session.get(route.sessionID))
+  const teamsEnabled = createMemo(() => sync.data.config.experimental?.agent_teams === true)
+
+  const [teamInfo] = createResource(
+    () => {
+      const s = session()
+      if (!teamsEnabled() || !s || !s.parentID) return undefined
+      return s.parentID
+    },
+    (parentID) =>
+      sdk.client.team
+        .get({ sessionID: parentID })
+        .then((res) => (res.data?.status === "active" ? res.data : undefined))
+        .catch(() => undefined),
+  )
+
+  const isTeamMember = createMemo(() => teamInfo() !== undefined)
 
   const subagentInfo = createMemo(() => {
     const s = session()
     if (!s) return { label: "Subagent", index: 0, total: 0 }
+
+    if (isTeamMember()) {
+      return { label: "Team Member", index: 0, total: 0 }
+    }
+
     const agentMatch = s.title.match(/@(\w+) subagent/)
     const label = agentMatch ? Locale.titlecase(agentMatch[1]) : "Subagent"
 
@@ -77,7 +100,7 @@ export function SubagentFooter() {
       >
         <box flexDirection="row" justifyContent="space-between" gap={1}>
           <box flexDirection="row" gap={1}>
-            <text fg={theme.text}>
+            <text fg={isTeamMember() ? theme.warning : theme.text}>
               <b>{subagentInfo().label}</b>
             </text>
             <Show when={subagentInfo().total > 0}>
