@@ -1,0 +1,3 @@
+Update the status or assignee of a shared team task.
+Statuses: pending, in_progress, completed, cancelled.
+Only the lead or the assigned teammate can update a task.

@@ -63,6 +63,7 @@ import * as DateTime from "effect/DateTime"
 import { eq } from "@/storage/db"
 import * as Database from "@/storage/db"
 import { SessionTable } from "./session.sql"
+import { Team } from "@/team/team"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -207,6 +208,7 @@ export const layer = Layer.effect(
     const references = yield* Reference.Service
     const events = yield* EventV2Bridge.Service
     const flags = yield* RuntimeFlags.Service
+    const team = yield* Team.Service
     const runner = Effect.fn("SessionPrompt.runner")(function* () {
       return yield* EffectBridge.make()
     })
@@ -1640,6 +1642,56 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       throw new Error("Impossible")
     })
 
+    const deliverTeamMessages = Effect.fn("SessionPrompt.deliverTeamMessages")(function* (input: {
+      session: Session.Info
+      lastUser: MessageV2.User
+    }) {
+      const context = yield* team.getContext(input.session.id)
+      if (Option.isNone(context)) return false
+      const messages = yield* team.getPendingMessages(input.session.id, context.value.team.id)
+      if (messages.length === 0) return false
+
+      const members = yield* team.getMembers(context.value.team.id)
+      const senderName = (sender: string) => {
+        if (sender === context.value.team.lead_session_id) return "lead"
+        return members.find((member) => member.session_id === sender)?.name ?? sender
+      }
+      const userMsg: MessageV2.User = {
+        id: MessageID.ascending(),
+        sessionID: input.session.id,
+        role: "user",
+        time: { created: Date.now() },
+        agent: input.lastUser.agent,
+        model: input.lastUser.model,
+        tools: input.lastUser.tools,
+      }
+      yield* sessions.updateMessage(userMsg)
+      yield* sessions.updatePart({
+        id: PartID.ascending(),
+        messageID: userMsg.id,
+        sessionID: input.session.id,
+        type: "text",
+        synthetic: true,
+        text: [
+          "<team-messages>",
+          context.value.member
+            ? "You have pending team mailbox messages. Address them now and continue your teammate task."
+            : "You have pending team mailbox messages. As team lead, coordinate follow-up work and report to the user when the team goal is complete.",
+          "",
+          ...messages.map((message) =>
+            [`From ${senderName(message.sender)} (${message.sender}):`, message.body].join("\n"),
+          ),
+          "</team-messages>",
+        ].join("\n"),
+      } satisfies MessageV2.TextPart)
+      yield* Effect.forEach(messages, (message) => team.markMessageDelivered(message.id, input.session.id), {
+        concurrency: "unbounded",
+        discard: true,
+      })
+      yield* sessions.touch(input.session.id)
+      return true
+    })
+
     const runLoop: (sessionID: SessionID) => Effect.Effect<MessageV2.WithParts> = Effect.fn("SessionPrompt.run")(
       function* (sessionID: SessionID) {
         const ctx = yield* InstanceState.context
@@ -1657,6 +1709,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           const { user: lastUser, assistant: lastAssistant, finished: lastFinished, tasks } = MessageV2.latest(msgs)
 
           if (!lastUser) throw new Error("No user message found in stream. This should never happen.")
+          if (yield* deliverTeamMessages({ session, lastUser })) continue
 
           const lastAssistantMsg = msgs.findLast(
             (msg) => msg.info.role === "assistant" && msg.info.id === lastAssistant?.id,
@@ -2026,6 +2079,7 @@ export const defaultLayer = Layer.suspend(() =>
     Layer.provide(MCP.defaultLayer),
     Layer.provide(LSP.defaultLayer),
     Layer.provide(ToolRegistry.defaultLayer),
+    Layer.provide(Team.defaultLayer),
     Layer.provide(Truncate.defaultLayer),
     Layer.provide(Provider.defaultLayer),
     Layer.provide(Config.defaultLayer),
