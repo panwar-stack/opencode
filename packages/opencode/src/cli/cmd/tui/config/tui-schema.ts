@@ -19,6 +19,10 @@ export const TuiOptions = z.object({
     .optional()
     .describe("Control diff rendering style: 'auto' adapts to terminal width, 'stacked' always shows single column"),
   mouse: z.boolean().optional().describe("Enable or disable mouse capture (default: true)"),
+  teammate_mode: z
+    .enum(["auto", "in_process", "tmux"])
+    .optional()
+    .describe("How teammate sessions are displayed. 'auto' defaults to in_process."),
 })
 
 export const TuiInfo = z

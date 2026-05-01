@@ -6,6 +6,7 @@ import SidebarLsp from "../feature-plugins/sidebar/lsp"
 import SidebarTodo from "../feature-plugins/sidebar/todo"
 import SidebarFiles from "../feature-plugins/sidebar/files"
 import SidebarFooter from "../feature-plugins/sidebar/footer"
+import SidebarTeam from "../feature-plugins/sidebar/team"
 import PluginManager from "../feature-plugins/system/plugins"
 import SessionV2Debug from "../feature-plugins/system/session-v2"
 import WhichKey from "../feature-plugins/system/which-key"
@@ -26,6 +27,7 @@ export const INTERNAL_TUI_PLUGINS: InternalTuiPlugin[] = [
   SidebarLsp,
   SidebarTodo,
   SidebarFiles,
+  SidebarTeam,
   SidebarFooter,
   PluginManager,
   WhichKey,

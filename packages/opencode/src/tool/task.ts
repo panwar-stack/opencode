@@ -14,6 +14,7 @@ export interface TaskPromptOps {
   cancel(sessionID: SessionID): Effect.Effect<void>
   resolvePromptParts(template: string): Effect.Effect<SessionPrompt.PromptInput["parts"]>
   prompt(input: SessionPrompt.PromptInput): Effect.Effect<MessageV2.WithParts>
+  loop(input: SessionPrompt.LoopInput): Effect.Effect<MessageV2.WithParts>
 }
 
 const id = "task"
@@ -89,10 +90,7 @@ export const TaskTool = Tool.define(
       const msg = yield* Effect.sync(() => MessageV2.get({ sessionID: ctx.sessionID, messageID: ctx.messageID }))
       if (msg.info.role !== "assistant") return yield* Effect.fail(new Error("Not an assistant message"))
 
-      const model = next.model ?? {
-        modelID: msg.info.modelID,
-        providerID: msg.info.providerID,
-      }
+      const model = next.model
 
       yield* ctx.metadata({
         title: params.description,
@@ -123,10 +121,7 @@ export const TaskTool = Tool.define(
             const result = yield* ops.prompt({
               messageID,
               sessionID: nextSession.id,
-              model: {
-                modelID: model.modelID,
-                providerID: model.providerID,
-              },
+              model,
               agent: next.name,
               tools: {
                 ...(next.permission.some((rule) => rule.permission === "todowrite") ? {} : { todowrite: false }),

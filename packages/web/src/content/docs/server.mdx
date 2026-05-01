@@ -5,6 +5,7 @@ description: Interact with opencode server over HTTP.
 
 import config from "../../../config.mjs"
 export const typesUrl = `${config.github}/blob/dev/packages/sdk/js/src/gen/types.gen.ts`
+export const typesV2Url = `${config.github}/blob/dev/packages/sdk/js/src/v2/gen/types.gen.ts`
 
 The `opencode serve` command runs a headless HTTP server that exposes an OpenAPI endpoint that an opencode client can use.
 
@@ -235,6 +236,20 @@ The opencode server exposes the following APIs.
 | Method | Path     | Description               | Response                                    |
 | ------ | -------- | ------------------------- | ------------------------------------------- |
 | `GET`  | `/agent` | List all available agents | <a href={typesUrl}><code>Agent[]</code></a> |
+
+---
+
+### Team
+
+These endpoints support [Agent Teams](/docs/agent-teams).
+
+| Method | Path                         | Description                                      | Response                                      |
+| ------ | ---------------------------- | ------------------------------------------------ | --------------------------------------------- |
+| `GET`  | `/team?sessionID=<session>`  | Get the active team for a lead session           | <a href={typesV2Url}><code>TeamInfo</code></a> |
+| `GET`  | `/team/{teamID}`             | Get a team by ID                                 | <a href={typesV2Url}><code>TeamInfo</code></a> |
+| `GET`  | `/team/{teamID}/tasks`       | List shared team tasks                           | <a href={typesV2Url}><code>TeamTask[]</code></a> |
+| `GET`  | `/team/{teamID}/messages`    | List team messages                               | <a href={typesV2Url}><code>TeamMessage[]</code></a> |
+| `POST` | `/team/{teamID}/shutdown`    | Shut down a team and cancel active teammates     | `boolean`                                     |
 
 ---
 

@@ -147,6 +147,12 @@ function stateApi(sync: ReturnType<typeof useSync>): TuiPluginApi["state"] {
       count() {
         return sync.data.session.length
       },
+      children(sessionID) {
+        const parentID = sync.session.get(sessionID)?.parentID ?? sessionID
+        return sync.data.session
+          .filter((item) => item.parentID === parentID)
+          .toSorted((a, b) => a.id.localeCompare(b.id))
+      },
       diff(sessionID) {
         return (sync.data.session_diff[sessionID] ?? []).flatMap((item) =>
           item.file === undefined ? [] : [{ ...item, file: item.file }],

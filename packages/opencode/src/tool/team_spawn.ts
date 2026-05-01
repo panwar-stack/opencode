@@ -1,0 +1,341 @@
+import * as Tool from "./tool"
+import DESCRIPTION from "./team_spawn.txt"
+import { Team } from "@/team/team"
+import { Session } from "@/session/session"
+import { Agent } from "@/agent/agent"
+import { Config } from "@/config/config"
+import type { TaskPromptOps } from "./task"
+import { wakeTeamSession } from "./team_wake"
+import { Cause, Effect, Schema, Scope, Option } from "effect"
+
+const Parameters = Schema.Struct({
+  name: Schema.String.annotate({ description: "Name for this teammate" }),
+  agent_type: Schema.String.annotate({ description: "The type of agent to use" }),
+  role_prompt: Schema.String.annotate({ description: "The task/prompt for this teammate" }),
+  depends_on: Schema.optional(Schema.Array(Schema.String)).annotate({
+    description: "Optional teammate names or session IDs that must complete before this teammate starts",
+  }),
+  wait_for: Schema.optional(Schema.Array(Schema.String)).annotate({
+    description: "Alias for depends_on",
+  }),
+  plan_mode: Schema.optional(Schema.Boolean).annotate({ description: "Start in plan mode requiring lead approval" }),
+})
+
+type Metadata = {
+  memberID?: string
+  sessionID?: string
+  dependencyIDs?: string[]
+}
+
+const CommunicationGuidance = [
+  "Proactive communication requirements:",
+  '- Before doing substantial work, send a brief kickoff update to the lead with team_send_message recipient "lead".',
+  "- Send concise progress updates to the lead after material findings, decisions, completed milestones, and before or after risky edits.",
+  "- Message teammates directly when your work affects them, unblocks them, or gives them information they need.",
+  "- Check team_get_messages at natural handoff points, after sending updates, and whenever you may have been unblocked or redirected.",
+  "- Do not wait until your final answer to share useful status, blockers, or intermediate results.",
+].join("\n")
+
+export const TeamSpawnTool = Tool.define(
+  "team_spawn",
+  Effect.gen(function* () {
+    const team = yield* Team.Service
+    const sessions = yield* Session.Service
+    const agent = yield* Agent.Service
+    const config = yield* Config.Service
+    const scope = yield* Scope.Scope
+
+    return {
+      description: DESCRIPTION,
+      parameters: Parameters,
+      execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
+        Effect.gen(function* () {
+          const cfg = yield* config.get()
+          if (!cfg.experimental?.agent_teams) {
+            return { title: "Team Spawn", output: "Agent teams are not enabled.", metadata: {} as Metadata }
+          }
+
+          const activeTeam = yield* team.getActive(ctx.sessionID)
+          if (Option.isNone(activeTeam)) {
+            return { title: "Team Spawn Failed", output: "No active team found.", metadata: {} as Metadata }
+          }
+          const teamID = activeTeam.value.id
+
+          const ag = yield* agent.get(params.agent_type)
+          if (!ag) {
+            return {
+              title: "Team Spawn Failed",
+              output: `Unknown agent type: ${params.agent_type}`,
+              metadata: {} as Metadata,
+            }
+          }
+
+          const ops = ctx.extra?.promptOps as TaskPromptOps | undefined
+          if (!ops) {
+            return {
+              title: "Team Spawn Failed",
+              output: "Cannot start teammate because prompt operations are unavailable.",
+              metadata: {} as Metadata,
+            }
+          }
+
+          const parent = yield* sessions.get(ctx.sessionID)
+          const existingMembers = yield* team.getMembers(teamID)
+          const requestedDependencies = [...new Set([...(params.depends_on ?? []), ...(params.wait_for ?? [])])]
+          const dependencyIDs = requestedDependencies
+            .map(
+              (dependency) =>
+                existingMembers.find((member) => member.name === dependency || member.session_id === dependency)
+                  ?.session_id,
+            )
+            .filter((dependency): dependency is string => dependency !== undefined)
+          const missingDependencies = requestedDependencies.filter(
+            (dependency) =>
+              !existingMembers.some((member) => member.name === dependency || member.session_id === dependency),
+          )
+          if (missingDependencies.length > 0) {
+            return {
+              title: "Team Spawn Failed",
+              output: `Dependency teammate(s) not found: ${missingDependencies.join(", ")}`,
+              metadata: {} as Metadata,
+            }
+          }
+
+          const requirePlanApproval = params.plan_mode ?? false
+          const permissionRules = [
+            ...(parent.permission ?? []).filter(
+              (rule) => rule.permission === "external_directory" || rule.action === "deny",
+            ),
+          ]
+          if (requirePlanApproval) {
+            permissionRules.push(
+              { permission: "bash" as const, pattern: "*" as const, action: "deny" as const },
+              { permission: "write" as const, pattern: "*" as const, action: "deny" as const },
+              { permission: "edit" as const, pattern: "*" as const, action: "deny" as const },
+              { permission: "apply_patch" as const, pattern: "*" as const, action: "deny" as const },
+            )
+          }
+
+          const childSession = yield* sessions.create({
+            parentID: ctx.sessionID,
+            title: `${params.name} (@${ag.name} teammate)`,
+            permission: permissionRules,
+          })
+
+          const model = ag.model
+
+          const member = yield* team.addMember({
+            teamID,
+            sessionID: childSession.id,
+            name: params.name,
+            agentType: params.agent_type,
+            model: model?.modelID ? { providerID: model.providerID, modelID: model.modelID } : undefined,
+            rolePrompt: params.role_prompt,
+            planMode: requirePlanApproval,
+            workMode: requirePlanApproval ? "plan" : "implement",
+            dependencyIDs,
+          })
+
+          const dependencyResults = (members: any[], dependencies: string[]) => {
+            if (dependencies.length === 0) return ""
+            return [
+              "Dependency results:",
+              ...dependencies.map((dependency) => {
+                const match = members.find((m) => m.session_id === dependency)
+                return [
+                  `- ${match?.name ?? dependency} (${dependency})`,
+                  match?.result ?? "(completed with no result)",
+                ].join("\n")
+              }),
+            ].join("\n")
+          }
+
+          const notifySessions = (sender: string, recipients: string[], body: string) =>
+            Effect.gen(function* () {
+              const uniqueRecipients = [...new Set(recipients)]
+              if (uniqueRecipients.length === 0) return
+              yield* team.sendMessage({
+                teamID,
+                sender,
+                recipients: uniqueRecipients,
+                body,
+              })
+              yield* Effect.forEach(
+                uniqueRecipients.filter((recipient) => recipient !== sender),
+                (recipient) => wakeTeamSession(ops, recipient).pipe(Effect.ignore, Effect.forkIn(scope)),
+                { discard: true },
+              )
+            })
+
+          const notifyLead = (sender: string, body: string) =>
+            notifySessions(sender, [activeTeam.value.lead_session_id], body)
+
+          const notifyActiveDependencies = (members: any[]) =>
+            Effect.gen(function* () {
+              const recipients = members
+                .filter(
+                  (member) =>
+                    dependencyIDs.includes(member.session_id) &&
+                    (member.status === "active" || member.status === "starting" || member.status === "idle"),
+                )
+                .map((member) => member.session_id)
+              if (recipients.length === 0) return
+              yield* notifySessions(
+                activeTeam.value.lead_session_id,
+                recipients,
+                [
+                  `Teammate ${member.name} (${member.agent_type}) has been added and is waiting on your work.`,
+                  "",
+                  "Please send proactive progress updates and make your final result a clear handoff for this teammate.",
+                ].join("\n"),
+              )
+            })
+
+          let startMember: (member: any, extraPrompt: string) => Effect.Effect<void>
+          const startReadyBlockedMembers = (completedSessionID: string): Effect.Effect<void> =>
+            Effect.gen(function* () {
+              const members = yield* team.getMembers(teamID)
+              const ready = members.filter((member) => {
+                const dependencies = member.dependency_ids ?? []
+                if (member.status !== "blocked" || !dependencies.includes(completedSessionID)) return false
+                return dependencies.every((dependency: string) =>
+                  members.some((candidate) => candidate.session_id === dependency && candidate.status === "completed"),
+                )
+              })
+              yield* Effect.forEach(
+                ready,
+                (member) => startMember(member, dependencyResults(members, member.dependency_ids ?? [])),
+                { discard: true },
+              )
+            })
+
+          startMember = (member: any, extraPrompt: string): Effect.Effect<void> =>
+            Effect.gen(function* () {
+              const nextAgent = yield* agent.get(member.agent_type)
+              if (!nextAgent) {
+                yield* team.updateMemberStatus(member.id, "cancelled")
+                yield* notifyLead(
+                  member.session_id,
+                  `Teammate ${member.name} (${member.agent_type}) stopped before starting: unknown agent type.`,
+                )
+                return
+              }
+              const members = yield* team.getMembers(teamID)
+              const teammates = members
+                .filter((candidate) => candidate.session_id !== member.session_id)
+                .map(
+                  (candidate) =>
+                    `- ${candidate.name} (${candidate.agent_type}, ${candidate.status}, session ${candidate.session_id})`,
+                )
+              const parts = yield* ops.resolvePromptParts(
+                [
+                  `You are teammate "${member.name}" in team "${activeTeam.value.name}".`,
+                  `Team goal: ${activeTeam.value.goal}`,
+                  `The lead session is ${activeTeam.value.lead_session_id}. Your session is ${member.session_id}.`,
+                  'Use team_get_messages to read team mailbox updates. Use team_send_message with recipient "lead" to report to the lead, or a teammate name/session ID to coordinate directly.',
+                  teammates.length > 0
+                    ? ["Current teammates:", ...teammates].join("\n")
+                    : "No other teammates are registered yet.",
+                  CommunicationGuidance,
+                  "When your assigned work is complete, put the concrete result in your final answer so it can be sent back to the lead automatically.",
+                  extraPrompt,
+                  member.role_prompt,
+                ].join("\n\n"),
+              )
+              const bgTask = Effect.gen(function* () {
+                yield* team.updateMemberStatus(member.id, "active")
+                yield* notifyLead(
+                  member.session_id,
+                  [
+                    `Teammate ${member.name} (${member.agent_type}) started.`,
+                    "",
+                    "Assignment:",
+                    member.role_prompt,
+                    ...(extraPrompt ? ["", "Dependency context was provided in this teammate's prompt."] : []),
+                  ].join("\n"),
+                )
+                const result = yield* ops.prompt({
+                  sessionID: member.session_id,
+                  model: nextAgent.model,
+                  agent: nextAgent.name,
+                  tools: member.plan_mode ? { bash: false, write: false, edit: false, apply_patch: false } : undefined,
+                  parts,
+                })
+                const current = yield* team.getMemberBySession(member.session_id)
+                const latestTeam = yield* team.get(teamID)
+                if (
+                  Option.isNone(current) ||
+                  current.value.status === "cancelled" ||
+                  Option.isNone(latestTeam) ||
+                  latestTeam.value.status !== "active"
+                ) {
+                  return
+                }
+                const output = result.parts.findLast((part) => part.type === "text")?.text ?? ""
+                yield* notifyLead(
+                  member.session_id,
+                  [
+                    `Teammate ${member.name} (${member.agent_type}) completed and returned this result:`,
+                    "",
+                    "<teammate_result>",
+                    output || "(no text result)",
+                    "</teammate_result>",
+                  ].join("\n"),
+                )
+                yield* team.updateMemberStatus(member.id, "completed", output)
+                yield* startReadyBlockedMembers(member.session_id)
+              }).pipe(
+                Effect.catchCause((cause) =>
+                  Effect.gen(function* () {
+                    const error = Cause.squash(cause)
+                    yield* team.updateMemberStatus(member.id, "cancelled")
+                    const latestTeam = yield* team.get(teamID)
+                    if (Option.isNone(latestTeam) || latestTeam.value.status !== "active") return
+                    yield* notifyLead(
+                      member.session_id,
+                      `Teammate ${member.name} (${member.agent_type}) stopped before completing: ${error instanceof Error ? error.message : String(error)}`,
+                    )
+                  }),
+                ),
+              )
+              yield* Effect.forkIn(scope)(bgTask)
+            })
+
+          const latestMembers = yield* team.getMembers(teamID)
+          yield* notifyActiveDependencies(latestMembers)
+          const blocked = dependencyIDs.some(
+            (dependency) =>
+              !latestMembers.some(
+                (candidate) => candidate.session_id === dependency && candidate.status === "completed",
+              ),
+          )
+          if (blocked) {
+            yield* team.updateMemberStatus(member.id, "blocked")
+            yield* notifyLead(
+              member.session_id,
+              [
+                `Teammate ${member.name} (${member.agent_type}) is waiting on dependency teammate(s):`,
+                ...dependencyIDs.map((dependency) => {
+                  const match = latestMembers.find((candidate) => candidate.session_id === dependency)
+                  return `- ${match?.name ?? dependency} (${dependency})`
+                }),
+              ].join("\n"),
+            )
+            return {
+              title: "Teammate Spawned",
+              output: `Teammate spawned: ${member.name} (${member.session_id}) [${member.agent_type}], waiting on ${dependencyIDs.length} dependency(ies)`,
+              metadata: { memberID: member.id, sessionID: member.session_id, dependencyIDs } as Metadata,
+            }
+          }
+
+          yield* startMember(member, dependencyResults(latestMembers, dependencyIDs))
+
+          return {
+            title: "Teammate Spawned",
+            output: `Teammate spawned: ${member.name} (${member.session_id}) [${member.agent_type}]`,
+            metadata: { memberID: member.id, sessionID: member.session_id, dependencyIDs } as Metadata,
+          }
+        }).pipe(Effect.orDie),
+    }
+  }),
+)
