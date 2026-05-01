@@ -87,6 +87,10 @@ function stubOps(opts?: { onPrompt?: (input: SessionPrompt.PromptInput) => void;
   return {
     cancel: () => Effect.void,
     resolvePromptParts: (template) => Effect.succeed([{ type: "text" as const, text: template }]),
+    loop: (input) =>
+      Effect.sync(() =>
+        reply({ sessionID: input.sessionID, agent: "general", model: ref, parts: [] }, opts?.text ?? "done"),
+      ),
     prompt: (input) =>
       Effect.sync(() => {
         opts?.onPrompt?.(input)

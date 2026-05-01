@@ -1,0 +1,3 @@
+List all shared tasks for the current team.
+Shows task descriptions, statuses, assignees, and dependencies.
+Use this to understand what work is pending, in progress, or completed across the team.

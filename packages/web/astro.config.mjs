@@ -253,6 +253,7 @@ export default defineConfig({
             "tools",
             "rules",
             "agents",
+            "agent-teams",
             "models",
             "themes",
             "keybinds",

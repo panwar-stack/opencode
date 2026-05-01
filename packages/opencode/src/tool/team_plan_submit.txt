@@ -1,0 +1,3 @@
+Submit a plan for lead approval when in plan mode.
+This tool is used by teammates that require plan approval before implementation to submit their proposed plan.
+The lead reviews and decides on the plan using the team_plan_decide tool.

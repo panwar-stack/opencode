@@ -1,0 +1,193 @@
+---
+title: Agent Teams
+description: Coordinate multiple OpenCode agents from one lead session.
+---
+
+Agent teams let one lead session coordinate multiple background teammate sessions. Each teammate can use its own agent type, prompt, dependencies, mailbox messages, and optional plan approval.
+
+:::caution[Experimental]
+Agent teams are experimental. The config, tools, and workflow may change.
+:::
+
+---
+
+## Enable
+
+Turn on agent teams in your OpenCode config.
+
+```json title="opencode.json"
+{
+  "$schema": "https://opencode.ai/config.json",
+  "experimental": {
+    "agent_teams": true
+  }
+}
+```
+
+After enabling this option, the team tools become available to the lead agent and teammate agents.
+
+---
+
+## Quickstart
+
+Ask OpenCode to create a team when a task has independent pieces of work.
+
+```txt frame="none"
+Create an agent team for this refactor. Have one teammate inspect the auth flow,
+one teammate inspect the API routes, and one teammate wait for those findings
+before implementing the changes.
+```
+
+The lead session should create the team, spawn teammates, collect results, and report the final outcome back to you.
+
+You can also be more explicit:
+
+```txt frame="none"
+Use agent teams. Create a team named auth-refactor. Spawn an explorer teammate
+for auth, another explorer teammate for routes, then spawn an implementer that
+depends on both explorers.
+```
+
+---
+
+## Concepts
+
+### Lead session
+
+The current session becomes the lead when a team is created. Only one active team can exist for a lead session at a time.
+
+The lead coordinates teammates, receives completion updates, approves plans, and can shut down the team.
+
+### Teammates
+
+Teammates are background child sessions. Each teammate has:
+
+- a name
+- an agent type
+- a role prompt
+- optional dependencies
+- optional plan approval mode
+
+Teammates send kickoff, progress, blocker, handoff, and completion updates through the team mailbox.
+
+### Dependencies
+
+Use `depends_on` or `wait_for` when a teammate must wait for another teammate to complete.
+
+Dependencies can refer to teammate names or teammate session IDs. A blocked teammate starts automatically after all dependencies complete.
+
+### Mailbox
+
+Team members communicate through mailbox messages. Messages can target:
+
+- `lead`
+- a teammate name
+- a teammate session ID
+- a comma-separated list of recipients
+
+Messages wake idle recipients when possible and are delivered on their next loop iteration.
+
+### Shared tasks
+
+The shared task list tracks work across the team. Tasks can have statuses, assignees, and dependency task IDs.
+
+Creating a task records tracking state only. It does not spawn a teammate or wake an existing teammate.
+
+### Plan approval
+
+When a teammate starts in plan mode, mutating tools are denied until the teammate submits a plan and the lead approves it.
+
+Plan mode blocks:
+
+- `bash`
+- `write`
+- `edit`
+- `apply_patch`
+
+Rejecting a plan sends feedback back to the teammate and keeps the teammate in plan mode.
+
+---
+
+## Tools
+
+These tools are used by OpenCode agents when agent teams are enabled.
+
+| Tool | Purpose |
+| ---- | ------- |
+| `team_create` | Create a team for the current lead session. |
+| `team_spawn` | Spawn a background teammate session. |
+| `team_send_message` | Send a mailbox message to one or more recipients. |
+| `team_broadcast` | Broadcast a message to all active teammates, and to the lead when called by a teammate. |
+| `team_get_messages` | Read pending mailbox messages for the current team session. |
+| `team_task_create` | Create a shared task list item. |
+| `team_task_list` | List shared team tasks. |
+| `team_task_claim` | Claim a pending task whose dependencies are complete. |
+| `team_task_update` | Update a task status or assignee. |
+| `team_plan_submit` | Submit a teammate plan for lead approval. |
+| `team_plan_decide` | Approve or reject a teammate plan. |
+| `team_shutdown` | Close the active team and cancel active teammates. |
+
+---
+
+## TUI
+
+Agent teams add a team sidebar section and a team panel.
+
+| Action | Keybind | Description |
+| ------ | ------- | ----------- |
+| `team_panel_toggle` | `<leader>v` | Open the team panel. |
+| `team_task_list` | `<leader>k` | Open the team panel on the task list. |
+| `team_cycle_lead` | `<leader>up` | Navigate from a teammate session back to the lead session. |
+
+The team panel shows the team goal, teammate statuses, pending permissions or questions, shared tasks, and team messages. It can also shut down the team.
+
+Regular child-session navigation still works for teammate sessions:
+
+- `session_child_first`: go to the first teammate session
+- `session_child_cycle`: go to the next teammate session
+- `session_child_cycle_reverse`: go to the previous teammate session
+- `session_parent`: return to the lead session
+
+---
+
+## HTTP API
+
+The OpenCode server exposes read and shutdown endpoints for agent teams.
+
+| Method | Path | Description |
+| ------ | ---- | ----------- |
+| `GET` | `/team?sessionID=<session>` | Get the active team for a lead session. |
+| `GET` | `/team/{teamID}` | Get a team by ID. |
+| `GET` | `/team/{teamID}/tasks` | List shared team tasks. |
+| `GET` | `/team/{teamID}/messages` | List team messages. |
+| `POST` | `/team/{teamID}/shutdown` | Shut down the team and cancel active teammates. |
+
+See [Server](/docs/server#team) for the full server API list.
+
+---
+
+## Troubleshooting
+
+### Agent teams are not enabled
+
+Add `"experimental": { "agent_teams": true }` to `opencode.json`, then restart OpenCode so the config is reloaded.
+
+### No active team
+
+Create a team before spawning teammates or sending team messages. The current session must be the lead session, or an existing teammate session.
+
+### Unknown agent type
+
+The teammate's `agent_type` must be a configured agent. See [Agents](/docs/agents) for built-in and custom agents.
+
+### Dependency teammate not found
+
+Dependencies must match an existing teammate name or teammate session ID. Spawn the dependency teammate first.
+
+### Teammate is waiting
+
+A teammate with dependencies remains blocked until all dependency teammates complete. A teammate in plan mode waits until the lead approves or rejects the submitted plan.
+
+### Team no longer needed
+
+Use `team_shutdown` or the team panel shutdown action. This closes the team and cancels active teammates, but it does not cancel the lead session.

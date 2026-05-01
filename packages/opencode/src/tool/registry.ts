@@ -13,6 +13,18 @@ import { WebFetchTool } from "./webfetch"
 import { WriteTool } from "./write"
 import { InvalidTool } from "./invalid"
 import { SkillTool } from "./skill"
+import { TeamCreateTool } from "./team_create"
+import { TeamSpawnTool } from "./team_spawn"
+import { TeamGetMessagesTool } from "./team_get_messages"
+import { TeamSendMessageTool } from "./team_send_message"
+import { TeamBroadcastTool } from "./team_broadcast"
+import { TeamTaskCreateTool } from "./team_task_create"
+import { TeamTaskListTool } from "./team_task_list"
+import { TeamTaskClaimTool } from "./team_task_claim"
+import { TeamTaskUpdateTool } from "./team_task_update"
+import { TeamPlanSubmitTool } from "./team_plan_submit"
+import { TeamPlanDecideTool } from "./team_plan_decide"
+import { TeamShutdownTool } from "./team_shutdown"
 import * as Tool from "./tool"
 import { Config } from "@/config/config"
 import { type ToolContext as PluginToolContext, type ToolDefinition } from "@opencode-ai/plugin"
@@ -55,6 +67,7 @@ import { Reference } from "@/reference/reference"
 import { BackgroundJob } from "@/background/job"
 import { SessionStatus } from "@/session/status"
 import { RuntimeFlags } from "@/effect/runtime-flags"
+import { Team } from "@/team/team"
 
 const log = Log.create({ service: "tool.registry" })
 
@@ -107,6 +120,7 @@ export const layer: Layer.Layer<
   | Format.Service
   | Truncate.Service
   | RuntimeFlags.Service
+  | Team.Service
 > = Layer.effect(
   Service,
   Effect.gen(function* () {
@@ -137,6 +151,18 @@ export const layer: Layer.Layer<
     const patchtool = yield* ApplyPatchTool
     const skilltool = yield* SkillTool
     const agent = yield* Agent.Service
+    const teamCreate = yield* TeamCreateTool
+    const teamSpawn = yield* TeamSpawnTool
+    const teamGetMessages = yield* TeamGetMessagesTool
+    const teamSendMessage = yield* TeamSendMessageTool
+    const teamBroadcast = yield* TeamBroadcastTool
+    const teamTaskCreate = yield* TeamTaskCreateTool
+    const teamTaskList = yield* TeamTaskListTool
+    const teamTaskClaim = yield* TeamTaskClaimTool
+    const teamTaskUpdate = yield* TeamTaskUpdateTool
+    const teamPlanSubmit = yield* TeamPlanSubmitTool
+    const teamPlanDecide = yield* TeamPlanDecideTool
+    const teamShutdown = yield* TeamShutdownTool
 
     const state = yield* InstanceState.make<State>(
       Effect.fn("ToolRegistry.state")(function* (ctx) {
@@ -226,6 +252,9 @@ export const layer: Layer.Layer<
         yield* config.get()
         const questionEnabled = ["app", "cli", "desktop"].includes(flags.client) || flags.enableQuestionTool
 
+        const cfg = yield* config.get()
+        const teamEnabled = cfg.experimental?.agent_teams === true
+
         const tool = yield* Effect.all({
           invalid: Tool.init(invalid),
           shell: Tool.init(shell),
@@ -246,6 +275,18 @@ export const layer: Layer.Layer<
           question: Tool.init(question),
           lsp: Tool.init(lsptool),
           plan: Tool.init(plan),
+          teamCreate: Tool.init(teamCreate),
+          teamSpawn: Tool.init(teamSpawn),
+          teamGetMessages: Tool.init(teamGetMessages),
+          teamSendMessage: Tool.init(teamSendMessage),
+          teamBroadcast: Tool.init(teamBroadcast),
+          teamTaskCreate: Tool.init(teamTaskCreate),
+          teamTaskList: Tool.init(teamTaskList),
+          teamTaskClaim: Tool.init(teamTaskClaim),
+          teamTaskUpdate: Tool.init(teamTaskUpdate),
+          teamPlanSubmit: Tool.init(teamPlanSubmit),
+          teamPlanDecide: Tool.init(teamPlanDecide),
+          teamShutdown: Tool.init(teamShutdown),
         })
 
         return {
@@ -269,6 +310,22 @@ export const layer: Layer.Layer<
             tool.patch,
             ...(flags.experimentalLspTool ? [tool.lsp] : []),
             ...(flags.experimentalPlanMode && flags.client === "cli" ? [tool.plan] : []),
+            ...(teamEnabled
+              ? [
+                  tool.teamCreate,
+                  tool.teamSpawn,
+                  tool.teamGetMessages,
+                  tool.teamSendMessage,
+                  tool.teamBroadcast,
+                  tool.teamTaskCreate,
+                  tool.teamTaskList,
+                  tool.teamTaskClaim,
+                  tool.teamTaskUpdate,
+                  tool.teamPlanSubmit,
+                  tool.teamPlanDecide,
+                  tool.teamShutdown,
+                ]
+              : []),
           ],
           task: tool.task,
           read: tool.read,
@@ -385,7 +442,7 @@ export const defaultLayer = Layer.suspend(() =>
       Layer.provide(Skill.defaultLayer),
       Layer.provide(Agent.defaultLayer),
       Layer.provide(Session.defaultLayer),
-      Layer.provide(Layer.mergeAll(SessionStatus.defaultLayer, BackgroundJob.defaultLayer)),
+      Layer.provide(Layer.mergeAll(SessionStatus.defaultLayer, BackgroundJob.defaultLayer, Team.defaultLayer)),
       Layer.provide(Provider.defaultLayer),
       Layer.provide(Layer.mergeAll(Git.defaultLayer, RepositoryCache.defaultLayer)),
       Layer.provide(Reference.defaultLayer),

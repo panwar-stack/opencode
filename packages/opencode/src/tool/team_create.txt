@@ -1,0 +1,3 @@
+When the user wants to set up a multi-agent team, use this tool to create the team for the current session.
+The current session becomes the lead session that manages the team.
+Only one active team can exist per lead session at a time.

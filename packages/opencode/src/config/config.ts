@@ -301,6 +301,9 @@ export const Info = Schema.Struct({
       mcp_timeout: Schema.optional(PositiveInt).annotate({
         description: "Timeout in milliseconds for model context protocol (MCP) requests",
       }),
+      agent_teams: Schema.optional(Schema.Boolean).annotate({
+        description: "Enable agent teams for multi-agent orchestration",
+      }),
     }),
   ),
 }).annotate({ identifier: "Config" })

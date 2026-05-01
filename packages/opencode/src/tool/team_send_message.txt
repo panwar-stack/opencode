@@ -1,0 +1,4 @@
+Send a message to one or more teammates via the team mailbox.
+Use a teammate name, teammate session ID, "lead", or comma-separated recipients.
+Messages wake idle recipient sessions and are also delivered on their next loop iteration.
+Use this to coordinate work between teammates or provide information from the lead.
