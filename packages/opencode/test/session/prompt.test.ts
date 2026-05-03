@@ -978,6 +978,81 @@ raceNoLLMServer.instance(
   3_000,
 )
 
+it.live("injects team orchestration guidance for primary lead sessions when agent teams are enabled", () =>
+  provideTmpdirServer(
+    Effect.fnUntraced(function* ({ llm }) {
+      const { prompt, chat } = yield* boot()
+      yield* llm.text("done")
+
+      yield* prompt.prompt({
+        sessionID: chat.id,
+        agent: "build",
+        model: ref,
+        parts: [{ type: "text", text: "refactor auth and routes" }],
+      })
+
+      const bodies = (yield* llm.inputs).map((input) => JSON.stringify(input))
+      expect(
+        bodies.some(
+          (body) =>
+            body.includes("Agent team orchestration is enabled") &&
+            body.includes("team_create") &&
+            body.includes("team_spawn"),
+        ),
+      ).toBe(true)
+    }),
+    {
+      git: true,
+      config: (url) => ({
+        ...providerCfg(url),
+        experimental: { agent_teams: true },
+      }),
+    },
+  ),
+)
+
+it.live("does not inject lead team guidance into teammate sessions", () =>
+  provideTmpdirServer(
+    Effect.fnUntraced(function* ({ llm }) {
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const team = yield* Team.Service
+      const lead = yield* sessions.create({ title: "Lead" })
+      const worker = yield* sessions.create({ parentID: lead.id, title: "Worker" })
+      const info = yield* team.create({ name: "guide-team", goal: "Coordinate work", leadSessionID: lead.id })
+      yield* team.addMember({
+        teamID: info.id,
+        sessionID: worker.id,
+        name: "worker",
+        agentType: "build",
+        rolePrompt: "Investigate teammate behavior",
+      })
+      yield* llm.text("done")
+
+      yield* prompt.prompt({
+        sessionID: worker.id,
+        agent: "build",
+        model: ref,
+        parts: [{ type: "text", text: "teammate work" }],
+      })
+
+      expect(
+        (yield* llm.inputs)
+          .map((input) => JSON.stringify(input))
+          .filter((body) => body.includes("teammate work"))
+          .some((body) => body.includes("Agent team orchestration is enabled")),
+      ).toBe(false)
+    }),
+    {
+      git: true,
+      config: (url) => ({
+        ...providerCfg(url),
+        experimental: { agent_teams: true },
+      }),
+    },
+  ),
+)
+
 it.live(
   "canceling a team lead shuts down and interrupts active members",
   () =>
