@@ -6,3 +6,5 @@ Teammates are instructed to send proactive kickoff, progress, handoff, and block
 The lead receives automatic started/waiting updates, and active dependency teammates are notified when someone is waiting on their work.
 Use this when you need multiple agents working in parallel on different aspects of the team's goal.
 Use depends_on or wait_for when this teammate must wait for one or more teammate names/session IDs to complete before starting.
+
+After spawning all needed teammates, check team_get_messages ONCE. If no messages need your attention, provide a status summary to the user and end your turn. You will be automatically woken when teammates send you messages — DO NOT poll team_get_messages in a loop.
