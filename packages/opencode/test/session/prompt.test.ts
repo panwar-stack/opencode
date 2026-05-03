@@ -1856,6 +1856,457 @@ unixNoLLMServer(
   30_000,
 )
 
+unix("shell captures stdout and stderr in completed tool output", () =>
+  provideTmpdirInstance(
+    (_dir) =>
+      Effect.gen(function* () {
+        const { prompt, run, chat } = yield* boot()
+        const result = yield* prompt.shell({
+          sessionID: chat.id,
+          agent: "build",
+          command: "printf out && printf err >&2",
+        })
+
+        expect(result.info.role).toBe("assistant")
+        const tool = completedTool(result.parts)
+        if (!tool) return
+
+        expect(tool.state.output).toContain("out")
+        expect(tool.state.output).toContain("err")
+        expect(tool.state.metadata.output).toContain("out")
+        expect(tool.state.metadata.output).toContain("err")
+        yield* run.assertNotBusy(chat.id)
+      }),
+    { git: true, config: cfg },
+  ),
+)
+
+unix("shell completes a fast command on the preferred shell", () =>
+  provideTmpdirInstance(
+    (dir) =>
+      Effect.gen(function* () {
+        const { prompt, run, chat } = yield* boot()
+        const result = yield* prompt.shell({
+          sessionID: chat.id,
+          agent: "build",
+          command: "pwd",
+        })
+
+        expect(result.info.role).toBe("assistant")
+        const tool = completedTool(result.parts)
+        if (!tool) return
+
+        expect(tool.state.input.command).toBe("pwd")
+        expect(tool.state.output).toContain(dir)
+        expect(tool.state.metadata.output).toContain(dir)
+        yield* run.assertNotBusy(chat.id)
+      }),
+    { git: true, config: cfg },
+  ),
+)
+
+unix(
+  "shell uses configured shell over env shell",
+  () =>
+    withSh(() =>
+      provideTmpdirInstance(
+        (_dir) =>
+          Effect.gen(function* () {
+            if (!Bun.which("bash")) return
+
+            const { prompt, chat } = yield* boot()
+            const result = yield* prompt.shell({
+              sessionID: chat.id,
+              agent: "build",
+              command: "[[ 1 -eq 1 ]] && printf configured",
+            })
+
+            const tool = completedTool(result.parts)
+            if (!tool) return
+            expect(tool.state.output).toContain("configured")
+          }),
+        { git: true, config: { ...cfg, shell: "bash" } },
+      ),
+    ),
+  30_000,
+)
+
+unix("shell commands can change directory after startup", () =>
+  provideTmpdirInstance(
+    (dir) =>
+      Effect.gen(function* () {
+        const { prompt, run, chat } = yield* boot()
+        const parent = path.dirname(dir)
+        const result = yield* prompt.shell({
+          sessionID: chat.id,
+          agent: "build",
+          command: "cd .. && pwd",
+        })
+
+        expect(result.info.role).toBe("assistant")
+        const tool = completedTool(result.parts)
+        if (!tool) return
+
+        expect(tool.state.output).toContain(parent)
+        expect(tool.state.metadata.output).toContain(parent)
+        yield* run.assertNotBusy(chat.id)
+      }),
+    { git: true, config: cfg },
+  ),
+)
+
+unix("shell lists files from the project directory", () =>
+  provideTmpdirInstance(
+    (dir) =>
+      Effect.gen(function* () {
+        const { prompt, run, chat } = yield* boot()
+        yield* Effect.promise(() => Bun.write(path.join(dir, "README.md"), "# e2e\n"))
+
+        const result = yield* prompt.shell({
+          sessionID: chat.id,
+          agent: "build",
+          command: "command ls",
+        })
+
+        expect(result.info.role).toBe("assistant")
+        const tool = completedTool(result.parts)
+        if (!tool) return
+
+        expect(tool.state.input.command).toBe("command ls")
+        expect(tool.state.output).toContain("README.md")
+        expect(tool.state.metadata.output).toContain("README.md")
+        yield* run.assertNotBusy(chat.id)
+      }),
+    { git: true, config: cfg },
+  ),
+)
+
+unix("shell captures stderr from a failing command", () =>
+  provideTmpdirInstance(
+    (_dir) =>
+      Effect.gen(function* () {
+        const { prompt, run, chat } = yield* boot()
+        const result = yield* prompt.shell({
+          sessionID: chat.id,
+          agent: "build",
+          command: "command -v __nonexistent_cmd_e2e__ || echo 'not found' >&2; exit 1",
+        })
+
+        expect(result.info.role).toBe("assistant")
+        const tool = completedTool(result.parts)
+        if (!tool) return
+
+        expect(tool.state.output).toContain("not found")
+        expect(tool.state.metadata.output).toContain("not found")
+        yield* run.assertNotBusy(chat.id)
+      }),
+    { git: true, config: cfg },
+  ),
+)
+
+unix(
+  "shell updates running metadata before process exit",
+  () =>
+    withSh(() =>
+      provideTmpdirInstance(
+        (_dir) =>
+          Effect.gen(function* () {
+            const { prompt, chat } = yield* boot()
+
+            const fiber = yield* prompt
+              .shell({ sessionID: chat.id, agent: "build", command: "printf first && sleep 0.2 && printf second" })
+              .pipe(Effect.forkChild)
+
+            yield* Effect.promise(async () => {
+              const start = Date.now()
+              while (Date.now() - start < 5000) {
+                const msgs = await MessageV2.filterCompacted(MessageV2.stream(chat.id))
+                const taskMsg = msgs.find((item) => item.info.role === "assistant")
+                const tool = taskMsg ? toolPart(taskMsg.parts) : undefined
+                if (tool?.state.status === "running" && tool.state.metadata?.output.includes("first")) return
+                await new Promise((done) => setTimeout(done, 20))
+              }
+              throw new Error("timed out waiting for running shell metadata")
+            })
+
+            const exit = yield* Fiber.await(fiber)
+            expect(Exit.isSuccess(exit)).toBe(true)
+          }),
+        { git: true, config: cfg },
+      ),
+    ),
+  30_000,
+)
+
+it.live(
+  "loop waits while shell runs and starts after shell exits",
+  () =>
+    provideTmpdirServer(
+      Effect.fnUntraced(function* ({ llm }) {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const chat = yield* sessions.create({
+          title: "Pinned",
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        })
+        yield* llm.text("after-shell")
+
+        const sh = yield* prompt
+          .shell({ sessionID: chat.id, agent: "build", command: "sleep 0.2" })
+          .pipe(Effect.forkChild)
+        yield* Effect.sleep(50)
+
+        const loop = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
+        yield* Effect.sleep(50)
+
+        expect(yield* llm.calls).toBe(0)
+
+        yield* Fiber.await(sh)
+        const exit = yield* Fiber.await(loop)
+
+        expect(Exit.isSuccess(exit)).toBe(true)
+        if (Exit.isSuccess(exit)) {
+          expect(exit.value.info.role).toBe("assistant")
+          expect(exit.value.parts.some((part) => part.type === "text" && part.text === "after-shell")).toBe(true)
+        }
+        expect(yield* llm.calls).toBe(1)
+      }),
+      { git: true, config: providerCfg },
+    ),
+  5_000,
+)
+
+it.live(
+  "shell completion resumes queued loop callers",
+  () =>
+    provideTmpdirServer(
+      Effect.fnUntraced(function* ({ llm }) {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const chat = yield* sessions.create({
+          title: "Pinned",
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        })
+        yield* llm.text("done")
+
+        const sh = yield* prompt
+          .shell({ sessionID: chat.id, agent: "build", command: "sleep 0.2" })
+          .pipe(Effect.forkChild)
+        yield* Effect.sleep(50)
+
+        const a = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
+        const b = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
+        yield* Effect.sleep(50)
+
+        expect(yield* llm.calls).toBe(0)
+
+        yield* Fiber.await(sh)
+        const [ea, eb] = yield* Effect.all([Fiber.await(a), Fiber.await(b)])
+
+        expect(Exit.isSuccess(ea)).toBe(true)
+        expect(Exit.isSuccess(eb)).toBe(true)
+        if (Exit.isSuccess(ea) && Exit.isSuccess(eb)) {
+          expect(ea.value.info.id).toBe(eb.value.info.id)
+          expect(ea.value.info.role).toBe("assistant")
+        }
+        expect(yield* llm.calls).toBe(1)
+      }),
+      { git: true, config: providerCfg },
+    ),
+  5_000,
+)
+
+unix(
+  "command ! expansion uses configured shell over env shell",
+  () =>
+    withSh(() =>
+      provideTmpdirServer(
+        ({ llm }) =>
+          Effect.gen(function* () {
+            if (!Bun.which("bash")) return
+
+            const { prompt, chat } = yield* boot()
+            yield* llm.text("done")
+
+            const result = yield* prompt.command({
+              sessionID: chat.id,
+              command: "probe",
+              arguments: "",
+            })
+
+            expect(result.info.role).toBe("assistant")
+            const inputs = yield* llm.inputs
+            expect(JSON.stringify(inputs.at(-1)?.messages)).toContain("configured")
+          }),
+        {
+          git: true,
+          config: (url) => ({
+            ...providerCfg(url),
+            shell: "bash",
+            command: {
+              probe: {
+                template: "Probe: !`[[ 1 -eq 1 ]] && printf configured`",
+              },
+            },
+          }),
+        },
+      ),
+    ),
+  30_000,
+)
+
+unix(
+  "cancel interrupts shell and resolves cleanly",
+  () =>
+    withSh(() =>
+      provideTmpdirInstance(
+        (_dir) =>
+          Effect.gen(function* () {
+            const { prompt, run, chat } = yield* boot()
+
+            const sh = yield* prompt
+              .shell({ sessionID: chat.id, agent: "build", command: "sleep 30" })
+              .pipe(Effect.forkChild)
+            yield* Effect.sleep(50)
+
+            yield* prompt.cancel(chat.id)
+
+            const status = yield* SessionStatus.Service
+            expect((yield* status.get(chat.id)).type).toBe("idle")
+            const busy = yield* run.assertNotBusy(chat.id).pipe(Effect.exit)
+            expect(Exit.isSuccess(busy)).toBe(true)
+
+            const exit = yield* Fiber.await(sh)
+            expect(Exit.isSuccess(exit)).toBe(true)
+            if (Exit.isSuccess(exit)) {
+              expect(exit.value.info.role).toBe("assistant")
+              const tool = completedTool(exit.value.parts)
+              if (tool) {
+                expect(tool.state.output).toContain("User aborted the command")
+              }
+            }
+          }),
+        { git: true, config: cfg },
+      ),
+    ),
+  30_000,
+)
+
+unix(
+  "cancel persists aborted shell result when shell ignores TERM",
+  () =>
+    withSh(() =>
+      provideTmpdirInstance(
+        (_dir) =>
+          Effect.gen(function* () {
+            const { prompt, chat } = yield* boot()
+
+            const sh = yield* prompt
+              .shell({ sessionID: chat.id, agent: "build", command: "trap '' TERM; sleep 30" })
+              .pipe(Effect.forkChild)
+            yield* Effect.sleep(50)
+
+            yield* prompt.cancel(chat.id)
+
+            const exit = yield* Fiber.await(sh)
+            expect(Exit.isSuccess(exit)).toBe(true)
+            if (Exit.isSuccess(exit)) {
+              expect(exit.value.info.role).toBe("assistant")
+              const tool = completedTool(exit.value.parts)
+              if (tool) {
+                expect(tool.state.output).toContain("User aborted the command")
+              }
+            }
+          }),
+        { git: true, config: cfg },
+      ),
+    ),
+  30_000,
+)
+
+unix(
+  "cancel finalizes interrupted bash tool output through normal truncation",
+  () =>
+    provideTmpdirServer(
+      ({ dir, llm }) =>
+        Effect.gen(function* () {
+          const prompt = yield* SessionPrompt.Service
+          const sessions = yield* Session.Service
+          const chat = yield* sessions.create({
+            title: "Interrupted bash truncation",
+            permission: [{ permission: "*", pattern: "*", action: "allow" }],
+          })
+
+          yield* prompt.prompt({
+            sessionID: chat.id,
+            agent: "build",
+            noReply: true,
+            parts: [{ type: "text", text: "run bash" }],
+          })
+
+          yield* llm.tool("bash", {
+            command:
+              'i=0; while [ "$i" -lt 4000 ]; do printf "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx %05d\\n" "$i"; i=$((i + 1)); done; sleep 30',
+            description: "Print many lines",
+            timeout: 30_000,
+            workdir: path.resolve(dir),
+          })
+
+          const run = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
+          yield* llm.wait(1)
+          yield* Effect.sleep(150)
+          yield* prompt.cancel(chat.id)
+
+          const exit = yield* Fiber.await(run)
+          expect(Exit.isSuccess(exit)).toBe(true)
+          if (Exit.isFailure(exit)) return
+
+          const tool = completedTool(exit.value.parts)
+          if (!tool) return
+
+          expect(tool.state.metadata.truncated).toBe(true)
+          expect(typeof tool.state.metadata.outputPath).toBe("string")
+          expect(tool.state.output).toMatch(/\.\.\.output truncated\.\.\./)
+          expect(tool.state.output).toMatch(/Full output saved to:\s+\S+/)
+          expect(tool.state.output).not.toContain("Tool execution aborted")
+        }),
+      { git: true, config: providerCfg },
+    ),
+  30_000,
+)
+
+unix(
+  "cancel interrupts loop queued behind shell",
+  () =>
+    provideTmpdirInstance(
+      (_dir) =>
+        Effect.gen(function* () {
+          const { prompt, chat } = yield* boot()
+
+          const sh = yield* prompt
+            .shell({ sessionID: chat.id, agent: "build", command: "sleep 30" })
+            .pipe(Effect.forkChild)
+          yield* Effect.sleep(50)
+
+          const loop = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
+          yield* Effect.sleep(50)
+
+          yield* prompt.cancel(chat.id)
+
+          const exit = yield* Fiber.await(loop)
+          expect(Exit.isSuccess(exit)).toBe(true)
+          if (Exit.isSuccess(exit)) {
+            const tool = completedTool(exit.value.parts)
+            expect(tool?.state.output).toContain("User aborted the command")
+          }
+
+          yield* Fiber.await(sh)
+        }),
+      { git: true, config: cfg },
+    ),
+  30_000,
+)
+
 // Abort signal propagation tests for inline tool execution
 
 function hangUntilAborted(tool: { execute: (...args: any[]) => any }) {
