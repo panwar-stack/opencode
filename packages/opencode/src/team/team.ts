@@ -131,21 +131,17 @@ export const layer = Layer.effect(
 
     const shutdown = Effect.fn("Team.shutdown")(function* (teamID: string) {
       const now = Date.now()
-      const members = Database.use(() =>
-        db().select().from(TeamMemberTable).where(eq(TeamMemberTable.team_id, teamID)).all(),
-      )
       Database.transaction(() => {
         db()
           .update(TeamTable)
           .set({ status: "closed", time_updated: now } as any)
           .where(eq(TeamTable.id, teamID))
           .run()
-        db()
-          .update(TeamMemberTable)
-          .set({ status: "cancelled", time_updated: now } as any)
-          .where(and(eq(TeamMemberTable.team_id, teamID), eq(TeamMemberTable.status, "active")))
-          .run()
-        // Also cancel starting/idle members
+        const members = db()
+          .select()
+          .from(TeamMemberTable)
+          .where(eq(TeamMemberTable.team_id, teamID))
+          .all()
         for (const m of members) {
           if (m.status !== "completed" && m.status !== "cancelled") {
             db()
@@ -156,8 +152,11 @@ export const layer = Layer.effect(
           }
         }
       })
+      const allMembers = Database.use(() =>
+        db().select().from(TeamMemberTable).where(eq(TeamMemberTable.team_id, teamID)).all(),
+      )
       yield* Effect.forEach(
-        members.filter((member) => member.status !== "completed" && member.status !== "cancelled"),
+        allMembers,
         (member) => runState.cancel(SessionID.make(member.session_id)).pipe(Effect.ignore),
         { concurrency: "unbounded", discard: true },
       )
