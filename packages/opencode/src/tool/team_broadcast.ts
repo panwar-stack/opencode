@@ -52,9 +52,16 @@ export const TeamBroadcastTool = Tool.define(
               { discard: true },
             )
           }
+          const lead = ctx.sessionID === context.value.team.lead_session_id
           return {
             title: "Broadcast Sent",
-            output: `Sent to ${recipients.length} recipient(s)`,
+            output: [
+              `Sent to ${recipients.length} recipient(s).`,
+              "Delivery is asynchronous. Busy recipients will only see this when their current run reaches the next prompt boundary.",
+              lead
+                ? "Do not wait in this turn for immediate status replies; end the turn and let teammates wake you with progress, blockers, or results."
+                : "Continue your assigned work unless this broadcast reports a blocker.",
+            ].join("\n"),
             metadata: { messageID: msg.id },
           }
         }).pipe(Effect.orDie),

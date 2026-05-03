@@ -63,9 +63,16 @@ export const TeamSendMessageTool = Tool.define(
               { discard: true },
             )
           }
+          const lead = ctx.sessionID === context.value.team.lead_session_id
           return {
             title: "Message Sent",
-            output: `Sent to ${recipients.length} recipient(s)`,
+            output: [
+              `Sent to ${recipients.length} recipient(s).`,
+              "Delivery is asynchronous. Busy recipients will only see this when their current run reaches the next prompt boundary.",
+              lead
+                ? "If you are waiting on teammate work, end this turn instead of polling for an immediate reply."
+                : "Continue your assigned work unless this message reports a blocker.",
+            ].join("\n"),
             metadata: { messageID: msg.id },
           }
         }).pipe(Effect.orDie),
