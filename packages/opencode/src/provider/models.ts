@@ -133,11 +133,14 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | HttpClie
     )
 
     // Bundled at build time; absent in dev — `tryPromise` covers both.
-    const loadSnapshot = Effect.tryPromise({
-      // @ts-ignore — generated at build time, may not exist in dev
-      try: () => import("./models-snapshot.js").then((m) => m.snapshot as Record<string, Provider> | undefined),
-      catch: () => undefined,
-    }).pipe(Effect.catch(() => Effect.succeed(undefined)))
+    const loadSnapshot =
+      source === "https://models.dev"
+        ? Effect.tryPromise({
+            // @ts-ignore — generated at build time, may not exist in dev
+            try: () => import("./models-snapshot.js").then((m) => m.snapshot as Record<string, Provider> | undefined),
+            catch: () => undefined,
+          }).pipe(Effect.catch(() => Effect.succeed(undefined)))
+        : Effect.succeed(undefined)
 
     const fetchAndWrite = Effect.fn("ModelsDev.fetchAndWrite")(function* () {
       const text = yield* fetchApi()

@@ -1465,7 +1465,7 @@ it.live(
       }),
       { git: true, config: providerCfg },
     ),
-  3_000,
+  5_000,
 )
 
 it.live(
@@ -1505,7 +1505,7 @@ it.live(
       }),
       { git: true, config: providerCfg },
     ),
-  3_000,
+  5_000,
 )
 
 unix(

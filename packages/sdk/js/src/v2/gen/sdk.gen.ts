@@ -173,8 +173,16 @@ import type {
   SyncReplayErrors,
   SyncReplayResponses,
   SyncStartResponses,
-  SyncStealErrors,
-  SyncStealResponses,
+  TeamGetByIdErrors,
+  TeamGetByIdResponses,
+  TeamGetErrors,
+  TeamGetResponses,
+  TeamMessagesErrors,
+  TeamMessagesResponses,
+  TeamShutdownErrors,
+  TeamShutdownResponses,
+  TeamTasksErrors,
+  TeamTasksResponses,
   TextPartInput,
   ToolIdsErrors,
   ToolIdsResponses,
@@ -4381,6 +4389,168 @@ export class V2 extends HeyApiClient {
   }
 }
 
+export class Team extends HeyApiClient {
+  /**
+   * Get team by lead session
+   *
+   * Get the active team for a given lead session ID.
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      sessionID: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "sessionID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<TeamGetResponses, TeamGetErrors, ThrowOnError>({
+      url: "/team",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get team by ID
+   *
+   * Get a team by its team ID.
+   */
+  public getById<ThrowOnError extends boolean = false>(
+    parameters: {
+      teamID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "teamID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<TeamGetByIdResponses, TeamGetByIdErrors, ThrowOnError>({
+      url: "/team/{teamID}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get team tasks
+   *
+   * Get all tasks for a team.
+   */
+  public tasks<ThrowOnError extends boolean = false>(
+    parameters: {
+      teamID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "teamID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<TeamTasksResponses, TeamTasksErrors, ThrowOnError>({
+      url: "/team/{teamID}/tasks",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get team messages
+   *
+   * Get all messages for a team.
+   */
+  public messages<ThrowOnError extends boolean = false>(
+    parameters: {
+      teamID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "teamID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<TeamMessagesResponses, TeamMessagesErrors, ThrowOnError>({
+      url: "/team/{teamID}/messages",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Shutdown team
+   *
+   * Shutdown a team and cancel all active member sessions.
+   */
+  public shutdown<ThrowOnError extends boolean = false>(
+    parameters: {
+      teamID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "teamID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<TeamShutdownResponses, TeamShutdownErrors, ThrowOnError>({
+      url: "/team/{teamID}/shutdown",
+      ...options,
+      ...params,
+    })
+  }
+}
+
 export class Control extends HeyApiClient {
   /**
    * Get next TUI request
@@ -4964,6 +5134,11 @@ export class OpencodeClient extends HeyApiClient {
   private _v2?: V2
   get v2(): V2 {
     return (this._v2 ??= new V2({ client: this.client }))
+  }
+
+  private _team?: Team
+  get team(): Team {
+    return (this._team ??= new Team({ client: this.client }))
   }
 
   private _tui?: Tui
