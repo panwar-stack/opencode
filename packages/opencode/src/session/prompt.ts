@@ -1300,6 +1300,46 @@ export const layer = Layer.effect(
       return true
     })
 
+    const teamLeadSystemPrompt = Effect.fn("SessionPrompt.teamLeadSystemPrompt")(function* (input: {
+      session: Session.Info
+      agent: Agent.Info
+    }) {
+      if ((yield* config.get()).experimental?.agent_teams !== true) return
+      if (input.agent.mode === "subagent") return
+
+      const context = yield* team.getContext(input.session.id)
+      if (Option.isSome(context) && context.value.member) return
+      if (Option.isNone(context) && input.session.parentID) return
+
+      const guidance = [
+        "Agent team orchestration is enabled.",
+        "For non-trivial tasks, create a team with team_create early and use team_spawn to delegate independent work before doing local implementation.",
+        "Use teammates aggressively to save lead-session context: delegate broad searches, file reads, investigation, implementation slices, review, and verification when those can run independently.",
+        "Spawn multiple independent teammates in parallel whenever possible. Use dependencies only when one teammate truly needs another teammate's result.",
+        "As lead, focus on task decomposition, coordination, decisions, integration, and the final user-facing result. Trust teammate outputs instead of redoing their work.",
+        "Do not create a team for trivial one-step requests or when the user explicitly asks you to work alone.",
+      ]
+
+      if (Option.isNone(context)) return guidance.join("\n")
+
+      const members = yield* team.getMembers(context.value.team.id)
+      return [
+        ...guidance,
+        "",
+        `Active team: ${context.value.team.name} (${context.value.team.id})`,
+        `Team goal: ${context.value.team.goal}`,
+        members.length > 0
+          ? [
+              "Current team members:",
+              ...members.map(
+                (member) =>
+                  `- ${member.name} (${member.agent_type}, ${member.status}, session ${member.session_id})`,
+              ),
+            ].join("\n")
+          : "No teammates have been spawned yet. Spawn useful teammates before taking on substantial work yourself.",
+      ].join("\n")
+    })
+
     const runLoop: (sessionID: SessionID) => Effect.Effect<MessageV2.WithParts> = Effect.fn("SessionPrompt.run")(
       function* (sessionID: SessionID) {
         const ctx = yield* InstanceState.context
@@ -1492,13 +1532,14 @@ export const layer = Layer.effect(
 
             yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
 
-            const [skills, env, instructions, modelMsgs] = yield* Effect.all([
+            const [skills, env, teamLead, instructions, modelMsgs] = yield* Effect.all([
               sys.skills(agent),
               sys.environment(model),
+              teamLeadSystemPrompt({ session, agent }),
               instruction.system().pipe(Effect.orDie),
               MessageV2.toModelMessagesEffect(msgs, model),
             ])
-            const system = [...env, ...instructions, ...(skills ? [skills] : [])]
+            const system = [...env, ...(teamLead ? [teamLead] : []), ...instructions, ...(skills ? [skills] : [])]
             const format = lastUser.format ?? { type: "text" as const }
             if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
             const result = yield* handle.process({
