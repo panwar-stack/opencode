@@ -1273,7 +1273,7 @@ export const layer = Layer.effect(
           "<team-messages>",
           context.value.member
             ? "You have pending team mailbox messages. Address them now and continue your teammate task."
-            : "You have pending team mailbox messages. As team lead, coordinate follow-up work and report to the user when the team goal is complete.",
+            : "You have pending team mailbox messages. As team lead, coordinate follow-up work and report to the user when the team goal is complete. Do NOT attempt to do teammate tasks yourself — your role is to delegate, wait for results, and integrate them. Trust your teammates to complete their assigned work.",
           "",
           ...messages.map((message) =>
             [`From ${senderName(message.sender)} (${message.sender}):`, message.body].join("\n"),
