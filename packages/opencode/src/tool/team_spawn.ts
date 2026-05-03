@@ -34,13 +34,14 @@ const CommunicationGuidance = [
   "- Message teammates directly when your work affects them, unblocks them, or gives them information they need.",
   "- Check team_get_messages at natural handoff points, after sending updates, and whenever you may have been unblocked or redirected.",
   "- Do not wait until your final answer to share useful status, blockers, or intermediate results.",
+  "- When you send a message via team_send_message or team_broadcast, recipients are automatically woken. Do not poll team_get_messages in a loop — check once and continue working.",
 ].join("\n")
 
 const MemberTools = [
   "Available team tools (use these to coordinate with the team):",
-  "- team_send_message: Send a message to the lead (recipient 'lead') or a specific teammate by name/session ID.",
-  "- team_get_messages: Read pending team mailbox messages addressed to you.",
-  "- team_broadcast: Send a message to all team members (lead and active teammates) at once.",
+  "- team_send_message: Send a message to the lead (recipient 'lead') or a specific teammate by name/session ID. Recipients are woken automatically.",
+  "- team_get_messages: Read pending team mailbox messages addressed to you. Do not poll — check once and continue working.",
+  "- team_broadcast: Send a message to all team members (lead and active teammates) at once. Recipients are woken automatically.",
   "- team_task_create: Create a shared team task with an optional assignee and dependency task IDs.",
   "- team_task_list: List all shared team tasks with their statuses and assignees.",
   "- team_task_claim: Claim a pending task as your own.",
