@@ -36,6 +36,21 @@ const CommunicationGuidance = [
   "- Do not wait until your final answer to share useful status, blockers, or intermediate results.",
 ].join("\n")
 
+const MemberTools = [
+  "Available team tools (use these to coordinate with the team):",
+  "- team_send_message: Send a message to the lead (recipient 'lead') or a specific teammate by name/session ID.",
+  "- team_get_messages: Read pending team mailbox messages addressed to you.",
+  "- team_broadcast: Send a message to all team members (lead and active teammates) at once.",
+  "- team_task_create: Create a shared team task with an optional assignee and dependency task IDs.",
+  "- team_task_list: List all shared team tasks with their statuses and assignees.",
+  "- team_task_claim: Claim a pending task as your own.",
+  "- team_task_update: Update a task's status or assignee.",
+].join("\n")
+
+const MemberToolsPlan = [
+  "- team_plan_submit: Submit your plan to the lead for approval. You must do this before doing any implementation work.",
+].join("\n")
+
 export const TeamSpawnTool = Tool.define(
   "team_spawn",
   Effect.gen(function* () {
@@ -227,12 +242,13 @@ export const TeamSpawnTool = Tool.define(
                   (candidate) =>
                     `- ${candidate.name} (${candidate.agent_type}, ${candidate.status}, session ${candidate.session_id})`,
                 )
+              const planTools = member.plan_mode ? "\n" + MemberToolsPlan : ""
               const parts = yield* ops.resolvePromptParts(
                 [
                   `You are teammate "${member.name}" in team "${activeTeam.value.name}".`,
                   `Team goal: ${activeTeam.value.goal}`,
                   `The lead session is ${activeTeam.value.lead_session_id}. Your session is ${member.session_id}.`,
-                  'Use team_get_messages to read team mailbox updates. Use team_send_message with recipient "lead" to report to the lead, or a teammate name/session ID to coordinate directly.',
+                  MemberTools + planTools,
                   teammates.length > 0
                     ? ["Current teammates:", ...teammates].join("\n")
                     : "No other teammates are registered yet.",
