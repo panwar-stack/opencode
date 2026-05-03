@@ -34,28 +34,33 @@ import { ProviderID, ModelID } from "@/provider/schema"
 import { ToolJsonSchema } from "@/tool/json-schema"
 import { MessageID, SessionID } from "@/session/schema"
 import { RuntimeFlags } from "@/effect/runtime-flags"
+import { Team } from "@/team/team"
+import { Config } from "@/config/config"
 
 const node = CrossSpawnSpawner.defaultLayer
-const configLayer = TestConfig.layer({
-  directories: () => InstanceState.directory.pipe(Effect.map((dir) => [path.join(dir, ".opencode")])),
-})
+const configLayer = (config: Config.Info = {}) =>
+  TestConfig.layer({
+    get: () => Effect.succeed(config),
+    directories: () => InstanceState.directory.pipe(Effect.map((dir) => [path.join(dir, ".opencode")])),
+  })
 
 type RegistryLayerOptions = {
   flags?: Partial<RuntimeFlags.Info>
+  config?: Config.Info
   plugin?: Layer.Layer<Plugin.Service>
 }
 
 const registryLayer = (opts: RegistryLayerOptions = {}) =>
   ToolRegistry.layer
     .pipe(
-      Layer.provide(configLayer),
+      Layer.provide(configLayer(opts.config)),
       Layer.provide(opts.plugin ?? Plugin.defaultLayer),
       Layer.provide(Question.defaultLayer),
       Layer.provide(Todo.defaultLayer),
       Layer.provide(Skill.defaultLayer),
       Layer.provide(Agent.defaultLayer),
       Layer.provide(Session.defaultLayer),
-      Layer.provide(Layer.mergeAll(SessionStatus.defaultLayer, BackgroundJob.defaultLayer)),
+      Layer.provide(Layer.mergeAll(SessionStatus.defaultLayer, BackgroundJob.defaultLayer, Team.defaultLayer)),
       Layer.provide(Provider.defaultLayer),
       Layer.provide(Layer.mergeAll(Git.defaultLayer, RepositoryCache.defaultLayer)),
       Layer.provide(Reference.defaultLayer),
@@ -99,9 +104,30 @@ const it = testEffect(Layer.mergeAll(registryLayer(), node, Agent.defaultLayer))
 const scout = testEffect(
   Layer.mergeAll(registryLayer({ flags: { experimentalScout: true } }), node, Agent.defaultLayer),
 )
+const background = testEffect(
+  Layer.mergeAll(registryLayer({ flags: { experimentalBackgroundSubagents: true } }), node, Agent.defaultLayer),
+)
 const withBrokenPlugin = testEffect(
   Layer.mergeAll(registryLayer({ plugin: brokenPluginLayer }), node, Agent.defaultLayer),
 )
+const teams = testEffect(
+  Layer.mergeAll(registryLayer({ config: { experimental: { agent_teams: true } } }), node, Agent.defaultLayer),
+)
+
+const teamToolIDs = [
+  "team_create",
+  "team_spawn",
+  "team_get_messages",
+  "team_send_message",
+  "team_broadcast",
+  "team_task_create",
+  "team_task_list",
+  "team_task_claim",
+  "team_task_update",
+  "team_plan_submit",
+  "team_plan_decide",
+  "team_shutdown",
+]
 
 afterEach(async () => {
   await disposeAllInstances()
@@ -151,6 +177,33 @@ describe("tool.registry", () => {
 
       expect(task?.jsonSchema).toBeDefined()
       expect((task?.jsonSchema?.properties as Record<string, unknown> | undefined)?.background).toBeUndefined()
+    }),
+  )
+
+  background.instance("shows task_status when experimental background subagents are enabled", () =>
+    Effect.gen(function* () {
+      const registry = yield* ToolRegistry.Service
+      const ids = yield* registry.ids()
+
+      expect(ids).toContain("task_status")
+    }),
+  )
+
+  it.instance("hides team tools unless agent teams are enabled", () =>
+    Effect.gen(function* () {
+      const registry = yield* ToolRegistry.Service
+      const ids = yield* registry.ids()
+
+      expect(teamToolIDs.filter((id) => ids.includes(id))).toEqual([])
+    }),
+  )
+
+  teams.instance("shows team tools when agent teams are enabled", () =>
+    Effect.gen(function* () {
+      const registry = yield* ToolRegistry.Service
+      const ids = yield* registry.ids()
+
+      expect(teamToolIDs.filter((id) => !ids.includes(id))).toEqual([])
     }),
   )
 
