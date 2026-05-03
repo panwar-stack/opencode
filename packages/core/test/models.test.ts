@@ -8,6 +8,7 @@ import { ModelsDev } from "@opencode-ai/core/models-dev"
 import { it } from "./lib/effect"
 import { rm, writeFile, utimes, mkdir } from "fs/promises"
 import path from "path"
+import { Hash } from "@opencode-ai/core/util/hash"
 
 // test/preload.ts pins OPENCODE_MODELS_PATH to a fixture so other tests can
 // resolve providers without network. These tests need to drive the on-disk
@@ -16,16 +17,20 @@ import path from "path"
 // bun process.
 const ORIGINAL_MODELS_PATH = Flag.OPENCODE_MODELS_PATH
 const ORIGINAL_DISABLE_FETCH = Flag.OPENCODE_DISABLE_MODELS_FETCH
+const ORIGINAL_MODELS_URL = Flag.OPENCODE_MODELS_URL
+const MODELS_SOURCE = "https://models.test"
 beforeAll(() => {
   Flag.OPENCODE_MODELS_PATH = undefined
   Flag.OPENCODE_DISABLE_MODELS_FETCH = true
+  Flag.OPENCODE_MODELS_URL = MODELS_SOURCE
 })
 afterAll(() => {
   Flag.OPENCODE_MODELS_PATH = ORIGINAL_MODELS_PATH
   Flag.OPENCODE_DISABLE_MODELS_FETCH = ORIGINAL_DISABLE_FETCH
+  Flag.OPENCODE_MODELS_URL = ORIGINAL_MODELS_URL
 })
 
-const cacheFile = path.join(Global.Path.cache, "models.json")
+const cacheFile = path.join(Global.Path.cache, `models-${Hash.fast(MODELS_SOURCE)}.json`)
 
 const fixture: Record<string, ModelsDev.Provider> = {
   acme: {
