@@ -1,7 +1,7 @@
 import { NodeFileSystem } from "@effect/platform-node"
 import { FetchHttpClient } from "effect/unstable/http"
 import { expect } from "bun:test"
-import { Cause, Effect, Exit, Fiber, Layer } from "effect"
+import { Cause, Effect, Exit, Fiber, Layer, Option } from "effect"
 import path from "path"
 import { fileURLToPath } from "url"
 import { NamedError } from "@opencode-ai/core/util/error"
@@ -811,6 +811,63 @@ it.live(
       { git: true, config: providerCfg },
     ),
   3_000,
+)
+
+it.live(
+  "canceling a team lead shuts down and interrupts active members",
+  () =>
+    provideTmpdirServer(
+      Effect.fnUntraced(function* ({ llm }) {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const team = yield* Team.Service
+        const status = yield* SessionStatus.Service
+
+        yield* llm.hang
+
+        const lead = yield* sessions.create({ title: "Lead" })
+        const worker = yield* sessions.create({ parentID: lead.id, title: "Worker" })
+        const info = yield* team.create({ name: "cancel-team", goal: "Abort together", leadSessionID: lead.id })
+        const member = yield* team.addMember({
+          teamID: info.id,
+          sessionID: worker.id,
+          name: "worker",
+          agentType: "build",
+          rolePrompt: "Keep working until cancelled",
+        })
+        yield* team.updateMemberStatus(member.id, "active")
+        yield* prompt.prompt({
+          sessionID: worker.id,
+          agent: "build",
+          model: ref,
+          noReply: true,
+          parts: [{ type: "text", text: "work until cancelled" }],
+        })
+
+        const workerFiber = yield* prompt.loop({ sessionID: worker.id }).pipe(Effect.forkChild)
+        yield* llm.wait(1)
+        expect((yield* status.get(worker.id)).type).toBe("busy")
+
+        yield* prompt.cancel(lead.id)
+        const exit = yield* Fiber.await(workerFiber)
+
+        expect(Exit.isSuccess(exit)).toBe(true)
+        expect(Option.isNone(yield* team.getActive(lead.id))).toBe(true)
+        const closed = yield* team.get(info.id)
+        expect(Option.isSome(closed)).toBe(true)
+        if (Option.isSome(closed)) expect(closed.value.status).toBe("closed")
+        expect((yield* team.getMembers(info.id))[0]?.status).toBe("cancelled")
+        expect((yield* status.get(worker.id)).type).toBe("idle")
+      }),
+      {
+        git: true,
+        config: (url) => ({
+          ...providerCfg(url),
+          experimental: { agent_teams: true },
+        }),
+      },
+    ),
+  5_000,
 )
 
 it.live(
