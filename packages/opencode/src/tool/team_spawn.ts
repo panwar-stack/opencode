@@ -260,6 +260,9 @@ export const TeamSpawnTool = Tool.define(
                 ].join("\n\n"),
               )
               const bgTask = Effect.gen(function* () {
+                const currentTeam = yield* team.get(teamID)
+                if (Option.isNone(currentTeam) || currentTeam.value.status !== "active") return
+
                 yield* team.updateMemberStatus(member.id, "active")
                 yield* notifyLead(
                   member.session_id,
