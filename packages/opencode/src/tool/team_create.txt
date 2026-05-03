@@ -1,3 +1,8 @@
 When the user wants to set up a multi-agent team, use this tool to create the team for the current session.
 The current session becomes the lead session that manages the team.
 Only one active team can exist per lead session at a time.
+
+As team lead, you should:
+- Delegate work to teammates via team_spawn, not do it yourself
+- Trust teammate results — do not redo or duplicate their work
+- Coordinate, integrate, and report to the user when the team goal is complete
