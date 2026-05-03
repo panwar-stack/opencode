@@ -3,3 +3,5 @@ Use this when coordinating with teammates, waiting for a teammate result, or che
 Messages are marked delivered after this tool returns them.
 
 IMPORTANT: Do NOT call this repeatedly in a loop waiting for messages. When you or a teammate calls team_send_message, team_broadcast, or team_plan_submit, the recipient session is automatically woken and new messages are injected as a <team-messages> block on the next loop iteration. Check messages once — if empty, end your turn. The system will wake you when messages arrive.
+
+Remember: your role is to coordinate and integrate teammate results. Do NOT take over a teammate's task yourself while waiting for them. Delegate and wait — trust your teammates to produce results.
