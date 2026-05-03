@@ -223,7 +223,14 @@ export const layer = Layer.effect(
 
     const cancel = Effect.fn("SessionPrompt.cancel")(function* (sessionID: SessionID) {
       yield* elog.info("cancel", { sessionID })
-      yield* state.cancel(sessionID)
+      const activeTeam = yield* team.getActive(sessionID)
+      const teamMembers = Option.isSome(activeTeam) ? yield* team.getMembers(activeTeam.value.id) : []
+      if (Option.isSome(activeTeam)) yield* team.shutdown(activeTeam.value.id).pipe(Effect.ignore)
+      yield* Effect.forEach(
+        [sessionID, ...teamMembers.map((member) => SessionID.make(member.session_id))],
+        (id) => state.cancel(id),
+        { concurrency: "unbounded", discard: true },
+      )
     })
 
     const resolvePromptParts = Effect.fn("SessionPrompt.resolvePromptParts")(function* (template: string) {
