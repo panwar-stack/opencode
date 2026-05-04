@@ -6,4 +6,4 @@ IMPORTANT: Do NOT call this repeatedly in a loop waiting for messages. When you 
 
 As team lead, an empty mailbox is not a reason to send status-check broadcasts. Teammates may be busy inside their current run and will process new messages only at their next prompt boundary.
 
-Remember: your role is to coordinate and integrate teammate results. Do NOT take over a teammate's task yourself while waiting for them. Delegate and wait — trust your teammates to produce results.
+Remember: your role is to coordinate and integrate teammate results. Do NOT take over a teammate's task yourself while waiting for them. Delegate and wait — trust your teammates to produce results. When teammates complete tasks, evaluate whether their findings reveal new sub-tasks that can be delegated to new or existing teammates.
