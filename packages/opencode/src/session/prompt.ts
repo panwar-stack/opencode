@@ -1333,8 +1333,7 @@ export const layer = Layer.effect(
           ? [
               "Current team members:",
               ...members.map(
-                (member) =>
-                  `- ${member.name} (${member.agent_type}, ${member.status}, session ${member.session_id})`,
+                (member) => `- ${member.name} (${member.agent_type}, ${member.status}, session ${member.session_id})`,
               ),
             ].join("\n")
           : "No teammates have been spawned yet. Spawn useful teammates before taking on substantial work yourself.",

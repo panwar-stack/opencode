@@ -17,7 +17,8 @@ export const TeamShutdownTool = Tool.define(
       execute: (_: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
         Effect.gen(function* () {
           const cfg = yield* config.get()
-          if (!cfg.experimental?.agent_teams) return { title: "Team Shutdown", output: "Agent teams disabled.", metadata: {} }
+          if (!cfg.experimental?.agent_teams)
+            return { title: "Team Shutdown", output: "Agent teams disabled.", metadata: {} }
           const activeTeam = yield* team.getActive(ctx.sessionID)
           if (Option.isNone(activeTeam)) return { title: "Team Shutdown", output: "No active team.", metadata: {} }
           yield* team.shutdown(activeTeam.value.id)

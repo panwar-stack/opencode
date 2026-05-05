@@ -213,6 +213,8 @@ import type {
   SyncReplayResponses,
   SyncStartErrors,
   SyncStartResponses,
+  SyncStealErrors,
+  SyncStealResponses,
   TeamGetByIdErrors,
   TeamGetByIdResponses,
   TeamGetErrors,
