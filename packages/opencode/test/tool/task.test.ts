@@ -305,6 +305,8 @@ describe("tool.task", () => {
             cancelled.resolve(sessionID)
           }),
         resolvePromptParts: (template) => Effect.succeed([{ type: "text" as const, text: template }]),
+        loop: (input) =>
+          Effect.sync(() => reply({ sessionID: input.sessionID, agent: "general", model: ref, parts: [] }, "looped")),
         prompt: (input) =>
           Effect.promise(() => {
             ready.resolve(input)
