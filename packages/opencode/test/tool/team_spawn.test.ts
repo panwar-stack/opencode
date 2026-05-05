@@ -156,7 +156,7 @@ describe("tool.team_spawn", () => {
           })
           const calls: SessionPrompt.PromptInput[] = []
           const promptOps: TaskPromptOps = {
-            cancel() {},
+            cancel: () => Effect.void,
             resolvePromptParts: (template) => Effect.succeed([{ type: "text" as const, text: template }]),
             loop: (input) => Effect.sync(() => reply({ sessionID: input.sessionID, parts: [] }, "looped")),
             prompt: (input) =>
