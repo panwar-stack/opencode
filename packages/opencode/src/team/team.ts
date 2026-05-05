@@ -137,11 +137,7 @@ export const layer = Layer.effect(
           .set({ status: "closed", time_updated: now } as any)
           .where(eq(TeamTable.id, teamID))
           .run()
-        const members = db()
-          .select()
-          .from(TeamMemberTable)
-          .where(eq(TeamMemberTable.team_id, teamID))
-          .all()
+        const members = db().select().from(TeamMemberTable).where(eq(TeamMemberTable.team_id, teamID)).all()
         for (const m of members) {
           if (m.status !== "completed" && m.status !== "cancelled") {
             db()
