@@ -7807,6 +7807,325 @@
         ]
       }
     },
+    "/team": {
+      "get": {
+        "tags": ["team"],
+        "operationId": "team.get",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sessionID",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Team info",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Get the active team for a given lead session ID.",
+        "summary": "Get team by lead session",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.team.get({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/team/{teamID}": {
+      "get": {
+        "tags": ["team"],
+        "operationId": "team.getById",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "teamID",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Team info",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Get a team by its team ID.",
+        "summary": "Get team by ID",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.team.getById({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/team/{teamID}/tasks": {
+      "get": {
+        "tags": ["team"],
+        "operationId": "team.tasks",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "teamID",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Team tasks",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TeamTask"
+                  },
+                  "description": "Team tasks"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Get all tasks for a team.",
+        "summary": "Get team tasks",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.team.tasks({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/team/{teamID}/messages": {
+      "get": {
+        "tags": ["team"],
+        "operationId": "team.messages",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "teamID",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Team messages",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TeamMessage"
+                  },
+                  "description": "Team messages"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Get all messages for a team.",
+        "summary": "Get team messages",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.team.messages({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/team/{teamID}/shutdown": {
+      "post": {
+        "tags": ["team"],
+        "operationId": "team.shutdown",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "teamID",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Team shut down",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "boolean",
+                  "description": "Team shut down"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Shutdown a team and cancel all active member sessions.",
+        "summary": "Shutdown team",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.team.shutdown({\n  ...\n})"
+          }
+        ]
+      }
+    },
     "/tui/append-prompt": {
       "post": {
         "tags": ["tui"],
@@ -9137,13 +9456,25 @@
             "$ref": "#/components/schemas/EventQuestionRejected"
           },
           {
-            "$ref": "#/components/schemas/EventTodoUpdated"
-          },
-          {
             "$ref": "#/components/schemas/EventSessionStatus"
           },
           {
             "$ref": "#/components/schemas/EventSessionIdle"
+          },
+          {
+            "$ref": "#/components/schemas/EventTeamCreated"
+          },
+          {
+            "$ref": "#/components/schemas/EventTeamClosed"
+          },
+          {
+            "$ref": "#/components/schemas/EventTeamMemberUpdated"
+          },
+          {
+            "$ref": "#/components/schemas/EventTeamMessageReceived"
+          },
+          {
+            "$ref": "#/components/schemas/EventTodoUpdated"
           },
           {
             "$ref": "#/components/schemas/EventMcpToolsChanged"
@@ -9967,25 +10298,6 @@
         "required": ["sessionID", "requestID"],
         "additionalProperties": false
       },
-      "Todo": {
-        "type": "object",
-        "properties": {
-          "content": {
-            "type": "string",
-            "description": "Brief description of the task"
-          },
-          "status": {
-            "type": "string",
-            "description": "Current status of the task: pending, in_progress, completed, cancelled"
-          },
-          "priority": {
-            "type": "string",
-            "description": "Priority level of the task: high, medium, low"
-          }
-        },
-        "required": ["content", "status", "priority"],
-        "additionalProperties": false
-      },
       "SessionStatus": {
         "anyOf": [
           {
@@ -10058,6 +10370,25 @@
             "additionalProperties": false
           }
         ]
+      },
+      "Todo": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string",
+            "description": "Brief description of the task"
+          },
+          "status": {
+            "type": "string",
+            "description": "Current status of the task: pending, in_progress, completed, cancelled"
+          },
+          "priority": {
+            "type": "string",
+            "description": "Priority level of the task: high, medium, low"
+          }
+        },
+        "required": ["content", "status", "priority"],
+        "additionalProperties": false
       },
       "Project": {
         "type": "object",
@@ -11528,13 +11859,25 @@
                 "$ref": "#/components/schemas/EventQuestionRejected"
               },
               {
-                "$ref": "#/components/schemas/EventTodoUpdated"
-              },
-              {
                 "$ref": "#/components/schemas/EventSessionStatus"
               },
               {
                 "$ref": "#/components/schemas/EventSessionIdle"
+              },
+              {
+                "$ref": "#/components/schemas/EventTeamCreated"
+              },
+              {
+                "$ref": "#/components/schemas/EventTeamClosed"
+              },
+              {
+                "$ref": "#/components/schemas/EventTeamMemberUpdated"
+              },
+              {
+                "$ref": "#/components/schemas/EventTeamMessageReceived"
+              },
+              {
+                "$ref": "#/components/schemas/EventTodoUpdated"
               },
               {
                 "$ref": "#/components/schemas/EventMcpToolsChanged"
@@ -12863,6 +13206,9 @@
               "mcp_timeout": {
                 "type": "integer",
                 "exclusiveMinimum": 0
+              },
+              "agent_teams": {
+                "type": "boolean"
               }
             },
             "additionalProperties": false
@@ -14377,6 +14723,222 @@
           }
         },
         "required": ["items", "cursor"],
+        "additionalProperties": false
+      },
+      "TeamInfo": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "goal": {
+            "type": "string"
+          },
+          "lead_session_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "time_created": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["NaN"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["-Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          },
+          "time_updated": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["NaN"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["-Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          }
+        },
+        "required": ["id", "name", "goal", "lead_session_id", "status", "time_created", "time_updated"],
+        "additionalProperties": false
+      },
+      "TeamTask": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "team_id": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "time_created": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["NaN"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["-Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          },
+          "time_updated": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["NaN"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["-Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          }
+        },
+        "required": ["id", "team_id", "description", "status", "time_created", "time_updated"],
+        "additionalProperties": false
+      },
+      "TeamMessage": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "team_id": {
+            "type": "string"
+          },
+          "sender": {
+            "type": "string"
+          },
+          "recipients": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "body": {
+            "type": "string"
+          },
+          "delivery_status": {
+            "type": "string"
+          },
+          "time_created": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["NaN"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["-Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          },
+          "time_updated": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["NaN"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["-Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "team_id",
+          "sender",
+          "recipients",
+          "body",
+          "delivery_status",
+          "time_created",
+          "time_updated"
+        ],
         "additionalProperties": false
       },
       "EventTuiPromptAppend": {
@@ -16902,6 +17464,114 @@
               }
             },
             "required": ["sessionID"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["id", "type", "properties"],
+        "additionalProperties": false
+      },
+      "EventTeamCreated": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["team.created"]
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "teamID": {
+                "type": "string"
+              }
+            },
+            "required": ["teamID"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["id", "type", "properties"],
+        "additionalProperties": false
+      },
+      "EventTeamClosed": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["team.closed"]
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "teamID": {
+                "type": "string"
+              }
+            },
+            "required": ["teamID"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["id", "type", "properties"],
+        "additionalProperties": false
+      },
+      "EventTeamMemberUpdated": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["team.member.updated"]
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "memberID": {
+                "type": "string"
+              },
+              "sessionID": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              }
+            },
+            "required": ["memberID", "sessionID", "status"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["id", "type", "properties"],
+        "additionalProperties": false
+      },
+      "EventTeamMessageReceived": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["team.message.received"]
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "messageID": {
+                "type": "string"
+              },
+              "teamID": {
+                "type": "string"
+              },
+              "sender": {
+                "type": "string"
+              }
+            },
+            "required": ["messageID", "teamID", "sender"],
             "additionalProperties": false
           }
         },
@@ -20371,6 +21041,10 @@
     {
       "name": "v2 providers",
       "description": "Experimental v2 provider routes."
+    },
+    {
+      "name": "team",
+      "description": "Team orchestration endpoints."
     },
     {
       "name": "tui",
