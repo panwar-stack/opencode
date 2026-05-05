@@ -112,20 +112,20 @@ Rejecting a plan sends feedback back to the teammate and keeps the teammate in p
 
 These tools are used by OpenCode agents when agent teams are enabled.
 
-| Tool | Purpose |
-| ---- | ------- |
-| `team_create` | Create a team for the current lead session. |
-| `team_spawn` | Spawn a background teammate session. |
-| `team_send_message` | Send a mailbox message to one or more recipients. |
-| `team_broadcast` | Broadcast a message to all active teammates, and to the lead when called by a teammate. |
-| `team_get_messages` | Read pending mailbox messages for the current team session. |
-| `team_task_create` | Create a shared task list item. |
-| `team_task_list` | List shared team tasks. |
-| `team_task_claim` | Claim a pending task whose dependencies are complete. |
-| `team_task_update` | Update a task status or assignee. |
-| `team_plan_submit` | Submit a teammate plan for lead approval. |
-| `team_plan_decide` | Approve or reject a teammate plan. |
-| `team_shutdown` | Close the active team and cancel active teammates. |
+| Tool                | Purpose                                                                                 |
+| ------------------- | --------------------------------------------------------------------------------------- |
+| `team_create`       | Create a team for the current lead session.                                             |
+| `team_spawn`        | Spawn a background teammate session.                                                    |
+| `team_send_message` | Send a mailbox message to one or more recipients.                                       |
+| `team_broadcast`    | Broadcast a message to all active teammates, and to the lead when called by a teammate. |
+| `team_get_messages` | Read pending mailbox messages for the current team session.                             |
+| `team_task_create`  | Create a shared task list item.                                                         |
+| `team_task_list`    | List shared team tasks.                                                                 |
+| `team_task_claim`   | Claim a pending task whose dependencies are complete.                                   |
+| `team_task_update`  | Update a task status or assignee.                                                       |
+| `team_plan_submit`  | Submit a teammate plan for lead approval.                                               |
+| `team_plan_decide`  | Approve or reject a teammate plan.                                                      |
+| `team_shutdown`     | Close the active team and cancel active teammates.                                      |
 
 ---
 
@@ -133,11 +133,11 @@ These tools are used by OpenCode agents when agent teams are enabled.
 
 Agent teams add a team sidebar section and a team panel.
 
-| Action | Keybind | Description |
-| ------ | ------- | ----------- |
-| `team_panel_toggle` | `<leader>v` | Open the team panel. |
-| `team_task_list` | `<leader>k` | Open the team panel on the task list. |
-| `team_cycle_lead` | `<leader>up` | Navigate from a teammate session back to the lead session. |
+| Action              | Keybind      | Description                                                |
+| ------------------- | ------------ | ---------------------------------------------------------- |
+| `team_panel_toggle` | `<leader>v`  | Open the team panel.                                       |
+| `team_task_list`    | `<leader>k`  | Open the team panel on the task list.                      |
+| `team_cycle_lead`   | `<leader>up` | Navigate from a teammate session back to the lead session. |
 
 The team panel shows the team goal, teammate statuses, pending permissions or questions, shared tasks, and team messages. It can also shut down the team.
 
@@ -154,13 +154,13 @@ Regular child-session navigation still works for teammate sessions:
 
 The OpenCode server exposes read and shutdown endpoints for agent teams.
 
-| Method | Path | Description |
-| ------ | ---- | ----------- |
-| `GET` | `/team?sessionID=<session>` | Get the active team for a lead session. |
-| `GET` | `/team/{teamID}` | Get a team by ID. |
-| `GET` | `/team/{teamID}/tasks` | List shared team tasks. |
-| `GET` | `/team/{teamID}/messages` | List team messages. |
-| `POST` | `/team/{teamID}/shutdown` | Shut down the team and cancel active teammates. |
+| Method | Path                        | Description                                     |
+| ------ | --------------------------- | ----------------------------------------------- |
+| `GET`  | `/team?sessionID=<session>` | Get the active team for a lead session.         |
+| `GET`  | `/team/{teamID}`            | Get a team by ID.                               |
+| `GET`  | `/team/{teamID}/tasks`      | List shared team tasks.                         |
+| `GET`  | `/team/{teamID}/messages`   | List team messages.                             |
+| `POST` | `/team/{teamID}/shutdown`   | Shut down the team and cancel active teammates. |
 
 See [Server](/docs/server#team) for the full server API list.
 
