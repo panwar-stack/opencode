@@ -1,19 +1,37 @@
-# Real-Time Peer-to-Peer Pair Programming Plan
+# Real-Time Peer-to-Peer Pair Programming and Remote Session Sync Plan
 
 ## Summary
 
-Add peer-to-peer real-time pair programming by reusing opencode's existing sync and event architecture instead of creating a separate collaboration stack. The recommended MVP is a single-driver model with explicit handoff because the current `SyncEvent` model is sequence-based and not designed for true concurrent multi-writer editing.
+Add peer-to-peer real-time pair programming and remote TUI session sync by reusing opencode's existing sync and event architecture instead of creating a separate collaboration stack. The recommended MVP is a single-driver model with explicit handoff because the current `SyncEvent` model is sequence-based and not designed for true concurrent multi-writer editing.
+
+## Current State
+
+TUI pair join already hydrates session history when the guest is connected to the same host opencode server. The remaining gap is remote coworker onboarding: `/pair-invite` still needs to carry enough connection intent for a coworker on another machine to find and attach to the host, including private LAN, VPN, firewall, NAT, SSH-tunnel, relay, and reverse-tunnel setups.
+
+## Goal
+
+Allow a remote opencode user to join another user's pair room and receive real-time session sync with scoped pair authorization, without sharing server credentials.
 
 ## Recommended Scope
 
 Build the feature in phases:
 
 1. Passive presence and pairing room.
-2. Shared session viewing and cursor/activity indicators.
+2. Shared session viewing, remote onboarding, and cursor/activity indicators.
 3. Shared composer draft and typing state.
 4. Explicit driver control handoff.
 5. WebRTC data channel transport with WebSocket relay fallback.
 6. Optional advanced capabilities: remote shell, terminal sharing, permission approval delegation.
+
+## Connectivity and Onboarding
+
+Remote pair invites must carry enough connection intent for guests to attach to non-public hosts through an explicit access path instead of assuming the host server URL is globally reachable.
+
+- Treat private, loopback, and otherwise non-public host addresses as supported deployment shapes, not warnings-only edge cases.
+- Allow invites to describe the required transport/access method, such as direct URL, VPN/private network URL, SSH tunnel target, reverse tunnel, relay, or user-provided attach command.
+- Keep pair authorization separate from transport authorization: the invite may explain how to reach the host, but scoped pair credentials still come only from the host join flow.
+- Surface connectivity setup as part of `/pair-invite`, `/pair-join`, and `/pair-status` so both host and guest can see whether the host is reachable, waiting for a tunnel, or connected through a relay/private route.
+- Keep token-only join as a local/same-server fallback, and let `/pair-join` accept either a raw token or a full invite link.
 
 ## Architecture Direction
 
@@ -56,6 +74,8 @@ Suggested `pair_room` fields:
 
 - `id`
 - `session_id`
+- `workspace_id`
+- `instance_id`
 - `host_peer_id`
 - `status`
 - `driver_peer_id`
@@ -80,6 +100,7 @@ Suggested `pair_invite` fields:
 - `id`
 - `room_id`
 - `token_hash`
+- `connection_profile`
 - `capabilities`
 - `expires_at`
 - `consumed_at`
@@ -88,7 +109,7 @@ Suggested `pair_invite` fields:
 Core service methods:
 
 - `Pair.Service.createRoom(sessionID, options)`
-- `Pair.Service.issueInvite(roomID, capabilities, ttl)`
+- `Pair.Service.issueInvite(roomID, capabilities, ttl, connectionProfile)`
 - `Pair.Service.join(inviteToken, peerInfo)`
 - `Pair.Service.leave(roomID, peerID)`
 - `Pair.Service.closeRoom(roomID)`
@@ -185,9 +206,10 @@ Suggested endpoints:
 
 - `POST /pair/rooms`
 - `GET /pair/rooms/:roomID`
+- `GET /pair/rooms/:roomID/status`
 - `DELETE /pair/rooms/:roomID`
 - `POST /pair/rooms/:roomID/invite`
-- `POST /pair/join`
+- `POST /pair/join` accepts either a raw token or a full invite link and resolves the connection profile before exchanging scoped credentials.
 - `POST /pair/rooms/:roomID/leave`
 - `POST /pair/rooms/:roomID/control/request`
 - `POST /pair/rooms/:roomID/control/grant`
@@ -204,8 +226,8 @@ Reuse `SyncEvent`.
 Initial join flow:
 
 1. Host creates pair room for a session.
-2. Host issues invite with scoped capabilities.
-3. Guest joins with invite token.
+2. Host issues invite with scoped capabilities and a connection profile.
+3. Guest resolves the invite link or raw token into a reachable host endpoint, then joins with the invite token.
 4. Guest receives room state and peer ticket.
 5. Guest catches up using session sync history.
 6. Live events flow over P2P data channel or relay.
@@ -265,6 +287,7 @@ Expose APIs like:
 
 - `client.pair.createRoom`
 - `client.pair.getRoom`
+- `client.pair.getStatus`
 - `client.pair.invite`
 - `client.pair.join`
 - `client.pair.leave`
@@ -297,12 +320,15 @@ Web UI changes:
 - Add reducer cases for pair events.
 - Add session header pair pill with participant count and connection state.
 - Add "Start Pair Session" and "Copy Invite Link".
-- Add join flow from invite/deep link.
+- Add invite copy/share that can emit a full join link, private-network link, tunnel instructions, relay link, or attach command depending on reachability.
+- Add join flow from invite/deep link or raw token.
+- Add pair status surface with host URL, access method, room ID, peer ID, driver, and connection state.
 - Add composer lock/driver indicator.
 - Add "Request Control", "Grant Control", "Revoke Control".
 - Add remote typing indicator.
 - Add draft preview or shared draft display.
 - Add notification/toast for invite, peer join/leave, control request, control granted.
+- Add actionable errors for unreachable hosts, missing tunnel/VPN setup, relay failures, and expired/consumed invites.
 
 Special handling:
 
@@ -326,6 +352,13 @@ Important files:
 
 TUI changes:
 
+- Add pair invite command that copies a full join link, private-network link, tunnel setup instructions, relay link, or attach command depending on host reachability.
+- Add pair join command that accepts either full invite links or raw tokens.
+- Add pair status command/dialog showing host URL, access method, room ID, peer ID, driver, and connection state.
+- Parse invite links in `/pair-join`.
+- Resolve the invite connection profile into a reachable host endpoint, then create a temporary SDK client pointed at that endpoint.
+- Store remote pair connection state keyed by room/session.
+- Navigate to the joined session after bootstrap succeeds.
 - Add pair events to sync reducer.
 - Add pair participant/control state.
 - Add session commands:
@@ -337,7 +370,7 @@ TUI changes:
   - revoke control
 - Add footer indicator for pair connection and driver.
 - Disable prompt input when local peer is not driver.
-- Show toast/dialog for control requests and peer join/leave.
+- Show toast/dialog for control requests, peer join/leave, and connectivity errors.
 - Add pair status section to status dialog.
 
 ## Desktop
@@ -380,6 +413,7 @@ Required before shipping:
 
 - Invites are scoped, expiring, and revocable.
 - Pair tickets are not server credentials.
+- Transport authorization stays separate from pair authorization.
 - Capabilities are enforced server-side.
 - Guest cannot call arbitrary instance APIs.
 - Guest cannot approve host-local filesystem/shell permissions by default.
@@ -393,6 +427,11 @@ Backend tests:
 
 - room create/join/leave/close
 - invite expiry and single-use behavior
+- invite generation includes host routing metadata and connection profile
+- non-public host invite generation records an explicit connection profile
+- private/VPN host URLs resolve before join
+- tunnel/attach-command joins wait for the forwarded endpoint before consuming the invite
+- raw token join still works on the same server
 - capability enforcement
 - driver handoff
 - unauthorized peer rejection
@@ -413,10 +452,15 @@ Integration tests:
 
 - host and guest join same room
 - guest catches up existing session history
+- remote join creates a scoped remote pair client
+- remote join bootstraps session messages and parts
 - host submits prompt and guest sees update
 - guest requests control
 - host grants control
 - guest submits prompt through driver path
+- live host events update guest TUI state
+- non-driver prompt submission is blocked
+- pair status surfaces host URL, access method, and connection state
 - disconnected peer status updates
 - relay fallback path works
 
@@ -429,15 +473,15 @@ Run verification from package directories, especially:
 ## Implementation Order
 
 1. Add pair database schema and service.
-2. Add pair ticket/invite model.
+2. Add pair ticket/invite model and connection profile.
 3. Add pair Bus events.
 4. Add pair routes in Hono and Effect HttpApi.
 5. Add SDK generation support.
 6. Add WebSocket signaling route.
 7. Add WebRTC data channel client transport with relay fallback.
-8. Add web app pair state and session header UI.
+8. Add web app pair state, invite/deep-link join, and session header UI.
 9. Add web composer locking/control handoff.
-10. Add TUI pair state, commands, footer indicator, prompt lock.
-11. Add notifications and desktop deep-link behavior.
+10. Add TUI pair state, invite parsing, status dialog, footer indicator, and prompt lock.
+11. Add notifications, connectivity errors, and desktop deep-link behavior.
 12. Add tests and typecheck.
 13. Harden security, throttling, cleanup, and stale-room handling.
