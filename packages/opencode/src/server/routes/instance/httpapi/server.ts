@@ -25,6 +25,7 @@ import { LSP } from "@/lsp/lsp"
 import { MCP } from "@/mcp"
 import { Permission } from "@/permission"
 import { Pair } from "@/pair/pair"
+import { PairCredential } from "@/pair/credential"
 import { PairTicket } from "@/pair/ticket"
 import { Installation } from "@/installation"
 import { InstanceLayer } from "@/project/instance-layer"
@@ -61,6 +62,7 @@ import { ServerAuth } from "@/server/auth"
 import { InstanceHttpApi, RootHttpApi } from "./api"
 import { PublicApi } from "./public"
 import { authorizationLayer, authorizationRouterMiddleware } from "./middleware/authorization"
+import { pairAuthLayer } from "./middleware/pair-auth"
 import { EventApi, eventHandlers } from "./event"
 import { configHandlers } from "./handlers/config"
 import { controlHandlers } from "./handlers/control"
@@ -70,6 +72,7 @@ import { globalHandlers } from "./handlers/global"
 import { instanceHandlers } from "./handlers/instance"
 import { mcpHandlers } from "./handlers/mcp"
 import { pairHandlers, pairSignalingRoute } from "./handlers/pair"
+import { pairSessionHandlers } from "./handlers/pair-session"
 import { permissionHandlers } from "./handlers/permission"
 import { projectHandlers } from "./handlers/project"
 import { providerHandlers } from "./handlers/provider"
@@ -137,6 +140,7 @@ const instanceApiRoutes = HttpApiBuilder.layer(InstanceHttpApi).pipe(
     instanceHandlers,
     mcpHandlers,
     pairHandlers,
+    pairSessionHandlers,
     projectHandlers,
     ptyHandlers,
     questionHandlers,
@@ -155,6 +159,7 @@ const rawInstanceRoutes = Layer.mergeAll(ptyConnectRoute, pairSignalingRoute).pi
 const instanceRoutes = Layer.mergeAll(rawInstanceRoutes, instanceApiRoutes).pipe(
   Layer.provide([
     httpApiAuthLayer,
+    pairAuthLayer,
     workspaceRoutingLayer.pipe(Layer.provide(Socket.layerWebSocketConstructorGlobal)),
     instanceContextLayer,
   ]),
@@ -201,6 +206,7 @@ export function createRoutes(corsOptions?: CorsOptions) {
       MCP.defaultLayer,
       ModelsDev.defaultLayer,
       Pair.defaultLayer,
+      PairCredential.defaultLayer,
       PairTicket.defaultLayer,
       Permission.defaultLayer,
       Plugin.defaultLayer,

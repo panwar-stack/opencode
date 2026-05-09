@@ -28,11 +28,12 @@ function mapError(error: Pair.RoomNotFoundError | Pair.PeerNotFoundError | Pair.
 }
 
 function mapJoinError(
-  error: Pair.InviteNotFoundError | Pair.InviteExpiredError | Pair.InviteConsumedError | Pair.RoomNotFoundError | Pair.PeerNotFoundError,
+  error: Pair.InviteNotFoundError | Pair.InviteExpiredError | Pair.InviteConsumedError | Pair.RoomNotFoundError | Pair.PeerNotFoundError | Pair.PairCredentialIssueError,
 ) {
   if (error._tag === "Pair.InviteNotFoundError" || error._tag === "Pair.RoomNotFoundError" || error._tag === "Pair.PeerNotFoundError") {
     return ApiError.notFound("Pair invite not found")
   }
+  if (error._tag === "Pair.CredentialIssueError") return new HttpApiError.BadRequest({})
   return new HttpApiError.BadRequest({})
 }
 
@@ -85,6 +86,23 @@ export const pairHandlers = HttpApiBuilder.group(InstanceHttpApi, "pair", (handl
               roomID: ctx.params.roomID,
               actorPeerID: ctx.payload.actorPeerID,
               capabilities: ctx.payload.capabilities ? [...ctx.payload.capabilities] : undefined,
+              connectionProfile: ctx.payload.connectionProfile,
+            })
+            .pipe(Effect.catch((error) => Effect.fail(mapError(error))))
+        }),
+      )
+      .handle(
+        "resolveInviteLink",
+        Effect.fn("PairHttpApi.resolveInviteLink")(function* (ctx: {
+          params: { roomID: string }
+          payload: typeof import("../groups/pair").IssueInvitePayload.Type
+        }) {
+          return yield* pair
+            .resolveInviteLink({
+              roomID: ctx.params.roomID,
+              actorPeerID: ctx.payload.actorPeerID,
+              capabilities: ctx.payload.capabilities ? [...ctx.payload.capabilities] : undefined,
+              connectionProfile: ctx.payload.connectionProfile,
             })
             .pipe(Effect.catch((error) => Effect.fail(mapError(error))))
         }),

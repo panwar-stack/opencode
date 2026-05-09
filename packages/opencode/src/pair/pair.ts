@@ -6,6 +6,8 @@ import { SessionID } from "@/session/schema"
 import { Database, and, eq } from "@/storage/db"
 import { Context, Duration, Effect, Layer, Option, Schema } from "effect"
 import { createHash, randomBytes } from "crypto"
+import { ConnectionProfile, InviteLink } from "./connection-profile"
+import { PairCredential } from "./credential"
 import { PairInviteTable, PairPeerTable, PairRoomTable } from "./pair.sql"
 
 export const Capability = Schema.Literals([
@@ -77,6 +79,7 @@ export const InviteInfo = Schema.Struct({
   roomID: Schema.String,
   token: Schema.String,
   capabilities: Schema.mutable(Schema.Array(Capability)),
+  connectionProfile: Schema.optional(ConnectionProfile),
   expiresAt: Schema.String,
   consumedAt: Schema.NullOr(Schema.String),
   time: Schema.Struct({
@@ -89,6 +92,7 @@ export type InviteInfo = Schema.Schema.Type<typeof InviteInfo>
 export const JoinInfo = Schema.Struct({
   room: RoomInfo,
   peer: PeerInfo,
+  credential: Schema.optional(PairCredential.Credential),
 })
 export type JoinInfo = Schema.Schema.Type<typeof JoinInfo>
 
@@ -115,6 +119,11 @@ export class UnauthorizedError extends Schema.TaggedErrorClass<UnauthorizedError
   roomID: Schema.String,
   peerID: Schema.String,
   capability: Capability,
+}) {}
+
+export class PairCredentialIssueError extends Schema.TaggedErrorClass<PairCredentialIssueError>()("Pair.CredentialIssueError", {
+  roomID: Schema.String,
+  peerID: Schema.String,
 }) {}
 
 export const Event = {
@@ -183,12 +192,20 @@ export interface Interface {
     roomID: string
     actorPeerID: string
     capabilities?: Capability[]
+    connectionProfile?: ConnectionProfile
     ttl?: Duration.Input
   }): Effect.Effect<InviteInfo, PeerNotFoundError | RoomNotFoundError | UnauthorizedError>
+  resolveInviteLink(input: {
+    roomID: string
+    actorPeerID: string
+    connectionProfile?: ConnectionProfile
+    capabilities?: Capability[]
+    ttl?: Duration.Input
+  }): Effect.Effect<InviteLink, PeerNotFoundError | RoomNotFoundError | UnauthorizedError>
   join(input: {
     inviteToken: string
     name: string
-  }): Effect.Effect<JoinInfo, InviteNotFoundError | InviteExpiredError | InviteConsumedError | RoomNotFoundError | PeerNotFoundError>
+  }): Effect.Effect<JoinInfo, InviteNotFoundError | InviteExpiredError | InviteConsumedError | RoomNotFoundError | PeerNotFoundError | PairCredentialIssueError>
   leave(input: { roomID: string; peerID: string; actorPeerID: string }): Effect.Effect<void, PeerNotFoundError | RoomNotFoundError | UnauthorizedError>
   closeRoom(input: { roomID: string; actorPeerID: string }): Effect.Effect<void, PeerNotFoundError | RoomNotFoundError | UnauthorizedError>
   requestControl(input: { roomID: string; peerID: string }): Effect.Effect<void, PeerNotFoundError | RoomNotFoundError | UnauthorizedError>
@@ -241,11 +258,25 @@ function peerFromRow(row: typeof PairPeerTable.$inferSelect): PeerInfo {
   }
 }
 
-export const layer: Layer.Layer<Service, never, Bus.Service> = Layer.effect(
+function inviteFromRow(row: typeof PairInviteTable.$inferSelect, token: string): InviteInfo {
+  return {
+    id: row.id,
+    roomID: row.room_id,
+    token,
+    capabilities: row.capabilities as Capability[],
+    connectionProfile: row.connection_profile ? (row.connection_profile as ConnectionProfile) : undefined,
+    expiresAt: row.expires_at,
+    consumedAt: row.consumed_at,
+    time: { created: row.time_created, updated: row.time_updated },
+  }
+}
+
+export const layer: Layer.Layer<Service, never, Bus.Service | PairCredential.Service> = Layer.effect(
   Service,
   Effect.gen(function* () {
     const bus = yield* Bus.Service
-
+    const credSvc = yield* PairCredential.Service
+    
     const getRoomRow = (roomID: string) =>
       Database.use((db) => db.select().from(PairRoomTable).where(eq(PairRoomTable.id, roomID)).get())
 
@@ -339,6 +370,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service> = Layer.effect(
       roomID: string
       actorPeerID: string
       capabilities?: Capability[]
+      connectionProfile?: ConnectionProfile
       ttl?: Duration.Input
     }) {
       const room = yield* ensureActiveRoom(input.roomID)
@@ -366,6 +398,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service> = Layer.effect(
             room_id: input.roomID,
             token_hash: hashToken(token),
             capabilities,
+            connection_profile: input.connectionProfile ? (input.connectionProfile as Record<string, unknown>) : null,
             expires_at: expiresAt,
             consumed_at: null,
             time_created: now,
@@ -373,14 +406,51 @@ export const layer: Layer.Layer<Service, never, Bus.Service> = Layer.effect(
           })
           .run(),
       )
-      return {
-        id,
-        roomID: input.roomID,
+      return inviteFromRow(
+        {
+          id,
+          room_id: input.roomID,
+          token_hash: hashToken(token),
+          capabilities,
+          connection_profile: input.connectionProfile ? (input.connectionProfile as Record<string, unknown>) : null,
+          expires_at: expiresAt,
+          consumed_at: null,
+          time_created: now,
+          time_updated: now,
+        },
         token,
-        capabilities,
-        expiresAt,
-        consumedAt: null,
-        time: { created: now, updated: now },
+      )
+    })
+
+    const resolveInviteLink = Effect.fn("Pair.resolveInviteLink")(function* (input: {
+      roomID: string
+      actorPeerID: string
+      connectionProfile?: ConnectionProfile
+      capabilities?: Capability[]
+      ttl?: Duration.Input
+    }) {
+      const invite = yield* issueInvite({
+        roomID: input.roomID,
+        actorPeerID: input.actorPeerID,
+        capabilities: input.capabilities,
+        connectionProfile: input.connectionProfile,
+        ttl: input.ttl,
+      })
+      const roomRow = yield* ensureActiveRoom(input.roomID)
+      const room = roomFromRow(roomRow)
+      const profile = input.connectionProfile ?? {
+        method: "direct" as const,
+        hostUrl: "",
+      }
+      return {
+        hostUrl: profile.hostUrl,
+        roomID: invite.roomID,
+        token: invite.token,
+        sessionID: room.sessionID,
+        expiresAt: invite.expiresAt,
+        connectionProfile: profile,
+        workspaceID: undefined,
+        directory: undefined,
       }
     })
 
@@ -423,7 +493,19 @@ export const layer: Layer.Layer<Service, never, Bus.Service> = Layer.effect(
       if (result.status === "room_missing") return yield* new RoomNotFoundError({ roomID: result.roomID })
       if (!result.peer) return yield* new PeerNotFoundError({ roomID: result.room.id, peerID })
       yield* bus.publish(Event.PeerJoined, { roomID: result.room.id, peerID, role: "guest" })
-      return { room: roomFromRow(result.room), peer: peerFromRow(result.peer) }
+      const room = roomFromRow(result.room)
+      const peer = peerFromRow(result.peer)
+      const credential = yield* credSvc.issue({
+        peerID,
+        roomID: room.id,
+        sessionID: room.sessionID,
+        capabilities: peer.capabilities,
+      }).pipe(
+        Effect.catchCause(() =>
+          Effect.fail(new PairCredentialIssueError({ roomID: room.id, peerID })),
+        ),
+      )
+      return { room, peer, credential }
     })
 
     const leave = Effect.fn("Pair.leave")(function* (input: { roomID: string; peerID: string; actorPeerID: string }) {
@@ -521,6 +603,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service> = Layer.effect(
       createRoom,
       getRoom,
       issueInvite,
+      resolveInviteLink,
       join,
       leave,
       closeRoom,
@@ -532,4 +615,4 @@ export const layer: Layer.Layer<Service, never, Bus.Service> = Layer.effect(
   }).pipe(Effect.withSpan("Pair.layer")),
 )
 
-export const defaultLayer = layer.pipe(Layer.provide(Bus.layer))
+export const defaultLayer = layer.pipe(Layer.provide(Bus.layer), Layer.provide(PairCredential.defaultLayer))

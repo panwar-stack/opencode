@@ -33,6 +33,7 @@ import type {
   TextPart,
   ReasoningPart,
 } from "@opencode-ai/sdk/v2"
+import { createOpencodeClient } from "@opencode-ai/sdk/v2"
 import { useLocal } from "@tui/context/local"
 import { Locale } from "@/util/locale"
 import type { Tool } from "@/tool/tool"
@@ -92,6 +93,7 @@ import { getRevertDiffFiles } from "../../util/revert-diff"
 import { useCommandPalette } from "../../context/command-palette"
 import { useBindings, useCommandShortcut } from "../../keymap"
 import { DialogPrompt } from "@tui/ui/dialog-prompt"
+import { formatInviteLink, parseInviteLink, detectHostReachability, isNonPublicHost } from "@/pair/connection-profile"
 
 addDefaultParsers(parsers.parsers)
 
@@ -518,6 +520,17 @@ export function Session() {
     }
   }
 
+  function showConnectionError(hostUrl: string, method: string) {
+    if (method === "direct")
+      toast.show({ message: `Could not connect to ${hostUrl}. Check network/firewall settings.`, variant: "error", duration: 8000 })
+    else if (method === "private_network")
+      toast.show({ message: `Could not reach ${hostUrl}. Ensure you are on the same VPN/private network.`, variant: "error", duration: 8000 })
+    else if (method === "ssh_tunnel")
+      toast.show({ message: `Could not connect. Run the tunnel command first: ssh -L 4096:localhost:4096 user@host`, variant: "error", duration: 10000 })
+    else
+      toast.show({ message: `Host ${hostUrl} is not public. Ask the host for connection instructions.`, variant: "error", duration: 8000 })
+  }
+
   function pairPeerRequired() {
     const current = pair()
     const selfPeerID = pairSelfPeerID()
@@ -546,16 +559,108 @@ export function Session() {
       toast.show({ message: "Failed to create pair invite", variant: "error" })
       return
     }
-    await Clipboard.copy(res.data.token)
-      .then(() => toast.show({ message: "Pair invite token copied", variant: "success" }))
+    const hostUrl = sdk.url
+    const hostname = (() => {
+      try { return new URL(hostUrl).hostname } catch { return "" }
+    })()
+    const connectionMethod = detectHostReachability(hostname)
+    const connectionProfile = { method: connectionMethod, hostUrl }
+    const link = formatInviteLink({
+      hostUrl,
+      roomID: state.current.room.id,
+      token: res.data.token,
+      sessionID: state.current.room.sessionID,
+      expiresAt: res.data.expiresAt,
+      connectionProfile,
+    })
+    await Clipboard.copy(link)
+      .then(() => toast.show({ message: "Pair invite link copied", variant: "success" }))
       .catch(() => toast.show({ message: "Failed to copy pair invite", variant: "error" }))
+    if (isNonPublicHost(hostname)) {
+      if (connectionMethod === "ssh_tunnel")
+        toast.show({ message: "Host is not public. Share tunnel setup: ssh -L 4096:localhost:4096 user@host", variant: "info", duration: 8000 })
+      else if (connectionMethod === "private_network")
+        toast.show({ message: "Host is on a private network. Guest must be on same VPN/network.", variant: "info", duration: 6000 })
+      else
+        toast.show({ message: "Host is not publicly reachable. Share connection instructions manually.", variant: "info", duration: 6000 })
+    }
   }
 
   async function pairJoin() {
-    const token = await DialogPrompt.show(dialog, "Join Pair", { placeholder: "Invite token" })
-    if (!token) return
+    const input = await DialogPrompt.show(dialog, "Join Pair", { placeholder: "Invite token or opencode://pair-join link" })
+    if (!input) return
+
+    const trimmed = input.trim()
+    if (trimmed.startsWith("opencode://pair-join")) {
+      const link = parseInviteLink(trimmed)
+      if (!link) {
+        toast.show({ message: "Invalid invite link format", variant: "error" })
+        dialog.clear()
+        return
+      }
+      const isRemote = link.hostUrl !== sdk.url
+      const method = link.connectionProfile.method
+
+      if (isRemote && isNonPublicHost(new URL(link.hostUrl).hostname)) {
+        if (method === "ssh_tunnel") {
+          toast.show({ message: "Remote host requires SSH tunnel. Run: ssh -L 4096:localhost:4096 user@host", variant: "info", duration: 10000 })
+        } else if (method === "private_network") {
+          toast.show({ message: "Remote host is on a private network. Ensure you are on the same network.", variant: "info", duration: 8000 })
+        }
+        dialog.clear()
+      }
+
+      if (isRemote) {
+        try {
+          const remoteSDK = createOpencodeClient({ baseUrl: link.hostUrl })
+          const res = await remoteSDK.pair.join({ inviteToken: link.token, name: sync.data.config.username ?? process.env.USER ?? "Guest" })
+          if (res.error || !res.data) {
+            const status = (res.error as Record<string, unknown>)?.status as number | undefined
+            const message = (res.error as Record<string, unknown>)?.message as string | undefined
+            if (status === 404) {
+              if (message?.includes("expired")) toast.show({ message: "This invite has expired. Ask the host for a new invite.", variant: "error" })
+              else if (message?.includes("consumed")) toast.show({ message: "This invite has already been used.", variant: "error" })
+              else toast.show({ message: "Peer not found. You may need to rejoin.", variant: "error" })
+            } else {
+              showConnectionError(link.hostUrl, method)
+            }
+            dialog.clear()
+            return
+          }
+          const credential = (res.data as Record<string, unknown>)?.credential as { token: string } | undefined
+          await sync.pair.setRemote({
+            sessionID: res.data.room.sessionID,
+            remoteUrl: link.hostUrl,
+            room: res.data.room,
+            selfPeer: res.data.peer,
+            credential: credential?.token ?? "",
+            connectionMethod: method,
+          })
+          toast.show({ message: "Joined remote pair session", variant: "success" })
+          if (res.data.room.sessionID !== route.sessionID) navigate({ type: "session", sessionID: res.data.room.sessionID })
+        } catch {
+          showConnectionError(link.hostUrl, method)
+        }
+        dialog.clear()
+        return
+      }
+      // Same-server invite link
+      const res = await sdk.client.pair.join({ inviteToken: link.token, name: sync.data.config.username ?? process.env.USER ?? "Guest" })
+      if (res.error || !res.data) {
+        toast.show({ message: "Failed to join pair session", variant: "error" })
+        dialog.clear()
+        return
+      }
+      await sync.pair.set({ sessionID: res.data.room.sessionID, room: res.data.room, selfPeer: res.data.peer })
+      toast.show({ message: "Joined pair session", variant: "success" })
+      if (res.data.room.sessionID !== route.sessionID) navigate({ type: "session", sessionID: res.data.room.sessionID })
+      dialog.clear()
+      return
+    }
+
+    // Raw token (same-server)
     dialog.clear()
-    const res = await sdk.client.pair.join({ inviteToken: token.trim(), name: sync.data.config.username ?? process.env.USER ?? "Guest" })
+    const res = await sdk.client.pair.join({ inviteToken: trimmed, name: sync.data.config.username ?? process.env.USER ?? "Guest" })
     if (res.error || !res.data) {
       toast.show({ message: "Failed to join pair session", variant: "error" })
       return
@@ -607,6 +712,38 @@ export function Session() {
     }
     sync.pair.updateRoom(route.sessionID, res.data)
     toast.show({ message: "Pair control returned to host", variant: "success" })
+  }
+
+  async function pairStatus() {
+    const state = pair()
+    if (!state) {
+      toast.show({ message: "No active pair session", variant: "warning" })
+      return
+    }
+    const peerIDs = Object.keys(state.peers).length > 0 ? Object.keys(state.peers) : Object.keys(state.presence)
+    const peerLines = peerIDs.map((pid) => {
+      const peer = state.peers[pid]
+      const status = state.presence[pid] ?? "unknown"
+      const isDriver = pid === state.room.driverPeerID
+      const isSelf = pid === state.selfPeerID
+      const name = peer?.name ?? pid
+      return `${isSelf ? "* " : "  "}${name} (${status})${isDriver ? " [DRIVER]" : ""}${isSelf ? " (you)" : ""}`
+    }).join("\n")
+
+    const info = [
+      `Room ID: ${state.room.id}`,
+      `Session: ${state.room.sessionID}`,
+      `Status: ${state.room.status}`,
+      `Host: ${state.isRemote ? state.remoteUrl : "local"}`,
+      `Access: ${state.connectionMethod ?? "direct"}`,
+      `Connection: ${state.connectionStatus ?? (state.isRemote ? "connected" : "local")}`,
+      `Driver: ${state.room.driverPeerID}`,
+      `Peers:`,
+      peerLines || "  none",
+      `Self: ${state.selfPeerID ?? "unknown"}`,
+    ].join("\n")
+
+    void DialogPrompt.show(dialog, "Pair Status", { value: info, placeholder: "" })
   }
 
   const sessionCommandList = createMemo(() => [
@@ -833,6 +970,16 @@ export function Session() {
       run: () => {
         void pairRevokeControl()
         dialog.clear()
+      },
+    },
+    {
+      title: "Pair status",
+      value: "session.pair.status",
+      category: "Pair",
+      enabled: pairActive(),
+      slash: { name: "pair-status" },
+      run: () => {
+        void pairStatus()
       },
     },
     {

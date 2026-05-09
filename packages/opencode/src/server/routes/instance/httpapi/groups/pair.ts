@@ -1,3 +1,4 @@
+import { ConnectionProfile, InviteLink } from "@/pair/connection-profile"
 import { Pair } from "@/pair/pair"
 import { PairTicket } from "@/pair/ticket"
 import { SessionID } from "@/session/schema"
@@ -16,6 +17,7 @@ export const PairPaths = {
   getRoom: `${root}/rooms/:roomID`,
   closeRoom: `${root}/rooms/:roomID`,
   issueInvite: `${root}/rooms/:roomID/invite`,
+  resolveInviteLink: `${root}/rooms/:roomID/invite-link`,
   join: `${root}/join`,
   leave: `${root}/rooms/:roomID/leave`,
   requestControl: `${root}/rooms/:roomID/control/request`,
@@ -40,6 +42,7 @@ export const CreateRoomPayload = Schema.Struct({
 export const IssueInvitePayload = Schema.Struct({
   actorPeerID: Schema.String,
   capabilities: Schema.optional(Schema.mutable(Schema.Array(Pair.Capability))),
+  connectionProfile: Schema.optional(ConnectionProfile),
 })
 
 export const JoinPayload = Schema.Struct({
@@ -116,6 +119,18 @@ export const PairApi = HttpApi.make("pair").add(
           identifier: "pair.invite.create",
           summary: "Create pair invite",
           description: "Create a scoped one-time invite for a pair room.",
+        }),
+      ),
+      HttpApiEndpoint.post("resolveInviteLink", PairPaths.resolveInviteLink, {
+        params: { roomID: Schema.String },
+        payload: IssueInvitePayload,
+        success: described(InviteLink, "Pair invite link"),
+        error: [HttpApiError.BadRequest, HttpApiError.Forbidden, ApiNotFoundError],
+      }).annotateMerge(
+        OpenApi.annotations({
+          identifier: "pair.invite-link.create",
+          summary: "Resolve pair invite link",
+          description: "Create a scoped invite and return a full invite link with connection profile.",
         }),
       ),
       HttpApiEndpoint.post("join", PairPaths.join, {

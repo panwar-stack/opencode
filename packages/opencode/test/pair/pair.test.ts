@@ -1,13 +1,14 @@
 import { afterEach, describe, expect } from "bun:test"
 import { Bus } from "@/bus"
 import { Pair } from "@/pair/pair"
+import { PairCredential } from "@/pair/credential"
 import { ProjectID } from "@/project/schema"
 import { ProjectTable } from "@/project/project.sql"
 import { SessionID } from "@/session/schema"
 import { SessionTable } from "@/session/session.sql"
 import { Database } from "@/storage/db"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
-import { Effect, Layer } from "effect"
+import { Effect, Layer, Option } from "effect"
 import { resetDatabase } from "../fixture/db"
 import { provideTmpdirInstance } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
@@ -16,7 +17,7 @@ afterEach(async () => {
   await resetDatabase()
 })
 
-const it = testEffect(Layer.mergeAll(CrossSpawnSpawner.defaultLayer, Pair.defaultLayer))
+const it = testEffect(Layer.mergeAll(CrossSpawnSpawner.defaultLayer, Pair.defaultLayer, PairCredential.defaultLayer))
 
 const seedSession = () =>
   Database.use((db) => {
@@ -181,6 +182,115 @@ describe("pair service", () => {
         expect(closed._tag).toBe("Some")
         if (closed._tag === "Some") expect(closed.value.status).toBe("closed")
         expect(yield* pair.authorize({ roomID: room.id, peerID: room.hostPeerID, capability: "control_driver" })).toBe(false)
+      }),
+    ),
+  )
+
+  it.live("issueInvite accepts connectionProfile and returns it in response", () =>
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const pair = yield* Pair.Service
+        const room = yield* pair.createRoom({ sessionID: seedSession() })
+        const profile = { method: "private_network" as const, hostUrl: "192.168.1.100:4096" }
+        const invite = yield* pair.issueInvite({
+          roomID: room.id,
+          actorPeerID: room.hostPeerID,
+          connectionProfile: profile,
+        })
+        expect(invite.connectionProfile).toEqual(profile)
+      }),
+    ),
+  )
+
+  it.live("non-public host invite generates manual/private_network connectionProfile", () =>
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const pair = yield* Pair.Service
+        const room = yield* pair.createRoom({ sessionID: seedSession() })
+        const profile = { method: "manual" as const, hostUrl: "localhost:4096" }
+        const invite = yield* pair.issueInvite({
+          roomID: room.id,
+          actorPeerID: room.hostPeerID,
+          connectionProfile: profile,
+        })
+        expect(invite.connectionProfile).not.toBeUndefined()
+        expect(invite.connectionProfile!.method).toBe("manual")
+        expect(invite.connectionProfile!.hostUrl).toBe("localhost:4096")
+      }),
+    ),
+  )
+
+  it.live("resolveInviteLink returns complete InviteLink with all fields", () =>
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const pair = yield* Pair.Service
+        const room = yield* pair.createRoom({ sessionID: seedSession() })
+        const profile = { method: "direct" as const, hostUrl: "https://opencode.example.com" }
+        const link = yield* pair.resolveInviteLink({
+          roomID: room.id,
+          actorPeerID: room.hostPeerID,
+          connectionProfile: profile,
+        })
+        expect(link.hostUrl).toBe("https://opencode.example.com")
+        expect(link.roomID).toBe(room.id)
+        expect(link.token).toBeTruthy()
+        expect(link.sessionID).toBe(room.sessionID)
+        expect(link.expiresAt).toBeTruthy()
+        expect(link.connectionProfile.method).toBe("direct")
+        expect(link.connectionProfile.hostUrl).toBe("https://opencode.example.com")
+      }),
+    ),
+  )
+
+  it.live("join response includes credential when joining", () =>
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const pair = yield* Pair.Service
+        const room = yield* pair.createRoom({ sessionID: seedSession() })
+        const invite = yield* pair.issueInvite({ roomID: room.id, actorPeerID: room.hostPeerID })
+        const joined = yield* pair.join({ inviteToken: invite.token, name: "Guest" })
+
+        expect(joined.credential).not.toBeUndefined()
+        expect(joined.credential!.peerID).toBe(joined.peer.id)
+        expect(joined.credential!.roomID).toBe(room.id)
+        expect(joined.credential!.sessionID).toBe(room.sessionID)
+        expect(joined.credential!.token).toBeTruthy()
+        expect(joined.credential!.capabilities).toEqual(joined.peer.capabilities)
+      }),
+    ),
+  )
+
+  it.live("join credential can be validated after join", () =>
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const pair = yield* Pair.Service
+        const credSvc = yield* PairCredential.Service
+        const room = yield* pair.createRoom({ sessionID: seedSession() })
+        const invite = yield* pair.issueInvite({ roomID: room.id, actorPeerID: room.hostPeerID })
+        const joined = yield* pair.join({ inviteToken: invite.token, name: "Guest" })
+
+        expect(joined.credential).not.toBeUndefined()
+        const validated = yield* credSvc.validate(joined.credential!.token)
+        expect(Option.isSome(validated)).toBe(true)
+        if (Option.isSome(validated)) {
+          expect(validated.value.peerID).toBe(joined.peer.id)
+          expect(validated.value.roomID).toBe(room.id)
+        }
+      }),
+    ),
+  )
+
+  it.live("same-server join still works with raw invite token", () =>
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const pair = yield* Pair.Service
+        const room = yield* pair.createRoom({ sessionID: seedSession() })
+        const invite = yield* pair.issueInvite({ roomID: room.id, actorPeerID: room.hostPeerID })
+        const joined = yield* pair.join({ inviteToken: invite.token, name: "Guest" })
+
+        expect(joined.room.id).toBe(room.id)
+        expect(joined.peer.role).toBe("guest")
+        expect(joined.peer.status).toBe("connected")
       }),
     ),
   )

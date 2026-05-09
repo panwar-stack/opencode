@@ -1,0 +1,1 @@
+ALTER TABLE `pair_invite` ADD `connection_profile` text;

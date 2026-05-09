@@ -51,6 +51,7 @@ export const PairInviteTable = sqliteTable(
       .references(() => PairRoomTable.id, { onDelete: "cascade" }),
     token_hash: text().notNull().unique(),
     capabilities: text({ mode: "json" }).$type<string[]>().notNull(),
+    connection_profile: text({ mode: "json" }).$type<Record<string, unknown>>(),
     expires_at: text().notNull(),
     consumed_at: text(),
     ...Timestamps,

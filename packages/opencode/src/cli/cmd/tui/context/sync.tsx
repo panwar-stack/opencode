@@ -19,7 +19,9 @@ import type {
   VcsInfo,
   PairRoomCreateResponse,
   PairJoinResponse,
+  GlobalEvent,
 } from "@opencode-ai/sdk/v2"
+import { createOpencodeClient } from "@opencode-ai/sdk/v2"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { useProject } from "@tui/context/project"
 import { useEvent } from "@tui/context/event"
@@ -35,6 +37,7 @@ import { emptyConsoleState, type ConsoleState } from "@/config/console-state"
 import path from "path"
 import { useKV } from "./kv"
 import { aggregateFailures } from "./aggregate-failures"
+import type { ConnectionMethod } from "@/pair/connection-profile"
 
 type PairRoom = PairRoomCreateResponse
 type PairPeer = PairJoinResponse["peer"]
@@ -45,7 +48,14 @@ export type PairState = {
   peers: Record<string, PairPeer>
   controlRequests: Record<string, true>
   presence: Record<string, string>
+  isRemote: boolean
+  remoteUrl?: string
+  credential?: string
+  connectionMethod?: ConnectionMethod
+  connectionStatus?: "connecting" | "connected" | "disconnected" | "stale"
 }
+
+const remoteSDKs = new Map<string, { abort: AbortController; client: ReturnType<typeof createOpencodeClient> }>()
 
 export const { use: useSync, provider: SyncProvider } = createSimpleContext({
   name: "Sync",
@@ -154,6 +164,85 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       return sdk.client.session
         .list({ start: Date.now() - 30 * 24 * 60 * 60 * 1000, ...sessionListQuery() })
         .then((x) => (x.data ?? []).toSorted((a, b) => a.id.localeCompare(b.id)))
+    }
+
+    function handleRemotePairEvent(evt: GlobalEvent) {
+      const payload = evt.payload
+
+      const roomID =
+        "properties" in payload && payload.properties && typeof payload.properties === "object" && "roomID" in payload.properties
+          ? (payload.properties as Record<string, unknown>).roomID
+          : undefined
+      if (typeof roomID !== "string") return
+      const sessionID = store.pair_by_room[roomID]
+      if (!sessionID) return
+
+      switch (payload.type) {
+        case "pair.room.closed":
+          setStore("pair", sessionID, "room", "status", "closed")
+          break
+        case "pair.peer.joined": {
+          const peerID = (payload.properties as Record<string, unknown>).peerID
+          if (typeof peerID === "string") setStore("pair", sessionID, "presence", peerID, "connected")
+          break
+        }
+        case "pair.peer.left": {
+          const peerID = (payload.properties as Record<string, unknown>).peerID
+          if (typeof peerID === "string") {
+            setStore("pair", sessionID, "presence", peerID, "left")
+            setStore(
+              "pair",
+              sessionID,
+              "controlRequests",
+              produce((draft) => {
+                delete draft[peerID]
+              }),
+            )
+          }
+          break
+        }
+        case "pair.control.requested": {
+          const peerID = (payload.properties as Record<string, unknown>).peerID
+          if (typeof peerID === "string") setStore("pair", sessionID, "controlRequests", peerID, true)
+          break
+        }
+        case "pair.control.granted": {
+          const peerID = (payload.properties as Record<string, unknown>).peerID
+          if (typeof peerID === "string") {
+            setStore("pair", sessionID, "room", "driverPeerID", peerID)
+            setStore(
+              "pair",
+              sessionID,
+              "controlRequests",
+              produce((draft) => {
+                delete draft[peerID]
+              }),
+            )
+          }
+          break
+        }
+        case "pair.control.revoked": {
+          const peerID = (payload.properties as Record<string, unknown>).peerID
+          setStore("pair", sessionID, "room", "driverPeerID", store.pair[sessionID]?.room.hostPeerID ?? (peerID as string))
+          if (typeof peerID === "string")
+            setStore(
+              "pair",
+              sessionID,
+              "controlRequests",
+              produce((draft) => {
+                delete draft[peerID]
+              }),
+            )
+          break
+        }
+        case "pair.presence.updated":
+        case "pair.connection.updated": {
+          const peerID = (payload.properties as Record<string, unknown>).peerID
+          const status = (payload.properties as Record<string, unknown>).status
+          if (typeof peerID === "string" && typeof status === "string") setStore("pair", sessionID, "presence", peerID, status)
+          break
+        }
+      }
     }
 
     event.subscribe((event) => {
@@ -660,9 +749,91 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
               peers: input.selfPeer ? { [input.selfPeer.id]: input.selfPeer } : {},
               controlRequests: {},
               presence: input.selfPeer ? { [input.selfPeer.id]: input.selfPeer.status } : { [input.room.hostPeerID]: "connected" },
+              isRemote: false,
             })
           })
           await result.session.sync(input.sessionID)
+        },
+        async setRemote(input: {
+          sessionID: string
+          remoteUrl: string
+          room: PairRoom
+          selfPeer: PairPeer
+          credential: string
+          connectionMethod?: ConnectionMethod
+        }) {
+          const remoteSDK = createOpencodeClient({ baseUrl: input.remoteUrl })
+          const abort = new AbortController()
+          remoteSDKs.set(input.sessionID, { abort, client: remoteSDK })
+
+          batch(() => {
+            setStore("pair_by_room", input.room.id, input.sessionID)
+            setStore("pair", input.sessionID, {
+              room: input.room,
+              selfPeerID: input.selfPeer.id,
+              peers: { [input.selfPeer.id]: input.selfPeer },
+              controlRequests: {},
+              presence: { [input.selfPeer.id]: input.selfPeer.status },
+              isRemote: true,
+              remoteUrl: input.remoteUrl,
+              credential: input.credential,
+              connectionMethod: input.connectionMethod,
+              connectionStatus: "connected",
+            })
+          })
+
+          // Start remote SSE in background
+          const sseCtrl = new AbortController()
+          ;(async () => {
+            let attempt = 0
+            while (true) {
+              if (abort.signal.aborted || sseCtrl.signal.aborted) break
+              try {
+                const events = await remoteSDK.global.event({ signal: sseCtrl.signal, sseMaxRetryAttempts: 0 })
+                for await (const evt of events.stream) {
+                  if (sseCtrl.signal.aborted) break
+                  // Route pair events through the existing sync handlers
+                  handleRemotePairEvent(evt as GlobalEvent)
+                }
+              } catch {
+                // Connection lost, attempt reconnect
+              }
+              if (abort.signal.aborted || sseCtrl.signal.aborted) break
+              attempt++
+              const backoff = Math.min(1000 * 2 ** (attempt - 1), 30000)
+              setStore("pair", input.sessionID, "connectionStatus", "disconnected")
+              await new Promise((resolve) => setTimeout(resolve, backoff))
+              setStore("pair", input.sessionID, "connectionStatus", "connecting")
+            }
+          })().catch(() => {})
+
+          await result.pair.bootstrapRemote(input.sessionID, remoteSDK, input.room.id)
+        },
+        async bootstrapRemote(sessionID: string, remoteClient: ReturnType<typeof createOpencodeClient>, roomID: string) {
+          const room = await remoteClient.pair.room.get({ roomID })
+          if (room.data) {
+            const [session, messages, todo, diff] = await Promise.all([
+              remoteClient.session.get({ sessionID: room.data.sessionID }, { throwOnError: true }),
+              remoteClient.session.messages({ sessionID: room.data.sessionID, limit: 100 }),
+              remoteClient.session.todo({ sessionID: room.data.sessionID }),
+              remoteClient.session.diff({ sessionID: room.data.sessionID }),
+            ])
+            const sid = room.data.sessionID
+            setStore(
+              produce((draft) => {
+                const match = Binary.search(draft.session, sid, (s) => s.id)
+                if (match.found) draft.session[match.index] = session.data!
+                if (!match.found) draft.session.splice(match.index, 0, session.data!)
+                draft.todo[sid] = todo.data ?? []
+                draft.message[sid] = messages.data!.map((x) => x.info)
+                for (const message of messages.data!) {
+                  draft.part[message.info.id] = message.parts
+                }
+                draft.session_diff[sid] = diff.data ?? []
+              }),
+            )
+            fullSyncedSessions.add(sid)
+          }
         },
         updateRoom(sessionID: string, room: PairRoom) {
           batch(() => {
@@ -672,6 +843,11 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
         },
         clear(sessionID: string) {
           const roomID = store.pair[sessionID]?.room.id
+          const remote = remoteSDKs.get(sessionID)
+          if (remote) {
+            remote.abort.abort()
+            remoteSDKs.delete(sessionID)
+          }
           batch(() => {
             if (roomID) setStore("pair_by_room", roomID, undefined)
             setStore("pair", sessionID, undefined)

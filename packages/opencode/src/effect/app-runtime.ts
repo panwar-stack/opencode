@@ -49,6 +49,7 @@ import { Worktree } from "@/worktree"
 import { Pty } from "@/pty"
 import { PtyTicket } from "@/pty/ticket"
 import { Pair } from "@/pair/pair"
+import { PairCredential } from "@/pair/credential"
 import { PairTicket } from "@/pair/ticket"
 import { Installation } from "@/installation"
 import { ShareNext } from "@/share/share-next"
@@ -105,6 +106,7 @@ export const AppLayer = Layer.mergeAll(
   Pty.defaultLayer,
   PtyTicket.defaultLayer,
   Pair.defaultLayer,
+  PairCredential.defaultLayer,
   PairTicket.defaultLayer,
   Installation.defaultLayer,
   ShareNext.defaultLayer,
