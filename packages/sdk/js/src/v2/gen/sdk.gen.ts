@@ -76,6 +76,28 @@ import type {
   McpRemoteConfig,
   McpStatusResponses,
   OutputFormat,
+  PairControlGrantErrors,
+  PairControlGrantResponses,
+  PairControlRequestErrors,
+  PairControlRequestResponses,
+  PairControlRevokeErrors,
+  PairControlRevokeResponses,
+  PairInviteCreateErrors,
+  PairInviteCreateResponses,
+  PairJoinErrors,
+  PairJoinResponses,
+  PairLeaveErrors,
+  PairLeaveResponses,
+  PairRoomCloseErrors,
+  PairRoomCloseResponses,
+  PairRoomCreateErrors,
+  PairRoomCreateResponses,
+  PairRoomGetErrors,
+  PairRoomGetResponses,
+  PairSignalingErrors,
+  PairSignalingResponses,
+  PairSignalingTokenErrors,
+  PairSignalingTokenResponses,
   Part as Part2,
   PartDeleteErrors,
   PartDeleteResponses,
@@ -2148,6 +2170,473 @@ export class Mcp extends HeyApiClient {
   private _auth?: Auth2
   get auth(): Auth2 {
     return (this._auth ??= new Auth2({ client: this.client }))
+  }
+}
+
+export class Room extends HeyApiClient {
+  /**
+   * Create pair room
+   *
+   * Create a real-time pair programming room for a session.
+   */
+  public create<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      sessionID?: string
+      hostName?: string
+      capabilities?: Array<
+        | "view_session"
+        | "view_files"
+        | "send_prompt"
+        | "request_control"
+        | "control_driver"
+        | "edit_files"
+        | "run_shell"
+        | "approve_permissions"
+        | "share_terminal"
+      >
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "sessionID" },
+            { in: "body", key: "hostName" },
+            { in: "body", key: "capabilities" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<PairRoomCreateResponses, PairRoomCreateErrors, ThrowOnError>({
+      url: "/pair/rooms",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Close pair room
+   *
+   * Close an active pair room.
+   */
+  public close<ThrowOnError extends boolean = false>(
+    parameters: {
+      roomID: string
+      directory?: string
+      workspace?: string
+      actorPeerID?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "roomID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "actorPeerID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<PairRoomCloseResponses, PairRoomCloseErrors, ThrowOnError>({
+      url: "/pair/rooms/{roomID}",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Get pair room
+   *
+   * Get pair room state.
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters: {
+      roomID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "roomID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<PairRoomGetResponses, PairRoomGetErrors, ThrowOnError>({
+      url: "/pair/rooms/{roomID}",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Invite extends HeyApiClient {
+  /**
+   * Create pair invite
+   *
+   * Create a scoped one-time invite for a pair room.
+   */
+  public create<ThrowOnError extends boolean = false>(
+    parameters: {
+      roomID: string
+      directory?: string
+      workspace?: string
+      actorPeerID?: string
+      capabilities?: Array<
+        | "view_session"
+        | "view_files"
+        | "send_prompt"
+        | "request_control"
+        | "control_driver"
+        | "edit_files"
+        | "run_shell"
+        | "approve_permissions"
+        | "share_terminal"
+      >
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "roomID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "actorPeerID" },
+            { in: "body", key: "capabilities" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<PairInviteCreateResponses, PairInviteCreateErrors, ThrowOnError>({
+      url: "/pair/rooms/{roomID}/invite",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class Control extends HeyApiClient {
+  /**
+   * Request pair control
+   *
+   * Request pair programming driver control.
+   */
+  public request<ThrowOnError extends boolean = false>(
+    parameters: {
+      roomID: string
+      directory?: string
+      workspace?: string
+      peerID?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "roomID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "peerID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<PairControlRequestResponses, PairControlRequestErrors, ThrowOnError>({
+      url: "/pair/rooms/{roomID}/control/request",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Grant pair control
+   *
+   * Grant driver control to a peer.
+   */
+  public grant<ThrowOnError extends boolean = false>(
+    parameters: {
+      roomID: string
+      directory?: string
+      workspace?: string
+      peerID?: string
+      actorPeerID?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "roomID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "peerID" },
+            { in: "body", key: "actorPeerID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<PairControlGrantResponses, PairControlGrantErrors, ThrowOnError>({
+      url: "/pair/rooms/{roomID}/control/grant",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Revoke pair control
+   *
+   * Return driver control to the host.
+   */
+  public revoke<ThrowOnError extends boolean = false>(
+    parameters: {
+      roomID: string
+      directory?: string
+      workspace?: string
+      peerID?: string
+      actorPeerID?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "roomID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "peerID" },
+            { in: "body", key: "actorPeerID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<PairControlRevokeResponses, PairControlRevokeErrors, ThrowOnError>({
+      url: "/pair/rooms/{roomID}/control/revoke",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class Pair extends HeyApiClient {
+  /**
+   * Join pair room
+   *
+   * Join a pair room using an invite token.
+   */
+  public join<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      inviteToken?: string
+      name?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "inviteToken" },
+            { in: "body", key: "name" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<PairJoinResponses, PairJoinErrors, ThrowOnError>({
+      url: "/pair/join",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Leave pair room
+   *
+   * Mark a peer as left.
+   */
+  public leave<ThrowOnError extends boolean = false>(
+    parameters: {
+      roomID: string
+      directory?: string
+      workspace?: string
+      peerID?: string
+      actorPeerID?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "roomID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "peerID" },
+            { in: "body", key: "actorPeerID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<PairLeaveResponses, PairLeaveErrors, ThrowOnError>({
+      url: "/pair/rooms/{roomID}/leave",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Create pair signaling token
+   *
+   * Create a short-lived ticket for opening a pair signaling WebSocket.
+   */
+  public signalingToken<ThrowOnError extends boolean = false>(
+    parameters: {
+      roomID: string
+      directory?: string
+      workspace?: string
+      peerID: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "roomID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "peerID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<PairSignalingTokenResponses, PairSignalingTokenErrors, ThrowOnError>({
+      url: "/pair/rooms/{roomID}/signaling-token",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Connect pair signaling socket
+   *
+   * Open a WebSocket used to broker pair programming signaling messages.
+   */
+  public signaling<ThrowOnError extends boolean = false>(
+    parameters: {
+      roomID: string
+      directory?: string
+      workspace?: string
+      ticket?: string
+      peerID?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "roomID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "ticket" },
+            { in: "query", key: "peerID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<PairSignalingResponses, PairSignalingErrors, ThrowOnError>({
+      url: "/pair/rooms/{roomID}/signaling",
+      ...options,
+      ...params,
+    })
+  }
+
+  private _room?: Room
+  get room(): Room {
+    return (this._room ??= new Room({ client: this.client }))
+  }
+
+  private _invite?: Invite
+  get invite(): Invite {
+    return (this._invite ??= new Invite({ client: this.client }))
+  }
+
+  private _control?: Control
+  get control(): Control {
+    return (this._control ??= new Control({ client: this.client }))
   }
 }
 
@@ -4553,7 +5042,7 @@ export class Team extends HeyApiClient {
   }
 }
 
-export class Control extends HeyApiClient {
+export class Control2 extends HeyApiClient {
   /**
    * Get next TUI request
    *
@@ -4994,9 +5483,9 @@ export class Tui extends HeyApiClient {
     })
   }
 
-  private _control?: Control
-  get control(): Control {
-    return (this._control ??= new Control({ client: this.client }))
+  private _control?: Control2
+  get control(): Control2 {
+    return (this._control ??= new Control2({ client: this.client }))
   }
 }
 
@@ -5091,6 +5580,11 @@ export class OpencodeClient extends HeyApiClient {
   private _mcp?: Mcp
   get mcp(): Mcp {
     return (this._mcp ??= new Mcp({ client: this.client }))
+  }
+
+  private _pair?: Pair
+  get pair(): Pair {
+    return (this._pair ??= new Pair({ client: this.client }))
   }
 
   private _project?: Project

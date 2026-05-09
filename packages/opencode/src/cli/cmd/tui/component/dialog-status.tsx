@@ -13,6 +13,7 @@ export function DialogStatus() {
   const dialog = useDialog()
 
   const enabledFormatters = createMemo(() => sync.data.formatter.filter((f) => f.enabled))
+  const pairSessions = createMemo(() => Object.entries(sync.data.pair).filter((entry) => entry[1]?.room.status === "active"))
 
   const plugins = createMemo(() => {
     const list = sync.data.config.plugin ?? []
@@ -118,6 +119,26 @@ export function DialogStatus() {
           </For>
         </box>
       )}
+      <Show when={pairSessions().length > 0}>
+        <box>
+          <text fg={theme.text}>Pair Sessions</text>
+          <For each={pairSessions()}>
+            {([sessionID, state]) => (
+              <box flexDirection="row" gap={1}>
+                <text flexShrink={0} fg={state?.selfPeerID === state?.room.driverPeerID ? theme.success : theme.warning}>
+                  ◈
+                </text>
+                <text fg={theme.text} wrapMode="word">
+                  <b>{sessionID}</b>{" "}
+                  <span style={{ fg: theme.textMuted }}>
+                    {state?.selfPeerID === state?.room.driverPeerID ? "driving" : "read-only"} · {Object.values(state?.presence ?? {}).filter((status) => status === "connected").length} connected
+                  </span>
+                </text>
+              </box>
+            )}
+          </For>
+        </box>
+      </Show>
       <Show when={enabledFormatters().length > 0} fallback={<text fg={theme.text}>No Formatters</text>}>
         <box>
           <text fg={theme.text}>{enabledFormatters().length} Formatters</text>

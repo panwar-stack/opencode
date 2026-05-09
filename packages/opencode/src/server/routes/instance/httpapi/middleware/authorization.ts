@@ -3,6 +3,7 @@ import { Effect, Encoding, Layer, Redacted } from "effect"
 import { HttpEffect, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiError, HttpApiMiddleware } from "effect/unstable/httpapi"
 import { hasPtyConnectTicketURL } from "@/server/shared/pty-ticket"
+import { hasPairSignalingTicketURL } from "@/server/shared/pair-ticket"
 import { isPublicUIPath } from "@/server/shared/public-ui"
 
 const AUTH_TOKEN_QUERY = "auth_token"
@@ -100,6 +101,7 @@ export const authorizationRouterMiddleware = HttpRouter.middleware()(
         const url = new URL(request.url, "http://localhost")
         if (isPublicUIPath(request.method, url.pathname)) return yield* effect
         if (hasPtyConnectTicketURL(url)) return yield* effect
+        if (hasPairSignalingTicketURL(url)) return yield* effect
         return yield* credentialFromURL(url, request).pipe(
           Effect.flatMap((credential) => validateRawCredential(effect, credential, config)),
         )

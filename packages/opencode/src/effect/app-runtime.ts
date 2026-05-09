@@ -48,6 +48,8 @@ import { Workspace } from "@/control-plane/workspace"
 import { Worktree } from "@/worktree"
 import { Pty } from "@/pty"
 import { PtyTicket } from "@/pty/ticket"
+import { Pair } from "@/pair/pair"
+import { PairTicket } from "@/pair/ticket"
 import { Installation } from "@/installation"
 import { ShareNext } from "@/share/share-next"
 import { SessionShare } from "@/share/session"
@@ -102,6 +104,8 @@ export const AppLayer = Layer.mergeAll(
   Worktree.appLayer,
   Pty.defaultLayer,
   PtyTicket.defaultLayer,
+  Pair.defaultLayer,
+  PairTicket.defaultLayer,
   Installation.defaultLayer,
   ShareNext.defaultLayer,
   SessionShare.defaultLayer,

@@ -170,6 +170,27 @@ export function SessionComposerRegion(props: {
           )}
         </Show>
 
+        <Show when={props.state.pairPendingPeer()} keyed>
+          {(peer) => (
+            <div class="mb-2 rounded-md border border-border-weak-base bg-surface-panel px-3 py-2 flex items-center gap-3 pointer-events-auto">
+              <div class="min-w-0 flex-1">
+                <div class="text-13-medium text-text-strong">{language.t("session.pair.control.requested.title")}</div>
+                <div class="text-12-regular text-text-weak truncate">
+                  {language.t("session.pair.control.requested.description", { peer: peer.id })}
+                </div>
+              </div>
+              <button
+                type="button"
+                class="h-7 px-2 rounded-md border border-border-weak-base bg-surface-raised-base-active text-12-medium text-text-base disabled:opacity-50"
+                disabled={props.state.pairControlPending() !== undefined}
+                onClick={props.state.pairControlGrant}
+              >
+                {language.t("session.pair.control.grant")}
+              </button>
+            </div>
+          )}
+        </Show>
+
         <Show when={showComposer()}>
           <Show
             when={prompt.ready()}
@@ -247,37 +268,69 @@ export function SessionComposerRegion(props: {
                 />
               </Show>
               <Show
-                when={child()}
+                when={props.state.pairRemoteDriver()}
                 fallback={
-                  <Show when={!props.state.blocked()}>
-                    <PromptInput
+                  <Show
+                    when={child()}
+                    fallback={
+                      <Show when={!props.state.blocked()}>
+                        <PromptInput
+                          ref={props.inputRef}
+                          newSessionWorktree={props.newSessionWorktree}
+                          onNewSessionWorktreeReset={props.onNewSessionWorktreeReset}
+                          edit={props.followup?.edit}
+                          onEditLoaded={props.followup?.onEditLoaded}
+                          shouldQueue={props.followup?.queue}
+                          onQueue={props.followup?.onQueue}
+                          onAbort={props.followup?.onAbort}
+                          onSubmit={props.onSubmit}
+                        />
+                      </Show>
+                    }
+                  >
+                    <div
                       ref={props.inputRef}
-                      newSessionWorktree={props.newSessionWorktree}
-                      onNewSessionWorktreeReset={props.onNewSessionWorktreeReset}
-                      edit={props.followup?.edit}
-                      onEditLoaded={props.followup?.onEditLoaded}
-                      shouldQueue={props.followup?.queue}
-                      onQueue={props.followup?.onQueue}
-                      onAbort={props.followup?.onAbort}
-                      onSubmit={props.onSubmit}
-                    />
+                      class="w-full rounded-[12px] border border-border-weak-base bg-background-base p-3 text-16-regular text-text-weak"
+                    >
+                      <span>{language.t("session.child.promptDisabled")} </span>
+                      <Show when={parentID()}>
+                        <button
+                          type="button"
+                          class="text-text-base transition-colors hover:text-text-strong"
+                          onClick={openParent}
+                        >
+                          {language.t("session.child.backToParent")}
+                        </button>
+                      </Show>
+                    </div>
                   </Show>
                 }
               >
-                <div
-                  ref={props.inputRef}
-                  class="w-full rounded-[12px] border border-border-weak-base bg-background-base p-3 text-16-regular text-text-weak"
-                >
-                  <span>{language.t("session.child.promptDisabled")} </span>
-                  <Show when={parentID()}>
-                    <button
-                      type="button"
-                      class="text-text-base transition-colors hover:text-text-strong"
-                      onClick={openParent}
-                    >
-                      {language.t("session.child.backToParent")}
-                    </button>
-                  </Show>
+                <div class="rounded-[12px] border border-border-weak-base bg-background-base p-3 flex items-center gap-3 pointer-events-auto">
+                  <div class="min-w-0 flex-1">
+                    <div class="text-14-medium text-text-strong">{language.t("session.pair.control.locked.title")}</div>
+                    <div class="text-12-regular text-text-weak">{language.t("session.pair.control.locked.description")}</div>
+                  </div>
+                  <button
+                    type="button"
+                    class="h-7 px-2 rounded-md border border-border-weak-base text-12-medium text-text-base disabled:opacity-50"
+                    disabled={props.state.pairControlPending() !== undefined}
+                    onClick={props.state.pairControlRequest}
+                  >
+                    {language.t("session.pair.control.request")}
+                  </button>
+                </div>
+              </Show>
+              <Show when={props.state.pair()?.status === "active" && !props.state.pairRemoteDriver()}>
+                <div class="mt-2 flex justify-end pointer-events-auto">
+                  <button
+                    type="button"
+                    class="h-7 px-2 rounded-md border border-border-weak-base text-12-medium text-text-base disabled:opacity-50"
+                    disabled={props.state.pairControlPending() !== undefined}
+                    onClick={props.state.pairControlRevoke}
+                  >
+                    {language.t("session.pair.control.release")}
+                  </button>
                 </div>
               </Show>
             </div>

@@ -18,6 +18,7 @@ type SessionCache = {
   part: Record<string, Part[] | undefined>
   permission: Record<string, PermissionRequest[] | undefined>
   question: Record<string, QuestionRequest[] | undefined>
+  pair?: Record<string, unknown>
 }
 
 export function dropSessionCaches(store: SessionCache, sessionIDs: Iterable<string>) {
@@ -37,6 +38,7 @@ export function dropSessionCaches(store: SessionCache, sessionIDs: Iterable<stri
     delete store.session_status[sessionID]
     delete store.permission[sessionID]
     delete store.question[sessionID]
+    if (store.pair) delete store.pair[sessionID]
   }
 }
 

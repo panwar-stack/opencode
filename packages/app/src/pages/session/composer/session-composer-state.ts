@@ -1,7 +1,6 @@
 import { createEffect, createMemo, on, onCleanup } from "solid-js"
 import { createStore } from "solid-js/store"
 import type { PermissionRequest, QuestionRequest, Todo } from "@opencode-ai/sdk/v2"
-import { useParams } from "@solidjs/router"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
@@ -9,22 +8,14 @@ import { usePermission } from "@/context/permission"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { sessionPermissionRequest, sessionQuestionRequest } from "./session-request-tree"
+import { todoState } from "./session-composer-utils"
 
-export const todoState = (input: {
-  count: number
-  done: boolean
-  live: boolean
-}): "hide" | "clear" | "open" | "close" => {
-  if (input.count === 0) return "hide"
-  if (!input.live) return "clear"
-  if (!input.done) return "open"
-  return "close"
-}
+export { todoState }
 
 const idle = { type: "idle" as const }
 
-export function createSessionComposerState(options?: { closeMs?: number | (() => number) }) {
-  const params = useParams()
+export function createSessionComposerState(options?: { closeMs?: number | (() => number); sessionID?: () => string | undefined }) {
+  const sessionID = options?.sessionID ?? (() => undefined)
   const sdk = useSDK()
   const sync = useSync()
   const globalSync = useGlobalSync()
@@ -32,23 +23,23 @@ export function createSessionComposerState(options?: { closeMs?: number | (() =>
   const permission = usePermission()
 
   const questionRequest = createMemo((): QuestionRequest | undefined => {
-    return sessionQuestionRequest(sync.data.session, sync.data.question, params.id)
+    return sessionQuestionRequest(sync.data.session, sync.data.question, sessionID())
   })
 
   const permissionRequest = createMemo((): PermissionRequest | undefined => {
-    return sessionPermissionRequest(sync.data.session, sync.data.permission, params.id, (item) => {
+    return sessionPermissionRequest(sync.data.session, sync.data.permission, sessionID(), (item) => {
       return !permission.autoResponds(item, sdk.directory)
     })
   })
 
   const blocked = createMemo(() => {
-    const id = params.id
+    const id = sessionID()
     if (!id) return false
     return !!permissionRequest() || !!questionRequest()
   })
 
   const todos = createMemo((): Todo[] => {
-    const id = params.id
+    const id = sessionID()
     if (!id) return []
     return globalSync.data.session_todo[id] ?? []
   })
@@ -58,16 +49,33 @@ export function createSessionComposerState(options?: { closeMs?: number | (() =>
   )
 
   const status = createMemo(() => {
-    const id = params.id
+    const id = sessionID()
     if (!id) return idle
     return sync.data.session_status[id] ?? idle
   })
 
   const busy = createMemo(() => status().type !== "idle")
   const live = createMemo(() => busy() || blocked())
+  const pair = createMemo(() => {
+    const id = sessionID()
+    if (!id) return
+    return sync.data.pair[id]
+  })
+  const pairRemoteDriver = createMemo(() => {
+    const room = pair()
+    if (!room || room.status !== "active") return false
+    return !!room.localPeerID && room.driverPeerID !== room.localPeerID
+  })
+  const pairPendingPeer = createMemo(() => {
+    const room = pair()
+    if (!room?.pendingControlPeerID) return
+    return room.peers[room.pendingControlPeerID]
+  })
+  const pairLocalPeerID = createMemo(() => pair()?.localPeerID ?? pair()?.hostPeerID)
 
   const [store, setStore] = createStore({
     responding: undefined as string | undefined,
+    pairControl: undefined as "request" | "grant" | "revoke" | undefined,
     dock: todos().length > 0 && live(),
     closing: false,
     opening: false,
@@ -96,6 +104,47 @@ export function createSessionComposerState(options?: { closeMs?: number | (() =>
       })
   }
 
+  const pairControlRequest = () => {
+    const room = pair()
+    const peerID = pairLocalPeerID()
+    if (!room || !peerID || store.pairControl) return
+    setStore("pairControl", "request")
+    sdk.client.pair.control
+      .request({ roomID: room.id, peerID })
+      .catch((err: unknown) => {
+        showToast({ title: language.t("common.requestFailed"), description: err instanceof Error ? err.message : String(err) })
+      })
+      .finally(() => setStore("pairControl", undefined))
+  }
+
+  const pairControlGrant = () => {
+    const room = pair()
+    const peerID = room?.pendingControlPeerID
+    const actorPeerID = pairLocalPeerID()
+    if (!room || !peerID || !actorPeerID || store.pairControl) return
+    setStore("pairControl", "grant")
+    sdk.client.pair.control
+      .grant({ roomID: room.id, peerID, actorPeerID })
+      .catch((err: unknown) => {
+        showToast({ title: language.t("common.requestFailed"), description: err instanceof Error ? err.message : String(err) })
+      })
+      .finally(() => setStore("pairControl", undefined))
+  }
+
+  const pairControlRevoke = () => {
+    const room = pair()
+    const peerID = room?.driverPeerID
+    const actorPeerID = pairLocalPeerID()
+    if (!room || !peerID || !actorPeerID || store.pairControl) return
+    setStore("pairControl", "revoke")
+    sdk.client.pair.control
+      .revoke({ roomID: room.id, peerID, actorPeerID })
+      .catch((err: unknown) => {
+        showToast({ title: language.t("common.requestFailed"), description: err instanceof Error ? err.message : String(err) })
+      })
+      .finally(() => setStore("pairControl", undefined))
+  }
+
   let timer: number | undefined
   let raf: number | undefined
 
@@ -116,7 +165,7 @@ export function createSessionComposerState(options?: { closeMs?: number | (() =>
 
   // Keep stale turn todos from reopening if the model never clears them.
   const clear = () => {
-    const id = params.id
+    const id = sessionID()
     if (!id) return
     globalSync.todo.set(id, [])
     sync.set("todo", id, [])
@@ -188,6 +237,13 @@ export function createSessionComposerState(options?: { closeMs?: number | (() =>
     permissionRequest,
     permissionResponding,
     decide,
+    pair,
+    pairRemoteDriver,
+    pairPendingPeer,
+    pairControlPending: () => store.pairControl,
+    pairControlRequest,
+    pairControlGrant,
+    pairControlRevoke,
     todos,
     dock: () => store.dock,
     closing: () => store.closing,

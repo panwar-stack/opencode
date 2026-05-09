@@ -446,35 +446,55 @@ export default function Layout(props: ParentProps) {
         if (
           e.details?.type === "question.replied" ||
           e.details?.type === "question.rejected" ||
-          e.details?.type === "permission.replied"
+          e.details?.type === "permission.replied" ||
+          e.details?.type === "pair.control.granted" ||
+          e.details?.type === "pair.control.revoked"
         ) {
-          const props = e.details.properties as { sessionID: string }
-          const sessionKey = `${e.name}:${props.sessionID}`
-          dismissSessionAlert(sessionKey)
+          const props = e.details.properties as { sessionID?: string; roomID?: string }
+          const [store] = globalSync.child(e.name, { bootstrap: false })
+          const sessionID = props.sessionID ?? Object.entries(store.pair).find(([, room]) => room?.id === props.roomID)?.[0]
+          if (sessionID) dismissSessionAlert(`${e.name}:${sessionID}`)
           return
         }
 
-        if (e.details?.type !== "permission.asked" && e.details?.type !== "question.asked") return
+        if (
+          e.details?.type !== "permission.asked" &&
+          e.details?.type !== "question.asked" &&
+          e.details?.type !== "pair.peer.joined" &&
+          e.details?.type !== "pair.control.requested"
+        )
+          return
+        const pairEvent = e.details.type === "pair.peer.joined" || e.details.type === "pair.control.requested"
         const title =
           e.details.type === "permission.asked"
             ? language.t("notification.permission.title")
-            : language.t("notification.question.title")
-        const icon = e.details.type === "permission.asked" ? ("checklist" as const) : ("bubble-5" as const)
+            : e.details.type === "question.asked"
+              ? language.t("notification.question.title")
+              : e.details.type === "pair.peer.joined"
+                ? language.t("notification.pair.peerJoined.title")
+                : language.t("notification.pair.controlRequested.title")
+        const icon = e.details.type === "permission.asked" ? ("checklist" as const) : pairEvent ? ("link" as const) : ("bubble-5" as const)
         const directory = e.name
         const props = e.details.properties
         if (e.details.type === "permission.asked" && permission.autoResponds(e.details.properties, directory)) return
 
         const [store] = globalSync.child(directory, { bootstrap: false })
-        const session = store.session.find((s) => s.id === props.sessionID)
-        const sessionKey = `${directory}:${props.sessionID}`
+        const sessionID = "sessionID" in props ? props.sessionID : Object.entries(store.pair).find(([, room]) => room?.id === props.roomID)?.[0]
+        if (!sessionID) return
+        const session = store.session.find((s) => s.id === sessionID)
+        const sessionKey = `${directory}:${sessionID}`
 
         const sessionTitle = session?.title ?? language.t("command.session.new")
         const projectName = getFilename(directory)
         const description =
           e.details.type === "permission.asked"
             ? language.t("notification.permission.description", { sessionTitle, projectName })
-            : language.t("notification.question.description", { sessionTitle, projectName })
-        const href = `/${base64Encode(directory)}/session/${props.sessionID}`
+            : e.details.type === "question.asked"
+              ? language.t("notification.question.description", { sessionTitle, projectName })
+              : e.details.type === "pair.peer.joined"
+                ? language.t("notification.pair.peerJoined.description", { sessionTitle, projectName })
+                : language.t("notification.pair.controlRequested.description", { sessionTitle, projectName })
+        const href = `/${base64Encode(directory)}/session/${sessionID}`
 
         const now = Date.now()
         const lastAlerted = alertedAtBySession.get(sessionKey) ?? 0
@@ -497,7 +517,7 @@ export default function Layout(props: ParentProps) {
         }
 
         const currentSession = params.id
-        if (pathKey(directory) === pathKey(currentDir()) && props.sessionID === currentSession) return
+        if (pathKey(directory) === pathKey(currentDir()) && sessionID === currentSession) return
         if (pathKey(directory) === pathKey(currentDir()) && session?.parentID === currentSession) return
 
         dismissSessionAlert(sessionKey)

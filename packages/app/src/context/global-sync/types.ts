@@ -6,6 +6,7 @@ import type {
   McpStatus,
   Message,
   Part,
+  PairRoomCreateResponse,
   Path,
   PermissionRequest,
   ProviderListResponse,
@@ -28,6 +29,23 @@ export type ProjectMeta = {
   commands?: {
     start?: string
   }
+}
+
+export type PairPeerState = {
+  id: string
+  role?: "host" | "guest"
+  status?: string
+  typing?: boolean
+  prompt?: string
+}
+
+export type PairRoomState = Pick<
+  PairRoomCreateResponse,
+  "id" | "sessionID" | "hostPeerID" | "status" | "driverPeerID" | "capabilities"
+> & {
+  localPeerID?: string
+  pendingControlPeerID?: string
+  peers: Record<string, PairPeerState>
 }
 
 export type State = {
@@ -57,6 +75,9 @@ export type State = {
   }
   question: {
     [sessionID: string]: QuestionRequest[]
+  }
+  pair: {
+    [sessionID: string]: PairRoomState | undefined
   }
   mcp_ready: boolean
   mcp: {

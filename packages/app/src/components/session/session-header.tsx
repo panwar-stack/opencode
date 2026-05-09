@@ -17,10 +17,12 @@ import { useLayout } from "@/context/layout"
 import { usePlatform } from "@/context/platform"
 import { useServer } from "@/context/server"
 import { useSettings } from "@/context/settings"
+import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { useTerminal } from "@/context/terminal"
 import { focusTerminalById } from "@/pages/session/helpers"
 import { useSessionLayout } from "@/pages/session/session-layout"
+import type { PairRoomState } from "@/context/global-sync/types"
 import { messageAgentColor } from "@/utils/agent"
 import { decode64 } from "@/utils/base64"
 import { Persist, persisted } from "@/utils/persist"
@@ -129,6 +131,12 @@ const showRequestError = (language: ReturnType<typeof useLanguage>, err: unknown
   })
 }
 
+const pairInviteUrl = (token: string) => {
+  const url = new URL(window.location.href)
+  url.searchParams.set("pair", token)
+  return url.toString()
+}
+
 export function SessionHeader() {
   const layout = useLayout()
   const command = useCommand()
@@ -136,6 +144,7 @@ export function SessionHeader() {
   const platform = usePlatform()
   const language = useLanguage()
   const settings = useSettings()
+  const sdk = useSDK()
   const sync = useSync()
   const terminal = useTerminal()
   const { params, view } = useSessionLayout()
@@ -231,6 +240,14 @@ export function SessionHeader() {
   const tint = createMemo(() =>
     messageAgentColor(params.id ? sync.data.message[params.id] : undefined, sync.data.agent),
   )
+  const pair = createMemo(() => (params.id ? sync.data.pair[params.id] : undefined))
+  const pairActive = createMemo(() => pair()?.status === "active")
+  const pairPeerCount = createMemo(() => {
+    const room = pair()
+    if (!room) return 0
+    return Object.values(room.peers).filter((peer) => peer.status !== "left").length
+  })
+  const [pairRequest, setPairRequest] = createStore({ action: undefined as "start" | "invite" | undefined })
 
   const selectApp = (app: OpenApp) => {
     if (!options().some((item) => item.id === app)) return
@@ -267,6 +284,71 @@ export function SessionHeader() {
         })
       })
       .catch((err: unknown) => showRequestError(language, err))
+  }
+
+  const persistPairRoom = (room: PairRoomState) => {
+    if (!params.id) return
+    sync.pair.set(params.id, room)
+  }
+
+  const startPair = () => {
+    const sessionID = params.id
+    if (!sessionID || pairRequest.action) return
+    setPairRequest("action", "start")
+    sdk.client.pair.room
+      .create({ sessionID })
+      .then((response) => {
+        const data = response.data
+        if (!data) return
+        persistPairRoom({
+          id: data.id,
+          sessionID: data.sessionID,
+          hostPeerID: data.hostPeerID,
+          localPeerID: data.hostPeerID,
+          status: data.status,
+          driverPeerID: data.driverPeerID,
+          capabilities: data.capabilities,
+          peers: {
+            [data.hostPeerID]: {
+              id: data.hostPeerID,
+              role: "host",
+              status: "connected",
+            },
+          },
+        })
+        showToast({
+          variant: "success",
+          icon: "circle-check",
+          title: language.t("session.pair.toast.started.title"),
+          description: language.t("session.pair.toast.started.description"),
+        })
+      })
+      .catch((err: unknown) => showRequestError(language, err))
+      .finally(() => setPairRequest("action", undefined))
+  }
+
+  const copyPairInvite = () => {
+    const room = pair()
+    const actorPeerID = room?.localPeerID ?? room?.hostPeerID
+    if (!room || !actorPeerID || pairRequest.action) return
+    setPairRequest("action", "invite")
+    sdk.client.pair.invite
+      .create({ roomID: room.id, actorPeerID })
+      .then((response) => {
+        const token = response.data?.token
+        if (!token) return
+        return navigator.clipboard.writeText(pairInviteUrl(token))
+      })
+      .then(() => {
+        showToast({
+          variant: "success",
+          icon: "circle-check",
+          title: language.t("session.pair.toast.inviteCopied.title"),
+          description: language.t("session.pair.toast.inviteCopied.description"),
+        })
+      })
+      .catch((err: unknown) => showRequestError(language, err))
+      .finally(() => setPairRequest("action", undefined))
   }
 
   const [centerMount, setCenterMount] = createSignal<HTMLElement | null>(null)
@@ -426,6 +508,37 @@ export function SessionHeader() {
                 </div>
               </Show>
               <div class="flex items-center gap-1">
+                <Show when={params.id}>
+                  <>
+                    <div class="hidden md:flex h-6 items-center rounded-md border border-border-weak-base bg-surface-panel overflow-hidden">
+                      <Button
+                        variant="ghost"
+                        class="rounded-none h-full py-0 pl-2 pr-1.5 gap-1.5 border-none shadow-none text-12-regular"
+                        classList={{ "text-icon-info-active": pairActive(), "text-text-base": !pairActive() }}
+                        disabled={pairRequest.action !== undefined}
+                        onClick={pairActive() ? copyPairInvite : startPair}
+                        aria-label={pairActive() ? language.t("session.pair.copyInvite") : language.t("session.pair.start")}
+                      >
+                        <Show when={pairRequest.action} fallback={<Icon name="link" size="small" class="text-icon-base" />}>
+                          <Spinner class="size-3.5" style={{ color: tint() ?? "var(--icon-base)" }} />
+                        </Show>
+                        <span>{pairActive() ? language.t("session.pair.active", { count: pairPeerCount() }) : language.t("session.pair.start")}</span>
+                      </Button>
+                      <Show when={pairActive()}>
+                        <Tooltip placement="bottom" value={language.t("session.pair.copyInvite")}>
+                          <IconButton
+                            icon="copy"
+                            variant="ghost"
+                            disabled={pairRequest.action !== undefined}
+                            class="rounded-none h-full w-[24px] p-0 border-none shadow-none"
+                            onClick={copyPairInvite}
+                            aria-label={language.t("session.pair.copyInvite")}
+                          />
+                        </Tooltip>
+                      </Show>
+                    </div>
+                  </>
+                </Show>
                 <Show when={status()}>
                   <Tooltip placement="bottom" value={language.t("status.popover.trigger")}>
                     <StatusPopover />

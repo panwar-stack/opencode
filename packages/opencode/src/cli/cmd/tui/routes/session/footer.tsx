@@ -13,6 +13,9 @@ export function Footer() {
   const mcp = createMemo(() => Object.values(sync.data.mcp).filter((x) => x.status === "connected").length)
   const mcpError = createMemo(() => Object.values(sync.data.mcp).some((x) => x.status === "failed"))
   const lsp = createMemo(() => Object.keys(sync.data.lsp))
+  const pair = createMemo(() => (route.data.type === "session" ? sync.pair.get(route.data.sessionID) : undefined))
+  const pairDriver = createMemo(() => (route.data.type === "session" ? sync.pair.isDriver(route.data.sessionID) : true))
+  const pairPeers = createMemo(() => Object.values(pair()?.presence ?? {}).filter((status) => status === "connected").length)
   const permissions = createMemo(() => {
     if (route.data.type !== "session") return []
     return sync.data.permission[route.data.sessionID] ?? []
@@ -80,6 +83,11 @@ export function Footer() {
                   </Match>
                 </Switch>
                 {mcp()} MCP
+              </text>
+            </Show>
+            <Show when={pair()?.room.status === "active"}>
+              <text fg={pairDriver() ? theme.success : theme.warning}>
+                <span style={{ fg: pairDriver() ? theme.success : theme.warning }}>◈</span> Pair {pairPeers()} {pairDriver() ? "driver" : "viewer"}
               </text>
             </Show>
             <text fg={theme.textMuted}>/status</text>

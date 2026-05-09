@@ -13,6 +13,7 @@ import { useGlobalSync } from "./global-sync"
 import { useSDK } from "./sdk"
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
 import { SESSION_CACHE_LIMIT, dropSessionCaches, pickSessionCacheEvictions } from "./global-sync/session-cache"
+import type { PairRoomState } from "./global-sync/types"
 import { diffs as list, message as clean } from "@/utils/diffs"
 
 const SKIP_PARTS = new Set(["patch", "step-start", "step-finish"])
@@ -386,6 +387,11 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
         const match = Binary.search(globalSync.data.project, store.project, (p) => p.id)
         if (match.found) return globalSync.data.project[match.index]
         return undefined
+      },
+      pair: {
+        set(sessionID: string, room: PairRoomState | undefined) {
+          current()[1]("pair", sessionID, room)
+        },
       },
       session: {
         get: getSession,

@@ -332,7 +332,7 @@ export default function Page() {
   const prompt = usePrompt()
   const comments = useComments()
   const terminal = useTerminal()
-  const [searchParams, setSearchParams] = useSearchParams<{ prompt?: string }>()
+  const [searchParams, setSearchParams] = useSearchParams<{ prompt?: string; pair?: string }>()
   const { params, sessionKey, tabs, view } = useSessionLayout()
 
   createEffect(() => {
@@ -343,6 +343,55 @@ export default function Page() {
       if (!text) return
       prompt.set([{ type: "text", content: text, start: 0, end: text.length }], text.length)
       setSearchParams({ ...searchParams, prompt: undefined })
+    })
+  })
+
+  createEffect(() => {
+    const token = searchParams.pair
+    const sessionID = params.id
+    if (!token || !sessionID) return
+    untrack(() => {
+      sdk.client.pair
+        .join({ inviteToken: token, name: language.t("session.pair.peerName.web") })
+        .then((response) => {
+          const data = response.data
+          if (!data) return
+          sync.pair.set(data.room.sessionID, {
+            id: data.room.id,
+            sessionID: data.room.sessionID,
+            hostPeerID: data.room.hostPeerID,
+            localPeerID: data.peer.id,
+            status: data.room.status,
+            driverPeerID: data.room.driverPeerID,
+            capabilities: data.room.capabilities,
+            peers: {
+              [data.room.hostPeerID]: {
+                id: data.room.hostPeerID,
+                role: "host",
+                status: "connected",
+              },
+              [data.peer.id]: {
+                id: data.peer.id,
+                role: data.peer.role,
+                status: data.peer.status,
+              },
+            },
+          })
+          showToast({
+            variant: "success",
+            icon: "circle-check",
+            title: language.t("session.pair.toast.joined.title"),
+            description: language.t("session.pair.toast.joined.description"),
+          })
+        })
+        .catch((err: unknown) =>
+          showToast({
+            variant: "error",
+            title: language.t("common.requestFailed"),
+            description: formatServerError(err, language.t),
+          }),
+        )
+      setSearchParams({ ...searchParams, pair: undefined })
     })
   })
 
@@ -357,7 +406,7 @@ export default function Page() {
     },
   })
 
-  const composer = createSessionComposerState()
+  const composer = createSessionComposerState({ sessionID: () => params.id })
 
   const workspaceKey = createMemo(() => params.dir ?? "")
   const workspaceTabs = createMemo(() => layout.tabs(workspaceKey))

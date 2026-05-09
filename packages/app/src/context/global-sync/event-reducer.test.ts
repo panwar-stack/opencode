@@ -75,6 +75,7 @@ const baseState = (input: Partial<State> = {}) =>
     todo: {},
     permission: {},
     question: {},
+    pair: {},
     mcp: {},
     lsp: [],
     vcs: undefined,
@@ -515,6 +516,49 @@ describe("applyDirectoryEvent", () => {
 
     expect(store.vcs).toEqual({ branch: "feature/test", default_branch: "main" })
     expect(cacheStore.value).toEqual({ branch: "feature/test", default_branch: "main" })
+  })
+
+  test("tracks pair room control lifecycle", () => {
+    const sessionID = "ses_pair"
+    const [store, setStore] = createStore(baseState())
+
+    const apply = (event: { type: string; properties?: unknown }) =>
+      applyDirectoryEvent({
+        event,
+        store,
+        setStore,
+        push() {},
+        directory: "/tmp",
+        loadLsp() {},
+      })
+
+    apply({
+      type: "pair.room.created",
+      properties: { roomID: "room_1", sessionID, hostPeerID: "peer_host" },
+    })
+    expect(store.pair[sessionID]?.driverPeerID).toBe("peer_host")
+
+    apply({
+      type: "pair.peer.joined",
+      properties: { roomID: "room_1", peerID: "peer_guest", role: "guest" },
+    })
+    expect(store.pair[sessionID]?.peers.peer_guest?.status).toBe("connected")
+
+    apply({ type: "pair.control.requested", properties: { roomID: "room_1", peerID: "peer_guest" } })
+    expect(store.pair[sessionID]?.pendingControlPeerID).toBe("peer_guest")
+
+    apply({ type: "pair.control.granted", properties: { roomID: "room_1", peerID: "peer_guest" } })
+    expect(store.pair[sessionID]?.driverPeerID).toBe("peer_guest")
+    expect(store.pair[sessionID]?.pendingControlPeerID).toBeUndefined()
+
+    apply({ type: "pair.typing.updated", properties: { roomID: "room_1", peerID: "peer_guest", typing: true } })
+    expect(store.pair[sessionID]?.peers.peer_guest?.typing).toBe(true)
+
+    apply({ type: "pair.control.revoked", properties: { roomID: "room_1", peerID: "peer_guest" } })
+    expect(store.pair[sessionID]?.driverPeerID).toBe("peer_host")
+
+    apply({ type: "pair.room.closed", properties: { roomID: "room_1" } })
+    expect(store.pair[sessionID]?.status).toBe("closed")
   })
 
   test("routes disposal and lsp events to side-effect handlers", () => {

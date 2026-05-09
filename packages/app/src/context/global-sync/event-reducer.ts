@@ -11,7 +11,7 @@ import type {
   SnapshotFileDiff,
   Todo,
 } from "@opencode-ai/sdk/v2/client"
-import type { State, VcsCache } from "./types"
+import type { PairRoomState, State, VcsCache } from "./types"
 import { trimSessions } from "./session-trim"
 import { dropSessionCaches } from "./session-cache"
 import { diffs as list, message as clean } from "@/utils/diffs"
@@ -59,6 +59,14 @@ function cleanupSessionCaches(
       dropSessionCaches(draft, [sessionID])
     }),
   )
+}
+
+function pairSessionID(store: Store<State>, roomID: string) {
+  return Object.entries(store.pair).find(([, room]) => room?.id === roomID)?.[0]
+}
+
+function setPairRoom(setStore: SetStoreFunction<State>, room: PairRoomState) {
+  setStore("pair", room.sessionID, reconcile(room))
 }
 
 export function cleanupDroppedSessionCaches(
@@ -163,6 +171,116 @@ export function applyDirectoryEvent(input: {
       cleanupSessionCaches(input.setStore, info.id, input.setSessionTodo)
       if (info.parentID) break
       input.setStore("sessionTotal", (value) => Math.max(0, value - 1))
+      break
+    }
+    case "pair.room.created": {
+      const props = event.properties as { roomID: string; sessionID: string; hostPeerID: string }
+      setPairRoom(input.setStore, {
+        id: props.roomID,
+        sessionID: props.sessionID,
+        hostPeerID: props.hostPeerID,
+        localPeerID: props.hostPeerID,
+        status: "active",
+        driverPeerID: props.hostPeerID,
+        capabilities: [],
+        peers: {
+          [props.hostPeerID]: {
+            id: props.hostPeerID,
+            role: "host",
+            status: "connected",
+          },
+        },
+      })
+      break
+    }
+    case "pair.room.closed": {
+      const props = event.properties as { roomID: string }
+      const sessionID = pairSessionID(input.store, props.roomID)
+      if (!sessionID) break
+      input.setStore("pair", sessionID, "status", "closed")
+      break
+    }
+    case "pair.peer.joined": {
+      const props = event.properties as { roomID: string; peerID: string; role: "host" | "guest" }
+      const sessionID = pairSessionID(input.store, props.roomID)
+      if (!sessionID) break
+      input.setStore("pair", sessionID, "peers", props.peerID, {
+        id: props.peerID,
+        role: props.role,
+        status: "connected",
+      })
+      break
+    }
+    case "pair.peer.left": {
+      const props = event.properties as { roomID: string; peerID: string }
+      const sessionID = pairSessionID(input.store, props.roomID)
+      if (!sessionID) break
+      input.setStore("pair", sessionID, "peers", props.peerID, "status", "left")
+      break
+    }
+    case "pair.control.requested": {
+      const props = event.properties as { roomID: string; peerID: string }
+      const sessionID = pairSessionID(input.store, props.roomID)
+      if (!sessionID) break
+      input.setStore("pair", sessionID, "pendingControlPeerID", props.peerID)
+      break
+    }
+    case "pair.control.granted": {
+      const props = event.properties as { roomID: string; peerID: string }
+      const sessionID = pairSessionID(input.store, props.roomID)
+      if (!sessionID) break
+      input.setStore("pair", sessionID, "driverPeerID", props.peerID)
+      input.setStore("pair", sessionID, "pendingControlPeerID", undefined)
+      break
+    }
+    case "pair.control.revoked": {
+      const props = event.properties as { roomID: string; peerID: string }
+      const sessionID = pairSessionID(input.store, props.roomID)
+      if (!sessionID) break
+      const room = input.store.pair[sessionID]
+      input.setStore("pair", sessionID, "driverPeerID", room?.hostPeerID ?? props.peerID)
+      input.setStore("pair", sessionID, "pendingControlPeerID", undefined)
+      break
+    }
+    case "pair.presence.updated":
+    case "pair.connection.updated": {
+      const props = event.properties as { roomID: string; peerID: string; status: string }
+      const sessionID = pairSessionID(input.store, props.roomID)
+      if (!sessionID) break
+      input.setStore("pair", sessionID, "peers", props.peerID, (peer) => ({
+        ...peer,
+        id: props.peerID,
+        status: props.status,
+      }))
+      break
+    }
+    case "pair.prompt.updated": {
+      const props = event.properties as { roomID: string; peerID: string; text: string }
+      const sessionID = pairSessionID(input.store, props.roomID)
+      if (!sessionID) break
+      input.setStore("pair", sessionID, "peers", props.peerID, (peer) => ({
+        ...peer,
+        id: props.peerID,
+        prompt: props.text,
+      }))
+      break
+    }
+    case "pair.typing.updated": {
+      const props = event.properties as { roomID: string; peerID: string; typing: boolean }
+      const sessionID = pairSessionID(input.store, props.roomID)
+      if (!sessionID) break
+      input.setStore("pair", sessionID, "peers", props.peerID, (peer) => ({
+        ...peer,
+        id: props.peerID,
+        typing: props.typing,
+      }))
+      break
+    }
+    case "pair.remote.submitted": {
+      const props = event.properties as { roomID: string; peerID: string }
+      const sessionID = pairSessionID(input.store, props.roomID)
+      if (!sessionID) break
+      input.setStore("pair", sessionID, "peers", props.peerID, "typing", false)
       break
     }
     case "session.diff": {

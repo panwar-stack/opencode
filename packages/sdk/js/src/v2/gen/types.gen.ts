@@ -46,6 +46,20 @@ export type Event =
   | EventPtyUpdated
   | EventPtyExited
   | EventPtyDeleted
+  | EventPairRoomCreated
+  | EventPairRoomClosed
+  | EventPairPeerJoined
+  | EventPairPeerLeft
+  | EventPairControlRequested
+  | EventPairControlGranted
+  | EventPairControlRevoked
+  | EventPairRemoteSubmitted
+  | EventPairPresenceUpdated
+  | EventPairCursorUpdated1
+  | EventPairSelectionUpdated
+  | EventPairPromptUpdated
+  | EventPairTypingUpdated
+  | EventPairConnectionUpdated
   | EventMessageUpdated
   | EventMessageRemoved
   | EventMessagePartUpdated
@@ -823,6 +837,20 @@ export type GlobalEvent = {
     | EventPtyUpdated
     | EventPtyExited
     | EventPtyDeleted
+    | EventPairRoomCreated
+    | EventPairRoomClosed
+    | EventPairPeerJoined
+    | EventPairPeerLeft
+    | EventPairControlRequested
+    | EventPairControlGranted
+    | EventPairControlRevoked
+    | EventPairRemoteSubmitted
+    | EventPairPresenceUpdated
+    | EventPairCursorUpdated
+    | EventPairSelectionUpdated
+    | EventPairPromptUpdated
+    | EventPairTypingUpdated
+    | EventPairConnectionUpdated
     | EventMessageUpdated
     | EventMessageRemoved
     | EventMessagePartUpdated
@@ -2673,6 +2701,141 @@ export type EventPtyDeleted = {
   }
 }
 
+export type EventPairRoomCreated = {
+  id: string
+  type: "pair.room.created"
+  properties: {
+    roomID: string
+    sessionID: string
+    hostPeerID: string
+  }
+}
+
+export type EventPairRoomClosed = {
+  id: string
+  type: "pair.room.closed"
+  properties: {
+    roomID: string
+  }
+}
+
+export type EventPairPeerJoined = {
+  id: string
+  type: "pair.peer.joined"
+  properties: {
+    roomID: string
+    peerID: string
+    role: "host" | "guest"
+  }
+}
+
+export type EventPairPeerLeft = {
+  id: string
+  type: "pair.peer.left"
+  properties: {
+    roomID: string
+    peerID: string
+  }
+}
+
+export type EventPairControlRequested = {
+  id: string
+  type: "pair.control.requested"
+  properties: {
+    roomID: string
+    peerID: string
+  }
+}
+
+export type EventPairControlGranted = {
+  id: string
+  type: "pair.control.granted"
+  properties: {
+    roomID: string
+    peerID: string
+  }
+}
+
+export type EventPairControlRevoked = {
+  id: string
+  type: "pair.control.revoked"
+  properties: {
+    roomID: string
+    peerID: string
+  }
+}
+
+export type EventPairRemoteSubmitted = {
+  id: string
+  type: "pair.remote.submitted"
+  properties: {
+    roomID: string
+    peerID: string
+  }
+}
+
+export type EventPairPresenceUpdated = {
+  id: string
+  type: "pair.presence.updated"
+  properties: {
+    roomID: string
+    peerID: string
+    status: string
+  }
+}
+
+export type EventPairCursorUpdated = {
+  id: string
+  type: "pair.cursor.updated"
+  properties: {
+    roomID: string
+    peerID: string
+    path: string
+    line: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    column: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type EventPairSelectionUpdated = {
+  id: string
+  type: "pair.selection.updated"
+  properties: {
+    roomID: string
+    peerID: string
+    path: string
+  }
+}
+
+export type EventPairPromptUpdated = {
+  id: string
+  type: "pair.prompt.updated"
+  properties: {
+    roomID: string
+    peerID: string
+    text: string
+  }
+}
+
+export type EventPairTypingUpdated = {
+  id: string
+  type: "pair.typing.updated"
+  properties: {
+    roomID: string
+    peerID: string
+    typing: boolean
+  }
+}
+
+export type EventPairConnectionUpdated = {
+  id: string
+  type: "pair.connection.updated"
+  properties: {
+    roomID: string
+    peerID: string
+    status: string
+  }
+}
+
 export type EventMessageUpdated = {
   id: string
   type: "message.updated"
@@ -3355,6 +3518,18 @@ export type EventTuiToastShow1 = {
     message: string
     variant: "info" | "success" | "warning" | "error"
     duration?: number
+  }
+}
+
+export type EventPairCursorUpdated1 = {
+  id: string
+  type: "pair.cursor.updated"
+  properties: {
+    roomID: string
+    peerID: string
+    path: string
+    line: number | "NaN" | "Infinity" | "-Infinity"
+    column: number | "NaN" | "Infinity" | "-Infinity"
   }
 }
 
@@ -4598,6 +4773,549 @@ export type McpDisconnectResponses = {
 }
 
 export type McpDisconnectResponse = McpDisconnectResponses[keyof McpDisconnectResponses]
+
+export type PairRoomCreateData = {
+  body?: {
+    sessionID: string
+    hostName?: string
+    capabilities?: Array<
+      | "view_session"
+      | "view_files"
+      | "send_prompt"
+      | "request_control"
+      | "control_driver"
+      | "edit_files"
+      | "run_shell"
+      | "approve_permissions"
+      | "share_terminal"
+    >
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/pair/rooms"
+}
+
+export type PairRoomCreateErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type PairRoomCreateError = PairRoomCreateErrors[keyof PairRoomCreateErrors]
+
+export type PairRoomCreateResponses = {
+  /**
+   * Created pair room
+   */
+  200: {
+    id: string
+    sessionID: string
+    hostPeerID: string
+    status: "active" | "closed"
+    driverPeerID: string
+    capabilities: Array<
+      | "view_session"
+      | "view_files"
+      | "send_prompt"
+      | "request_control"
+      | "control_driver"
+      | "edit_files"
+      | "run_shell"
+      | "approve_permissions"
+      | "share_terminal"
+    >
+    closedAt: string
+    time: {
+      created: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      updated: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    }
+  }
+}
+
+export type PairRoomCreateResponse = PairRoomCreateResponses[keyof PairRoomCreateResponses]
+
+export type PairRoomCloseData = {
+  body?: {
+    actorPeerID: string
+  }
+  path: {
+    roomID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/pair/rooms/{roomID}"
+}
+
+export type PairRoomCloseErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Forbidden
+   */
+  403: EffectHttpApiErrorForbidden
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type PairRoomCloseError = PairRoomCloseErrors[keyof PairRoomCloseErrors]
+
+export type PairRoomCloseResponses = {
+  /**
+   * Room closed
+   */
+  200: boolean
+}
+
+export type PairRoomCloseResponse = PairRoomCloseResponses[keyof PairRoomCloseResponses]
+
+export type PairRoomGetData = {
+  body?: never
+  path: {
+    roomID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/pair/rooms/{roomID}"
+}
+
+export type PairRoomGetErrors = {
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type PairRoomGetError = PairRoomGetErrors[keyof PairRoomGetErrors]
+
+export type PairRoomGetResponses = {
+  /**
+   * Pair room
+   */
+  200: {
+    id: string
+    sessionID: string
+    hostPeerID: string
+    status: "active" | "closed"
+    driverPeerID: string
+    capabilities: Array<
+      | "view_session"
+      | "view_files"
+      | "send_prompt"
+      | "request_control"
+      | "control_driver"
+      | "edit_files"
+      | "run_shell"
+      | "approve_permissions"
+      | "share_terminal"
+    >
+    closedAt: string
+    time: {
+      created: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      updated: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    }
+  }
+}
+
+export type PairRoomGetResponse = PairRoomGetResponses[keyof PairRoomGetResponses]
+
+export type PairInviteCreateData = {
+  body?: {
+    actorPeerID: string
+    capabilities?: Array<
+      | "view_session"
+      | "view_files"
+      | "send_prompt"
+      | "request_control"
+      | "control_driver"
+      | "edit_files"
+      | "run_shell"
+      | "approve_permissions"
+      | "share_terminal"
+    >
+  }
+  path: {
+    roomID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/pair/rooms/{roomID}/invite"
+}
+
+export type PairInviteCreateErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Forbidden
+   */
+  403: EffectHttpApiErrorForbidden
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type PairInviteCreateError = PairInviteCreateErrors[keyof PairInviteCreateErrors]
+
+export type PairInviteCreateResponses = {
+  /**
+   * Pair invite
+   */
+  200: {
+    id: string
+    roomID: string
+    token: string
+    capabilities: Array<
+      | "view_session"
+      | "view_files"
+      | "send_prompt"
+      | "request_control"
+      | "control_driver"
+      | "edit_files"
+      | "run_shell"
+      | "approve_permissions"
+      | "share_terminal"
+    >
+    expiresAt: string
+    consumedAt: string
+    time: {
+      created: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      updated: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    }
+  }
+}
+
+export type PairInviteCreateResponse = PairInviteCreateResponses[keyof PairInviteCreateResponses]
+
+export type PairJoinData = {
+  body?: {
+    inviteToken: string
+    name: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/pair/join"
+}
+
+export type PairJoinErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type PairJoinError = PairJoinErrors[keyof PairJoinErrors]
+
+export type PairJoinResponses = {
+  /**
+   * Joined room
+   */
+  200: {
+    room: {
+      id: string
+      sessionID: string
+      hostPeerID: string
+      status: "active" | "closed"
+      driverPeerID: string
+      capabilities: Array<
+        | "view_session"
+        | "view_files"
+        | "send_prompt"
+        | "request_control"
+        | "control_driver"
+        | "edit_files"
+        | "run_shell"
+        | "approve_permissions"
+        | "share_terminal"
+      >
+      closedAt: string
+      time: {
+        created: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+        updated: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      }
+    }
+    peer: {
+      id: string
+      roomID: string
+      name: string
+      role: "host" | "guest"
+      status: "invited" | "connected" | "disconnected" | "left"
+      capabilities: Array<
+        | "view_session"
+        | "view_files"
+        | "send_prompt"
+        | "request_control"
+        | "control_driver"
+        | "edit_files"
+        | "run_shell"
+        | "approve_permissions"
+        | "share_terminal"
+      >
+      lastSeenAt: string
+      time: {
+        created: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+        updated: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      }
+    }
+  }
+}
+
+export type PairJoinResponse = PairJoinResponses[keyof PairJoinResponses]
+
+export type PairLeaveData = {
+  body?: {
+    peerID: string
+    actorPeerID: string
+  }
+  path: {
+    roomID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/pair/rooms/{roomID}/leave"
+}
+
+export type PairLeaveErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Forbidden
+   */
+  403: EffectHttpApiErrorForbidden
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type PairLeaveError = PairLeaveErrors[keyof PairLeaveErrors]
+
+export type PairLeaveResponses = {
+  /**
+   * Peer left
+   */
+  200: boolean
+}
+
+export type PairLeaveResponse = PairLeaveResponses[keyof PairLeaveResponses]
+
+export type PairControlRequestData = {
+  body?: {
+    peerID: string
+  }
+  path: {
+    roomID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/pair/rooms/{roomID}/control/request"
+}
+
+export type PairControlRequestErrors = {
+  /**
+   * Forbidden
+   */
+  403: EffectHttpApiErrorForbidden
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type PairControlRequestError = PairControlRequestErrors[keyof PairControlRequestErrors]
+
+export type PairControlRequestResponses = {
+  /**
+   * Control requested
+   */
+  200: boolean
+}
+
+export type PairControlRequestResponse = PairControlRequestResponses[keyof PairControlRequestResponses]
+
+export type PairControlGrantData = {
+  body?: {
+    peerID: string
+    actorPeerID: string
+  }
+  path: {
+    roomID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/pair/rooms/{roomID}/control/grant"
+}
+
+export type PairControlGrantErrors = {
+  /**
+   * Forbidden
+   */
+  403: EffectHttpApiErrorForbidden
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type PairControlGrantError = PairControlGrantErrors[keyof PairControlGrantErrors]
+
+export type PairControlGrantResponses = {
+  /**
+   * Updated pair room
+   */
+  200: {
+    id: string
+    sessionID: string
+    hostPeerID: string
+    status: "active" | "closed"
+    driverPeerID: string
+    capabilities: Array<
+      | "view_session"
+      | "view_files"
+      | "send_prompt"
+      | "request_control"
+      | "control_driver"
+      | "edit_files"
+      | "run_shell"
+      | "approve_permissions"
+      | "share_terminal"
+    >
+    closedAt: string
+    time: {
+      created: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      updated: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    }
+  }
+}
+
+export type PairControlGrantResponse = PairControlGrantResponses[keyof PairControlGrantResponses]
+
+export type PairControlRevokeData = {
+  body?: {
+    peerID: string
+    actorPeerID: string
+  }
+  path: {
+    roomID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/pair/rooms/{roomID}/control/revoke"
+}
+
+export type PairControlRevokeErrors = {
+  /**
+   * Forbidden
+   */
+  403: EffectHttpApiErrorForbidden
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type PairControlRevokeError = PairControlRevokeErrors[keyof PairControlRevokeErrors]
+
+export type PairControlRevokeResponses = {
+  /**
+   * Updated pair room
+   */
+  200: {
+    id: string
+    sessionID: string
+    hostPeerID: string
+    status: "active" | "closed"
+    driverPeerID: string
+    capabilities: Array<
+      | "view_session"
+      | "view_files"
+      | "send_prompt"
+      | "request_control"
+      | "control_driver"
+      | "edit_files"
+      | "run_shell"
+      | "approve_permissions"
+      | "share_terminal"
+    >
+    closedAt: string
+    time: {
+      created: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      updated: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    }
+  }
+}
+
+export type PairControlRevokeResponse = PairControlRevokeResponses[keyof PairControlRevokeResponses]
+
+export type PairSignalingTokenData = {
+  body?: never
+  path: {
+    roomID: string
+  }
+  query: {
+    directory?: string
+    workspace?: string
+    peerID: string
+  }
+  url: "/pair/rooms/{roomID}/signaling-token"
+}
+
+export type PairSignalingTokenErrors = {
+  /**
+   * Forbidden
+   */
+  403: EffectHttpApiErrorForbidden
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type PairSignalingTokenError = PairSignalingTokenErrors[keyof PairSignalingTokenErrors]
+
+export type PairSignalingTokenResponses = {
+  /**
+   * Pair signaling WebSocket token
+   */
+  200: {
+    ticket: string
+    expires_in: number
+  }
+}
+
+export type PairSignalingTokenResponse = PairSignalingTokenResponses[keyof PairSignalingTokenResponses]
 
 export type ProjectListData = {
   body?: never
@@ -7138,3 +7856,39 @@ export type PtyConnectResponses = {
 }
 
 export type PtyConnectResponse = PtyConnectResponses[keyof PtyConnectResponses]
+
+export type PairSignalingData = {
+  body?: never
+  path: {
+    roomID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+    ticket?: string
+    peerID?: string
+  }
+  url: "/pair/rooms/{roomID}/signaling"
+}
+
+export type PairSignalingErrors = {
+  /**
+   * Forbidden
+   */
+  403: EffectHttpApiErrorForbidden
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type PairSignalingError = PairSignalingErrors[keyof PairSignalingErrors]
+
+export type PairSignalingResponses = {
+  /**
+   * Connected pair signaling socket
+   */
+  200: boolean
+}
+
+export type PairSignalingResponse = PairSignalingResponses[keyof PairSignalingResponses]

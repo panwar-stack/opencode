@@ -215,6 +215,7 @@ export function createChildStoreManager(input: {
             todo: {},
             permission: {},
             question: {},
+            pair: {},
             get mcp_ready() {
               return !mcpQuery.isLoading
             },

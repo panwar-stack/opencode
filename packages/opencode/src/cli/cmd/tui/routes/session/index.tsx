@@ -91,6 +91,7 @@ import { SessionRetry } from "@/session/retry"
 import { getRevertDiffFiles } from "../../util/revert-diff"
 import { useCommandPalette } from "../../context/command-palette"
 import { useBindings, useCommandShortcut } from "../../keymap"
+import { DialogPrompt } from "@tui/ui/dialog-prompt"
 
 addDefaultParsers(parsers.parsers)
 
@@ -199,6 +200,13 @@ export function Session() {
   })
   const messages = createMemo(() => sync.data.message[route.sessionID] ?? [])
   const teamsEnabled = createMemo(() => sync.data.config.experimental?.agent_teams === true)
+  const pair = createMemo(() => sync.pair.get(route.sessionID))
+  const pairActive = createMemo(() => pair()?.room.status === "active")
+  const pairSelfPeerID = createMemo(() => pair()?.selfPeerID)
+  const pairIsDriver = createMemo(() => sync.pair.isDriver(route.sessionID))
+  const pairLocked = createMemo(() => pairActive() && !pairIsDriver())
+  const pairPeerCount = createMemo(() => Object.values(pair()?.presence ?? {}).filter((status) => status === "connected").length)
+  const pairControlRequests = createMemo(() => Object.keys(pair()?.controlRequests ?? {}))
 
   const [teamInfo] = createResource(
     () => {
@@ -227,7 +235,7 @@ export function Session() {
     if (session()?.parentID && !isTeamMember()) return false
     return permissions().length === 0 && questions().length === 0
   })
-  const disabled = createMemo(() => permissions().length > 0 || questions().length > 0)
+  const disabled = createMemo(() => permissions().length > 0 || questions().length > 0 || pairLocked())
 
   const pending = createMemo(() => {
     return messages().findLast((x) => x.role === "assistant" && !x.time.completed)?.id
@@ -357,6 +365,48 @@ export function Session() {
     })
   })
 
+  event.on("pair.peer.joined", (evt) => {
+    const current = pair()
+    if (!current || evt.properties.roomID !== current.room.id || evt.properties.peerID === pairSelfPeerID()) return
+    toast.show({ message: "Pair peer joined", variant: "info" })
+  })
+
+  event.on("pair.peer.left", (evt) => {
+    const current = pair()
+    if (!current || evt.properties.roomID !== current.room.id || evt.properties.peerID === pairSelfPeerID()) return
+    toast.show({ message: "Pair peer left", variant: "info" })
+  })
+
+  event.on("pair.control.requested", (evt) => {
+    const current = pair()
+    if (!current || evt.properties.roomID !== current.room.id || evt.properties.peerID === pairSelfPeerID()) return
+    toast.show({ message: "Pair control requested. Use /pair-grant to hand off.", variant: "info", duration: 5000 })
+  })
+
+  event.on("pair.control.granted", (evt) => {
+    const current = pair()
+    if (!current || evt.properties.roomID !== current.room.id) return
+    toast.show({
+      message: evt.properties.peerID === pairSelfPeerID() ? "You are now driving" : "Pair control handed off",
+      variant: "success",
+    })
+  })
+
+  event.on("pair.control.revoked", (evt) => {
+    const current = pair()
+    if (!current || evt.properties.roomID !== current.room.id) return
+    toast.show({
+      message: current.room.hostPeerID === pairSelfPeerID() ? "You are now driving" : "Pair control returned to host",
+      variant: "info",
+    })
+  })
+
+  event.on("pair.room.closed", (evt) => {
+    const current = pair()
+    if (!current || evt.properties.roomID !== current.room.id) return
+    toast.show({ message: "Pair session ended", variant: "info" })
+  })
+
   // Allow exit when in child session (prompt is hidden)
   const exit = useExit()
 
@@ -466,6 +516,97 @@ export function Session() {
       if (!session()?.parentID || dialog.stack.length > 0) return
       func()
     }
+  }
+
+  function pairPeerRequired() {
+    const current = pair()
+    const selfPeerID = pairSelfPeerID()
+    if (current && selfPeerID) return { current, selfPeerID }
+    toast.show({ message: "Start or join a pair session first", variant: "warning" })
+  }
+
+  async function pairStart() {
+    const res = await sdk.client.pair.room.create({
+      sessionID: route.sessionID,
+      hostName: sync.data.config.username ?? process.env.USER ?? "Host",
+    })
+    if (res.error || !res.data) {
+      toast.show({ message: "Failed to start pair session", variant: "error" })
+      return
+    }
+    await sync.pair.set({ sessionID: route.sessionID, room: res.data })
+    toast.show({ message: "Pair session started", variant: "success" })
+  }
+
+  async function pairCopyInvite() {
+    const state = pairPeerRequired()
+    if (!state) return
+    const res = await sdk.client.pair.invite.create({ roomID: state.current.room.id, actorPeerID: state.selfPeerID })
+    if (res.error || !res.data) {
+      toast.show({ message: "Failed to create pair invite", variant: "error" })
+      return
+    }
+    await Clipboard.copy(res.data.token)
+      .then(() => toast.show({ message: "Pair invite token copied", variant: "success" }))
+      .catch(() => toast.show({ message: "Failed to copy pair invite", variant: "error" }))
+  }
+
+  async function pairJoin() {
+    const token = await DialogPrompt.show(dialog, "Join Pair", { placeholder: "Invite token" })
+    if (!token) return
+    dialog.clear()
+    const res = await sdk.client.pair.join({ inviteToken: token.trim(), name: sync.data.config.username ?? process.env.USER ?? "Guest" })
+    if (res.error || !res.data) {
+      toast.show({ message: "Failed to join pair session", variant: "error" })
+      return
+    }
+    await sync.pair.set({ sessionID: res.data.room.sessionID, room: res.data.room, selfPeer: res.data.peer })
+    toast.show({ message: "Joined pair session", variant: "success" })
+    if (res.data.room.sessionID !== route.sessionID) navigate({ type: "session", sessionID: res.data.room.sessionID })
+  }
+
+  async function pairLeave() {
+    const state = pairPeerRequired()
+    if (!state) return
+    await sdk.client.pair.leave({ roomID: state.current.room.id, peerID: state.selfPeerID, actorPeerID: state.selfPeerID })
+    sync.pair.clear(route.sessionID)
+    toast.show({ message: "Left pair session", variant: "success" })
+  }
+
+  async function pairRequestControl() {
+    const state = pairPeerRequired()
+    if (!state) return
+    await sdk.client.pair.control.request({ roomID: state.current.room.id, peerID: state.selfPeerID })
+    toast.show({ message: "Pair control requested", variant: "success" })
+  }
+
+  async function pairGrantControl() {
+    const state = pairPeerRequired()
+    const peerID = pairControlRequests()[0]
+    if (!state || !peerID) return
+    const res = await sdk.client.pair.control.grant({ roomID: state.current.room.id, peerID, actorPeerID: state.selfPeerID })
+    if (res.error || !res.data) {
+      toast.show({ message: "Failed to grant pair control", variant: "error" })
+      return
+    }
+    sync.pair.updateRoom(route.sessionID, res.data)
+    toast.show({ message: "Pair control granted", variant: "success" })
+  }
+
+  async function pairRevokeControl() {
+    const state = pairPeerRequired()
+    if (!state) return
+    const res = await sdk.client.pair.control.revoke({
+      roomID: state.current.room.id,
+      peerID: state.current.room.driverPeerID,
+      actorPeerID: state.selfPeerID,
+    })
+    if (res.error || !res.data) {
+      toast.show({ message: "Failed to revoke pair control", variant: "error" })
+      return
+    }
+    sync.pair.updateRoom(route.sessionID, res.data)
+    toast.show({ message: "Pair control returned to host", variant: "success" })
   }
 
   const sessionCommandList = createMemo(() => [
@@ -615,6 +756,82 @@ export function Session() {
               variant: "error",
             })
           })
+        dialog.clear()
+      },
+    },
+    {
+      title: "Start pair session",
+      value: "session.pair.start",
+      category: "Pair",
+      enabled: !pairActive(),
+      slash: { name: "pair-start" },
+      run: () => {
+        void pairStart()
+        dialog.clear()
+      },
+    },
+    {
+      title: "Copy pair invite",
+      value: "session.pair.invite.copy",
+      category: "Pair",
+      enabled: pairActive() && !!pairSelfPeerID(),
+      slash: { name: "pair-invite" },
+      run: () => {
+        void pairCopyInvite()
+        dialog.clear()
+      },
+    },
+    {
+      title: "Join pair session",
+      value: "session.pair.join",
+      category: "Pair",
+      enabled: !pairActive(),
+      slash: { name: "pair-join" },
+      run: () => {
+        void pairJoin()
+      },
+    },
+    {
+      title: "Leave pair session",
+      value: "session.pair.leave",
+      category: "Pair",
+      enabled: pairActive() && !!pairSelfPeerID(),
+      slash: { name: "pair-leave" },
+      run: () => {
+        void pairLeave()
+        dialog.clear()
+      },
+    },
+    {
+      title: "Request pair control",
+      value: "session.pair.control.request",
+      category: "Pair",
+      enabled: pairActive() && !pairIsDriver() && !!pairSelfPeerID(),
+      slash: { name: "pair-request" },
+      run: () => {
+        void pairRequestControl()
+        dialog.clear()
+      },
+    },
+    {
+      title: "Grant pair control",
+      value: "session.pair.control.grant",
+      category: "Pair",
+      enabled: pairActive() && pairIsDriver() && pairControlRequests().length > 0,
+      slash: { name: "pair-grant" },
+      run: () => {
+        void pairGrantControl()
+        dialog.clear()
+      },
+    },
+    {
+      title: "Revoke pair control",
+      value: "session.pair.control.revoke",
+      category: "Pair",
+      enabled: pairActive() && pairIsDriver() && pair()?.room.driverPeerID !== pair()?.room.hostPeerID,
+      slash: { name: "pair-revoke" },
+      run: () => {
+        void pairRevokeControl()
         dialog.clear()
       },
     },
@@ -1368,11 +1585,21 @@ export function Session() {
                     visible={visible()}
                     ref={bind}
                     disabled={disabled()}
+                    hint={pairLocked() ? <text fg={theme.warning}>Pair session is read-only until control is granted</text> : undefined}
                     onSubmit={() => {
                       toBottom()
                     }}
                     sessionID={route.sessionID}
-                    right={<TuiPluginRuntime.Slot name="session_prompt_right" session_id={route.sessionID} />}
+                    right={
+                      <>
+                        <Show when={pairActive()}>
+                          <text fg={pairIsDriver() ? theme.success : theme.warning}>
+                            pair {pairPeerCount()} {pairIsDriver() ? "driver" : "viewer"}
+                          </text>
+                        </Show>
+                        <TuiPluginRuntime.Slot name="session_prompt_right" session_id={route.sessionID} />
+                      </>
+                    }
                   />
                 </TuiPluginRuntime.Slot>
               </Show>

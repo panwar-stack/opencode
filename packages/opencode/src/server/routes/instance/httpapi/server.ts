@@ -24,6 +24,8 @@ import { Format } from "@/format"
 import { LSP } from "@/lsp/lsp"
 import { MCP } from "@/mcp"
 import { Permission } from "@/permission"
+import { Pair } from "@/pair/pair"
+import { PairTicket } from "@/pair/ticket"
 import { Installation } from "@/installation"
 import { InstanceLayer } from "@/project/instance-layer"
 import { Plugin } from "@/plugin"
@@ -67,6 +69,7 @@ import { fileHandlers } from "./handlers/file"
 import { globalHandlers } from "./handlers/global"
 import { instanceHandlers } from "./handlers/instance"
 import { mcpHandlers } from "./handlers/mcp"
+import { pairHandlers, pairSignalingRoute } from "./handlers/pair"
 import { permissionHandlers } from "./handlers/permission"
 import { projectHandlers } from "./handlers/project"
 import { providerHandlers } from "./handlers/provider"
@@ -133,6 +136,7 @@ const instanceApiRoutes = HttpApiBuilder.layer(InstanceHttpApi).pipe(
     fileHandlers,
     instanceHandlers,
     mcpHandlers,
+    pairHandlers,
     projectHandlers,
     ptyHandlers,
     questionHandlers,
@@ -147,7 +151,7 @@ const instanceApiRoutes = HttpApiBuilder.layer(InstanceHttpApi).pipe(
   ]),
 )
 
-const rawInstanceRoutes = Layer.mergeAll(ptyConnectRoute).pipe(Layer.provide(instanceRouterLayer))
+const rawInstanceRoutes = Layer.mergeAll(ptyConnectRoute, pairSignalingRoute).pipe(Layer.provide(instanceRouterLayer))
 const instanceRoutes = Layer.mergeAll(rawInstanceRoutes, instanceApiRoutes).pipe(
   Layer.provide([
     httpApiAuthLayer,
@@ -196,6 +200,8 @@ export function createRoutes(corsOptions?: CorsOptions) {
       Installation.defaultLayer,
       MCP.defaultLayer,
       ModelsDev.defaultLayer,
+      Pair.defaultLayer,
+      PairTicket.defaultLayer,
       Permission.defaultLayer,
       Plugin.defaultLayer,
       Project.defaultLayer,

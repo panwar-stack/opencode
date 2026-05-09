@@ -17,6 +17,8 @@ import type {
   ProviderListResponse,
   ProviderAuthMethod,
   VcsInfo,
+  PairRoomCreateResponse,
+  PairJoinResponse,
 } from "@opencode-ai/sdk/v2"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { useProject } from "@tui/context/project"
@@ -33,6 +35,17 @@ import { emptyConsoleState, type ConsoleState } from "@/config/console-state"
 import path from "path"
 import { useKV } from "./kv"
 import { aggregateFailures } from "./aggregate-failures"
+
+type PairRoom = PairRoomCreateResponse
+type PairPeer = PairJoinResponse["peer"]
+
+export type PairState = {
+  room: PairRoom
+  selfPeerID?: string
+  peers: Record<string, PairPeer>
+  controlRequests: Record<string, true>
+  presence: Record<string, string>
+}
 
 export const { use: useSync, provider: SyncProvider } = createSimpleContext({
   name: "Sync",
@@ -81,6 +94,12 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       }
       formatter: FormatterStatus[]
       vcs: VcsInfo | undefined
+      pair: {
+        [sessionID: string]: PairState | undefined
+      }
+      pair_by_room: {
+        [roomID: string]: string | undefined
+      }
     }>({
       provider_next: {
         all: [],
@@ -109,6 +128,8 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       mcp_resource: {},
       formatter: [],
       vcs: undefined,
+      pair: {},
+      pair_by_room: {},
     })
 
     const event = useEvent()
@@ -252,6 +273,80 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
 
         case "session.status": {
           setStore("session_status", event.properties.sessionID, event.properties.status)
+          break
+        }
+
+        case "pair.room.closed": {
+          const sessionID = store.pair_by_room[event.properties.roomID]
+          if (!sessionID) break
+          setStore("pair", sessionID, "room", "status", "closed")
+          break
+        }
+
+        case "pair.peer.joined": {
+          const sessionID = store.pair_by_room[event.properties.roomID]
+          if (!sessionID) break
+          setStore("pair", sessionID, "presence", event.properties.peerID, "connected")
+          break
+        }
+
+        case "pair.peer.left": {
+          const sessionID = store.pair_by_room[event.properties.roomID]
+          if (!sessionID) break
+          setStore("pair", sessionID, "presence", event.properties.peerID, "left")
+          setStore(
+            "pair",
+            sessionID,
+            "controlRequests",
+            produce((draft) => {
+              delete draft[event.properties.peerID]
+            }),
+          )
+          break
+        }
+
+        case "pair.control.requested": {
+          const sessionID = store.pair_by_room[event.properties.roomID]
+          if (!sessionID) break
+          setStore("pair", sessionID, "controlRequests", event.properties.peerID, true)
+          break
+        }
+
+        case "pair.control.granted": {
+          const sessionID = store.pair_by_room[event.properties.roomID]
+          if (!sessionID) break
+          setStore("pair", sessionID, "room", "driverPeerID", event.properties.peerID)
+          setStore(
+            "pair",
+            sessionID,
+            "controlRequests",
+            produce((draft) => {
+              delete draft[event.properties.peerID]
+            }),
+          )
+          break
+        }
+
+        case "pair.control.revoked": {
+          const sessionID = store.pair_by_room[event.properties.roomID]
+          if (!sessionID) break
+          setStore("pair", sessionID, "room", "driverPeerID", store.pair[sessionID]?.room.hostPeerID ?? event.properties.peerID)
+          setStore(
+            "pair",
+            sessionID,
+            "controlRequests",
+            produce((draft) => {
+              delete draft[event.properties.peerID]
+            }),
+          )
+          break
+        }
+
+        case "pair.presence.updated":
+        case "pair.connection.updated": {
+          const sessionID = store.pair_by_room[event.properties.roomID]
+          if (!sessionID) break
+          setStore("pair", sessionID, "presence", event.properties.peerID, event.properties.status)
           break
         }
 
@@ -553,6 +648,42 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
             }),
           )
           fullSyncedSessions.add(sessionID)
+        },
+      },
+      pair: {
+        async set(input: { sessionID: string; room: PairRoom; selfPeer?: PairPeer }) {
+          batch(() => {
+            setStore("pair_by_room", input.room.id, input.sessionID)
+            setStore("pair", input.sessionID, {
+              room: input.room,
+              selfPeerID: input.selfPeer?.id ?? input.room.hostPeerID,
+              peers: input.selfPeer ? { [input.selfPeer.id]: input.selfPeer } : {},
+              controlRequests: {},
+              presence: input.selfPeer ? { [input.selfPeer.id]: input.selfPeer.status } : { [input.room.hostPeerID]: "connected" },
+            })
+          })
+          await result.session.sync(input.sessionID)
+        },
+        updateRoom(sessionID: string, room: PairRoom) {
+          batch(() => {
+            setStore("pair_by_room", room.id, sessionID)
+            setStore("pair", sessionID, "room", reconcile(room))
+          })
+        },
+        clear(sessionID: string) {
+          const roomID = store.pair[sessionID]?.room.id
+          batch(() => {
+            if (roomID) setStore("pair_by_room", roomID, undefined)
+            setStore("pair", sessionID, undefined)
+          })
+        },
+        get(sessionID: string) {
+          return store.pair[sessionID]
+        },
+        isDriver(sessionID: string) {
+          const state = store.pair[sessionID]
+          if (!state || state.room.status !== "active") return true
+          return state.selfPeerID === state.room.driverPeerID
         },
       },
       bootstrap,
