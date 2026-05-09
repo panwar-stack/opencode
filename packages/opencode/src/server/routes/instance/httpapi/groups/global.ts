@@ -11,7 +11,7 @@ const GlobalHealth = Schema.Struct({
   version: Schema.String,
 })
 
-const GlobalEventSchema = Schema.Struct({
+export const GlobalEventSchema = Schema.Struct({
   directory: Schema.String,
   project: Schema.optional(Schema.String),
   workspace: Schema.optional(Schema.String),

@@ -3,7 +3,7 @@ import { Effect, Encoding, Layer, Redacted } from "effect"
 import { HttpEffect, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiError, HttpApiMiddleware } from "effect/unstable/httpapi"
 import { hasPtyConnectTicketURL } from "@/server/shared/pty-ticket"
-import { hasPairSignalingTicketURL } from "@/server/shared/pair-ticket"
+import { hasPairSignalingTicketURL, isPairJoinPath } from "@/server/shared/pair-ticket"
 import { hasPairCredentialParam, isPairSessionPath } from "@/server/shared/pair-ticket"
 import { isPublicUIPath } from "@/server/shared/public-ui"
 
@@ -103,6 +103,7 @@ export const authorizationRouterMiddleware = HttpRouter.middleware()(
         if (isPublicUIPath(request.method, url.pathname)) return yield* effect
         if (hasPtyConnectTicketURL(url)) return yield* effect
         if (hasPairSignalingTicketURL(url)) return yield* effect
+        if (isPairJoinPath(url.pathname)) return yield* effect
         if (hasPairCredentialParam(url)) return yield* effect
         if (isPairSessionPath(url.pathname)) {
           const auth = request.headers.authorization

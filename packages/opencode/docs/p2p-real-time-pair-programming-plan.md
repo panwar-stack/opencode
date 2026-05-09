@@ -28,7 +28,7 @@ Build the feature in phases:
 Remote pair invites must carry enough connection intent for guests to attach to non-public hosts through an explicit access path instead of assuming the host server URL is globally reachable.
 
 - Treat private, loopback, and otherwise non-public host addresses as supported deployment shapes, not warnings-only edge cases.
-- Allow invites to describe the required transport/access method, such as direct URL, VPN/private network URL, SSH tunnel target, reverse tunnel, relay, or user-provided attach command.
+- Allow invites to describe the required transport/access method, such as direct URL, Tailscale/Headscale tailnet URL, VPN/private network URL, SSH tunnel target, reverse tunnel, relay, or user-provided attach command.
 - Keep pair authorization separate from transport authorization: the invite may explain how to reach the host, but scoped pair credentials still come only from the host join flow.
 - Surface connectivity setup as part of `/pair-invite`, `/pair-join`, and `/pair-status` so both host and guest can see whether the host is reachable, waiting for a tunnel, or connected through a relay/private route.
 - Keep token-only join as a local/same-server fallback, and let `/pair-join` accept either a raw token or a full invite link.

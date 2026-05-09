@@ -19,7 +19,8 @@ import type {
   VcsInfo,
   PairRoomCreateResponse,
   PairJoinResponse,
-  GlobalEvent,
+  Event as SdkEvent,
+  PairSessionEvent as SdkPairSessionEvent,
 } from "@opencode-ai/sdk/v2"
 import { createOpencodeClient } from "@opencode-ai/sdk/v2"
 import { createStore, produce, reconcile } from "solid-js/store"
@@ -41,6 +42,25 @@ import type { ConnectionMethod } from "@/pair/connection-profile"
 
 type PairRoom = PairRoomCreateResponse
 type PairPeer = PairJoinResponse["peer"]
+type SyncEvent = SdkEvent | SdkPairSessionEvent
+type RemoteClient = {
+  get: <TData = unknown>(options: {
+    url: string
+    path?: Record<string, unknown>
+    query?: Record<string, unknown>
+    signal?: AbortSignal
+    throwOnError: true
+  }) => Promise<{ data: TData }>
+  sse: {
+    get: <TData = unknown>(options: {
+      url: string
+      path?: Record<string, unknown>
+      query?: Record<string, unknown>
+      signal?: AbortSignal
+      sseMaxRetryAttempts?: number
+    }) => Promise<{ stream: AsyncGenerator<TData> }>
+  }
+}
 
 export type PairState = {
   room: PairRoom
@@ -55,7 +75,44 @@ export type PairState = {
   connectionStatus?: "connecting" | "connected" | "disconnected" | "stale"
 }
 
-const remoteSDKs = new Map<string, { abort: AbortController; client: ReturnType<typeof createOpencodeClient> }>()
+const remoteSDKs = new Map<
+  string,
+  { abort: AbortController; sse: AbortController }
+>()
+
+function createRemoteSDK(remoteUrl: string, credential?: string, signal?: AbortSignal) {
+  return createOpencodeClient({
+    baseUrl: remoteUrl,
+    signal,
+    headers: credential ? { Authorization: `Bearer ${credential}` } : undefined,
+  })
+}
+
+function disposeRemoteSDK(sessionID: string) {
+  const remote = remoteSDKs.get(sessionID)
+  if (!remote) return
+  remote.sse.abort()
+  remote.abort.abort()
+  remoteSDKs.delete(sessionID)
+}
+
+function waitForAbort(ms: number, signals: AbortSignal[]) {
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, ms)
+    const stop = () => {
+      clearTimeout(timer)
+      resolve()
+    }
+
+    for (const signal of signals) {
+      if (signal.aborted) {
+        stop()
+        return
+      }
+      signal.addEventListener("abort", stop, { once: true })
+    }
+  })
+}
 
 export const { use: useSync, provider: SyncProvider } = createSimpleContext({
   name: "Sync",
@@ -166,86 +223,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
         .then((x) => (x.data ?? []).toSorted((a, b) => a.id.localeCompare(b.id)))
     }
 
-    function handleRemotePairEvent(evt: GlobalEvent) {
-      const payload = evt.payload
-
-      const roomID =
-        "properties" in payload && payload.properties && typeof payload.properties === "object" && "roomID" in payload.properties
-          ? (payload.properties as Record<string, unknown>).roomID
-          : undefined
-      if (typeof roomID !== "string") return
-      const sessionID = store.pair_by_room[roomID]
-      if (!sessionID) return
-
-      switch (payload.type) {
-        case "pair.room.closed":
-          setStore("pair", sessionID, "room", "status", "closed")
-          break
-        case "pair.peer.joined": {
-          const peerID = (payload.properties as Record<string, unknown>).peerID
-          if (typeof peerID === "string") setStore("pair", sessionID, "presence", peerID, "connected")
-          break
-        }
-        case "pair.peer.left": {
-          const peerID = (payload.properties as Record<string, unknown>).peerID
-          if (typeof peerID === "string") {
-            setStore("pair", sessionID, "presence", peerID, "left")
-            setStore(
-              "pair",
-              sessionID,
-              "controlRequests",
-              produce((draft) => {
-                delete draft[peerID]
-              }),
-            )
-          }
-          break
-        }
-        case "pair.control.requested": {
-          const peerID = (payload.properties as Record<string, unknown>).peerID
-          if (typeof peerID === "string") setStore("pair", sessionID, "controlRequests", peerID, true)
-          break
-        }
-        case "pair.control.granted": {
-          const peerID = (payload.properties as Record<string, unknown>).peerID
-          if (typeof peerID === "string") {
-            setStore("pair", sessionID, "room", "driverPeerID", peerID)
-            setStore(
-              "pair",
-              sessionID,
-              "controlRequests",
-              produce((draft) => {
-                delete draft[peerID]
-              }),
-            )
-          }
-          break
-        }
-        case "pair.control.revoked": {
-          const peerID = (payload.properties as Record<string, unknown>).peerID
-          setStore("pair", sessionID, "room", "driverPeerID", store.pair[sessionID]?.room.hostPeerID ?? (peerID as string))
-          if (typeof peerID === "string")
-            setStore(
-              "pair",
-              sessionID,
-              "controlRequests",
-              produce((draft) => {
-                delete draft[peerID]
-              }),
-            )
-          break
-        }
-        case "pair.presence.updated":
-        case "pair.connection.updated": {
-          const peerID = (payload.properties as Record<string, unknown>).peerID
-          const status = (payload.properties as Record<string, unknown>).status
-          if (typeof peerID === "string" && typeof status === "string") setStore("pair", sessionID, "presence", peerID, status)
-          break
-        }
-      }
-    }
-
-    event.subscribe((event) => {
+    function handleEvent(event: SyncEvent) {
       switch (event.type) {
         case "server.instance.disposed":
           void bootstrap()
@@ -561,7 +539,9 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           break
         }
       }
-    })
+    }
+
+    event.subscribe(handleEvent)
 
     const exit = useExit()
     const args = useArgs()
@@ -741,6 +721,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       },
       pair: {
         async set(input: { sessionID: string; room: PairRoom; selfPeer?: PairPeer }) {
+          disposeRemoteSDK(input.sessionID)
           batch(() => {
             setStore("pair_by_room", input.room.id, input.sessionID)
             setStore("pair", input.sessionID, {
@@ -762,9 +743,12 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           credential: string
           connectionMethod?: ConnectionMethod
         }) {
-          const remoteSDK = createOpencodeClient({ baseUrl: input.remoteUrl })
+          disposeRemoteSDK(input.sessionID)
           const abort = new AbortController()
-          remoteSDKs.set(input.sessionID, { abort, client: remoteSDK })
+          const sse = new AbortController()
+          const remoteSDK = createRemoteSDK(input.remoteUrl, input.credential, abort.signal)
+          const remoteClient = remoteSDK as unknown as { client: RemoteClient }
+          remoteSDKs.set(input.sessionID, { abort, sse })
 
           batch(() => {
             setStore("pair_by_room", input.room.id, input.sessionID)
@@ -783,57 +767,76 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           })
 
           // Start remote SSE in background
-          const sseCtrl = new AbortController()
           ;(async () => {
             let attempt = 0
             while (true) {
-              if (abort.signal.aborted || sseCtrl.signal.aborted) break
+              if (abort.signal.aborted || sse.signal.aborted) break
               try {
-                const events = await remoteSDK.global.event({ signal: sseCtrl.signal, sseMaxRetryAttempts: 0 })
+                const events = await remoteClient.client.sse.get<SyncEvent>({
+                  url: "/pair/rooms/{roomID}/session/event",
+                  path: { roomID: input.room.id },
+                  signal: sse.signal,
+                  sseMaxRetryAttempts: 0,
+                })
+                setStore("pair", input.sessionID, "connectionStatus", "connected")
                 for await (const evt of events.stream) {
-                  if (sseCtrl.signal.aborted) break
-                  // Route pair events through the existing sync handlers
-                  handleRemotePairEvent(evt as GlobalEvent)
+                  if (abort.signal.aborted || sse.signal.aborted) break
+                  handleEvent(evt)
                 }
               } catch {
                 // Connection lost, attempt reconnect
               }
-              if (abort.signal.aborted || sseCtrl.signal.aborted) break
+              if (abort.signal.aborted || sse.signal.aborted) break
               attempt++
               const backoff = Math.min(1000 * 2 ** (attempt - 1), 30000)
               setStore("pair", input.sessionID, "connectionStatus", "disconnected")
-              await new Promise((resolve) => setTimeout(resolve, backoff))
+              await waitForAbort(backoff, [abort.signal, sse.signal])
+              if (abort.signal.aborted || sse.signal.aborted) break
               setStore("pair", input.sessionID, "connectionStatus", "connecting")
             }
           })().catch(() => {})
 
-          await result.pair.bootstrapRemote(input.sessionID, remoteSDK, input.room.id)
+          await result.pair.bootstrapRemote(remoteClient, input.room)
         },
-        async bootstrapRemote(sessionID: string, remoteClient: ReturnType<typeof createOpencodeClient>, roomID: string) {
-          const room = await remoteClient.pair.room.get({ roomID })
-          if (room.data) {
-            const [session, messages, todo, diff] = await Promise.all([
-              remoteClient.session.get({ sessionID: room.data.sessionID }, { throwOnError: true }),
-              remoteClient.session.messages({ sessionID: room.data.sessionID, limit: 100 }),
-              remoteClient.session.todo({ sessionID: room.data.sessionID }),
-              remoteClient.session.diff({ sessionID: room.data.sessionID }),
-            ])
-            const sid = room.data.sessionID
-            setStore(
-              produce((draft) => {
-                const match = Binary.search(draft.session, sid, (s) => s.id)
-                if (match.found) draft.session[match.index] = session.data!
-                if (!match.found) draft.session.splice(match.index, 0, session.data!)
-                draft.todo[sid] = todo.data ?? []
-                draft.message[sid] = messages.data!.map((x) => x.info)
-                for (const message of messages.data!) {
-                  draft.part[message.info.id] = message.parts
-                }
-                draft.session_diff[sid] = diff.data ?? []
-              }),
-            )
-            fullSyncedSessions.add(sid)
-          }
+        async bootstrapRemote(remoteClient: { client: RemoteClient }, room: PairRoom) {
+          const [session, messages, todo, diff] = await Promise.all([
+            remoteClient.client.get<Session>({
+              url: "/pair/rooms/{roomID}/session",
+              path: { roomID: room.id },
+              throwOnError: true,
+            }),
+            remoteClient.client.get<Array<{ info: Message; parts: Array<Part> }>>({
+              url: "/pair/rooms/{roomID}/session/messages",
+              path: { roomID: room.id },
+              query: { limit: 100 },
+              throwOnError: true,
+            }),
+            remoteClient.client.get<Array<Todo>>({
+              url: "/pair/rooms/{roomID}/session/todos",
+              path: { roomID: room.id },
+              throwOnError: true,
+            }),
+            remoteClient.client.get<Array<Snapshot.FileDiff>>({
+              url: "/pair/rooms/{roomID}/session/diff",
+              path: { roomID: room.id },
+              throwOnError: true,
+            }),
+          ])
+          const sid = session.data!.id
+          setStore(
+            produce((draft) => {
+              const match = Binary.search(draft.session, sid, (s) => s.id)
+              if (match.found) draft.session[match.index] = session.data!
+              if (!match.found) draft.session.splice(match.index, 0, session.data!)
+              draft.todo[sid] = todo.data ?? []
+              draft.message[sid] = messages.data!.map((x) => x.info)
+              for (const message of messages.data!) {
+                draft.part[message.info.id] = message.parts
+              }
+              draft.session_diff[sid] = diff.data ?? []
+            }),
+          )
+          fullSyncedSessions.add(sid)
         },
         updateRoom(sessionID: string, room: PairRoom) {
           batch(() => {
@@ -843,11 +846,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
         },
         clear(sessionID: string) {
           const roomID = store.pair[sessionID]?.room.id
-          const remote = remoteSDKs.get(sessionID)
-          if (remote) {
-            remote.abort.abort()
-            remoteSDKs.delete(sessionID)
-          }
+          disposeRemoteSDK(sessionID)
           batch(() => {
             if (roomID) setStore("pair_by_room", roomID, undefined)
             setStore("pair", sessionID, undefined)

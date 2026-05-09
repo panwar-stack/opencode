@@ -1,24 +1,48 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import * as Log from "@opencode-ai/core/util/log"
+import { createOpencodeClient } from "@opencode-ai/sdk/v2"
 import { ProjectID } from "../../src/project/schema"
 import { ProjectTable } from "../../src/project/project.sql"
+import { PairInviteTable } from "../../src/pair/pair.sql"
 import { PairPaths } from "../../src/server/routes/instance/httpapi/groups/pair"
 import { PairSessionPaths } from "../../src/server/routes/instance/httpapi/groups/pair-session"
 import { Server } from "../../src/server/server"
 import { SessionID } from "../../src/session/schema"
 import { SessionTable } from "../../src/session/session.sql"
-import { Database } from "../../src/storage/db"
+import { Database, eq } from "../../src/storage/db"
 import { resetDatabase } from "../fixture/db"
 import { disposeAllInstances, tmpdir } from "../fixture/fixture"
 
 void Log.init({ print: false })
 
-const original = Flag.OPENCODE_EXPERIMENTAL_HTTPAPI
+const original = {
+  OPENCODE_EXPERIMENTAL_HTTPAPI: Flag.OPENCODE_EXPERIMENTAL_HTTPAPI,
+  OPENCODE_SERVER_PASSWORD: Flag.OPENCODE_SERVER_PASSWORD,
+  OPENCODE_SERVER_USERNAME: Flag.OPENCODE_SERVER_USERNAME,
+  envPassword: process.env.OPENCODE_SERVER_PASSWORD,
+  envUsername: process.env.OPENCODE_SERVER_USERNAME,
+}
+
+const auth = {
+  username: "opencode",
+  password: "secret",
+}
 
 function app(experimental = true) {
   Flag.OPENCODE_EXPERIMENTAL_HTTPAPI = experimental
   return experimental ? Server.Default().app : Server.Legacy().app
+}
+
+function authorization() {
+  return `Basic ${Buffer.from(`${auth.username}:${auth.password}`).toString("base64")}`
+}
+
+function enableServerAuth() {
+  Flag.OPENCODE_SERVER_PASSWORD = auth.password
+  Flag.OPENCODE_SERVER_USERNAME = auth.username
+  process.env.OPENCODE_SERVER_PASSWORD = auth.password
+  process.env.OPENCODE_SERVER_USERNAME = auth.username
 }
 
 function path(route: string, roomID: string) {
@@ -29,10 +53,28 @@ function sessionPath(route: string, roomID: string) {
   return path(route, roomID)
 }
 
-async function createRoom(input: { experimental: boolean; directory: string; sessionID: string }) {
+function serverFetch(experimental: boolean) {
+  const server = app(experimental)
+  return Object.assign(
+    async (request: RequestInfo | URL, init?: RequestInit) =>
+      await server.request(request instanceof Request ? request : new Request(request, init)),
+    { preconnect: globalThis.fetch.preconnect },
+  ) satisfies typeof globalThis.fetch
+}
+
+function pairClient(experimental: boolean, directory: string, headers?: Record<string, string>) {
+  return createOpencodeClient({
+    baseUrl: "http://localhost",
+    directory,
+    headers,
+    fetch: serverFetch(experimental),
+  })
+}
+
+async function createRoom(input: { experimental: boolean; directory: string; sessionID: string; headers?: Record<string, string> }) {
   const response = await app(input.experimental).request(PairPaths.createRoom, {
     method: "POST",
-    headers: { "x-opencode-directory": input.directory, "content-type": "application/json" },
+    headers: { "x-opencode-directory": input.directory, "content-type": "application/json", ...input.headers },
     body: JSON.stringify({ sessionID: input.sessionID, hostName: "Host" }),
   })
   expect(response.status).toBe(200)
@@ -91,7 +133,13 @@ function seedSession(directory: string) {
 }
 
 afterEach(async () => {
-  Flag.OPENCODE_EXPERIMENTAL_HTTPAPI = original
+  Flag.OPENCODE_EXPERIMENTAL_HTTPAPI = original.OPENCODE_EXPERIMENTAL_HTTPAPI
+  Flag.OPENCODE_SERVER_PASSWORD = original.OPENCODE_SERVER_PASSWORD
+  Flag.OPENCODE_SERVER_USERNAME = original.OPENCODE_SERVER_USERNAME
+  if (original.envPassword === undefined) delete process.env.OPENCODE_SERVER_PASSWORD
+  else process.env.OPENCODE_SERVER_PASSWORD = original.envPassword
+  if (original.envUsername === undefined) delete process.env.OPENCODE_SERVER_USERNAME
+  else process.env.OPENCODE_SERVER_USERNAME = original.envUsername
   await disposeAllInstances()
   await resetDatabase()
 })
@@ -219,6 +267,122 @@ describe("pair auth middleware", () => {
     expect(response.status).toBe(401)
   })
 
+  test("pair join bypasses server basic auth when an invite token is provided across backends", async () => {
+    enableServerAuth()
+
+    for (const experimental of [false, true] as const) {
+      await using tmp = await tmpdir({ git: true, config: { formatter: false, lsp: false } })
+      const headers = { "x-opencode-directory": tmp.path, authorization: authorization() }
+      const room = await createRoom({
+        experimental,
+        directory: tmp.path,
+        sessionID: seedSession(tmp.path),
+        headers: { authorization: authorization() },
+      })
+
+      const invite = await app(experimental).request(path(PairPaths.issueInvite, room.id), {
+        method: "POST",
+        headers: { ...headers, "content-type": "application/json" },
+        body: JSON.stringify({ actorPeerID: room.hostPeerID }),
+      })
+      expect(invite.status).toBe(200)
+      const inviteBody = (await invite.json()) as { id: string; token: string }
+
+      const joined = await app(experimental).request(PairPaths.join, {
+        method: "POST",
+        headers: { "x-opencode-directory": tmp.path, "content-type": "application/json" },
+        body: JSON.stringify({ inviteToken: inviteBody.token, name: "Guest" }),
+      })
+      expect(joined.status).toBe(200)
+    }
+  })
+
+  test("pair join reports expired invites consistently across backends", async () => {
+    enableServerAuth()
+
+    for (const experimental of [false, true] as const) {
+      await using tmp = await tmpdir({ git: true, config: { formatter: false, lsp: false } })
+      const headers = { "x-opencode-directory": tmp.path, authorization: authorization() }
+      const room = await createRoom({
+        experimental,
+        directory: tmp.path,
+        sessionID: seedSession(tmp.path),
+        headers: { authorization: authorization() },
+      })
+
+      const invite = await app(experimental).request(path(PairPaths.issueInvite, room.id), {
+        method: "POST",
+        headers: { ...headers, "content-type": "application/json" },
+        body: JSON.stringify({ actorPeerID: room.hostPeerID }),
+      })
+      expect(invite.status).toBe(200)
+      const inviteBody = (await invite.json()) as { id: string; token: string }
+
+      Database.use((db) =>
+        db
+          .update(PairInviteTable)
+          .set({ expires_at: "2000-01-01T00:00:00.000Z" })
+          .where(eq(PairInviteTable.id, inviteBody.id))
+          .run(),
+      )
+
+      const response = await app(experimental).request(PairPaths.join, {
+        method: "POST",
+        headers: { "x-opencode-directory": tmp.path, "content-type": "application/json" },
+        body: JSON.stringify({ inviteToken: inviteBody.token, name: "Guest" }),
+      })
+
+      expect(response.status).toBe(404)
+      expect(await response.json()).toEqual({
+        name: "NotFoundError",
+        data: { message: "Pair invite expired" },
+      })
+    }
+  })
+
+  test("pair join reports consumed invites consistently across backends", async () => {
+    enableServerAuth()
+
+    for (const experimental of [false, true] as const) {
+      await using tmp = await tmpdir({ git: true, config: { formatter: false, lsp: false } })
+      const headers = { "x-opencode-directory": tmp.path, authorization: authorization() }
+      const room = await createRoom({
+        experimental,
+        directory: tmp.path,
+        sessionID: seedSession(tmp.path),
+        headers: { authorization: authorization() },
+      })
+
+      const invite = await app(experimental).request(path(PairPaths.issueInvite, room.id), {
+        method: "POST",
+        headers: { ...headers, "content-type": "application/json" },
+        body: JSON.stringify({ actorPeerID: room.hostPeerID }),
+      })
+      expect(invite.status).toBe(200)
+      const inviteBody = (await invite.json()) as { id: string; token: string }
+
+      Database.use((db) =>
+        db
+          .update(PairInviteTable)
+          .set({ consumed_at: new Date().toISOString() })
+          .where(eq(PairInviteTable.id, inviteBody.id))
+          .run(),
+      )
+
+      const response = await app(experimental).request(PairPaths.join, {
+        method: "POST",
+        headers: { "x-opencode-directory": tmp.path, "content-type": "application/json" },
+        body: JSON.stringify({ inviteToken: inviteBody.token, name: "Guest" }),
+      })
+
+      expect(response.status).toBe(404)
+      expect(await response.json()).toEqual({
+        name: "NotFoundError",
+        data: { message: "Pair invite consumed" },
+      })
+    }
+  })
+
   test("pair endpoints do not require pair credential (use normal Authorization middleware)", async () => {
     await using tmp = await tmpdir({ git: true, config: { formatter: false, lsp: false } })
     const headers = { "x-opencode-directory": tmp.path }
@@ -342,6 +506,43 @@ describe("pair session history bootstrap", () => {
     expect(Array.isArray(await diffResp.json())).toBe(true)
   })
 
+  test("GET /pair/rooms/:roomID/session/event returns an SSE stream for pair credentials", async () => {
+    enableServerAuth()
+
+    for (const experimental of [false, true] as const) {
+      await using tmp = await tmpdir({ git: true, config: { formatter: false, lsp: false } })
+      const headers = { "x-opencode-directory": tmp.path, authorization: authorization() }
+      const room = await createRoom({
+        experimental,
+        directory: tmp.path,
+        sessionID: seedSession(tmp.path),
+        headers: { authorization: authorization() },
+      })
+
+      const invite = await app(experimental).request(path(PairPaths.issueInvite, room.id), {
+        method: "POST",
+        headers: { ...headers, "content-type": "application/json" },
+        body: JSON.stringify({ actorPeerID: room.hostPeerID }),
+      })
+      expect(invite.status).toBe(200)
+      const inviteBody = (await invite.json()) as { token: string }
+
+      const joined = await app(experimental).request(PairPaths.join, {
+        method: "POST",
+        headers: { "x-opencode-directory": tmp.path, "content-type": "application/json" },
+        body: JSON.stringify({ inviteToken: inviteBody.token, name: "Guest" }),
+      })
+      expect(joined.status).toBe(200)
+      const joinedBody = (await joined.json()) as { credential?: { token: string } }
+
+      const response = await app(experimental).request(sessionPath(PairSessionPaths.event, room.id), {
+        headers: { "x-opencode-directory": tmp.path, authorization: `Bearer ${joinedBody.credential!.token}` },
+      })
+      expect(response.status).toBe(200)
+      await response.body?.cancel().catch(() => {})
+    }
+  })
+
   test("session endpoints return data for the room in the URL path", async () => {
     await using tmp = await tmpdir({ git: true, config: { formatter: false, lsp: false } })
     const headers = { "x-opencode-directory": tmp.path }
@@ -369,4 +570,5 @@ describe("pair session history bootstrap", () => {
     const sessionBody = (await sessionResp.json()) as { id: string }
     expect(sessionBody.id).toBe(sessionID2)
   })
+
 })

@@ -523,12 +523,26 @@ export function Session() {
   function showConnectionError(hostUrl: string, method: string) {
     if (method === "direct")
       toast.show({ message: `Could not connect to ${hostUrl}. Check network/firewall settings.`, variant: "error", duration: 8000 })
+    else if (method === "tailnet")
+      toast.show({
+        message: `Could not reach ${hostUrl}. Make sure Tailscale or Headscale is connected and the MagicDNS name or tailnet IP resolves.`,
+        variant: "error",
+        duration: 10000,
+      })
     else if (method === "private_network")
       toast.show({ message: `Could not reach ${hostUrl}. Ensure you are on the same VPN/private network.`, variant: "error", duration: 8000 })
     else if (method === "ssh_tunnel")
       toast.show({ message: `Could not connect. Run the tunnel command first: ssh -L 4096:localhost:4096 user@host`, variant: "error", duration: 10000 })
     else
       toast.show({ message: `Host ${hostUrl} is not public. Ask the host for connection instructions.`, variant: "error", duration: 8000 })
+  }
+
+  function responseErrorMessage(error: unknown) {
+    if (!error || typeof error !== "object") return undefined
+    if ("message" in error && typeof error.message === "string") return error.message
+    if (!("data" in error) || !error.data || typeof error.data !== "object") return undefined
+    if ("message" in error.data && typeof error.data.message === "string") return error.data.message
+    return undefined
   }
 
   function pairPeerRequired() {
@@ -579,6 +593,8 @@ export function Session() {
     if (isNonPublicHost(hostname)) {
       if (connectionMethod === "ssh_tunnel")
         toast.show({ message: "Host is not public. Share tunnel setup: ssh -L 4096:localhost:4096 user@host", variant: "info", duration: 8000 })
+      else if (connectionMethod === "tailnet")
+        toast.show({ message: "Host is on a Tailscale or Headscale tailnet. Share the MagicDNS name or 100.x tailnet address with a guest on the same tailnet.", variant: "info", duration: 8000 })
       else if (connectionMethod === "private_network")
         toast.show({ message: "Host is on a private network. Guest must be on same VPN/network.", variant: "info", duration: 6000 })
       else
@@ -604,6 +620,12 @@ export function Session() {
       if (isRemote && isNonPublicHost(new URL(link.hostUrl).hostname)) {
         if (method === "ssh_tunnel") {
           toast.show({ message: "Remote host requires SSH tunnel. Run: ssh -L 4096:localhost:4096 user@host", variant: "info", duration: 10000 })
+        } else if (method === "tailnet") {
+          toast.show({
+            message: "Remote host is on a Tailscale or Headscale tailnet. Connect to the same tailnet or use the MagicDNS hostname / tailnet IP from the invite.",
+            variant: "info",
+            duration: 10000,
+          })
         } else if (method === "private_network") {
           toast.show({ message: "Remote host is on a private network. Ensure you are on the same network.", variant: "info", duration: 8000 })
         }
@@ -616,10 +638,11 @@ export function Session() {
           const res = await remoteSDK.pair.join({ inviteToken: link.token, name: sync.data.config.username ?? process.env.USER ?? "Guest" })
           if (res.error || !res.data) {
             const status = (res.error as Record<string, unknown>)?.status as number | undefined
-            const message = (res.error as Record<string, unknown>)?.message as string | undefined
+            const message = responseErrorMessage(res.error)
             if (status === 404) {
               if (message?.includes("expired")) toast.show({ message: "This invite has expired. Ask the host for a new invite.", variant: "error" })
               else if (message?.includes("consumed")) toast.show({ message: "This invite has already been used.", variant: "error" })
+              else if (message?.includes("not found")) toast.show({ message: "This invite could not be found.", variant: "error" })
               else toast.show({ message: "Peer not found. You may need to rejoin.", variant: "error" })
             } else {
               showConnectionError(link.hostUrl, method)
@@ -627,13 +650,18 @@ export function Session() {
             dialog.clear()
             return
           }
-          const credential = (res.data as Record<string, unknown>)?.credential as { token: string } | undefined
+          const credential = (res.data as { credential?: { token: string } }).credential
+          if (!credential?.token) {
+            toast.show({ message: "Remote pair join did not return a credential", variant: "error" })
+            dialog.clear()
+            return
+          }
           await sync.pair.setRemote({
             sessionID: res.data.room.sessionID,
             remoteUrl: link.hostUrl,
             room: res.data.room,
             selfPeer: res.data.peer,
-            credential: credential?.token ?? "",
+            credential: credential.token,
             connectionMethod: method,
           })
           toast.show({ message: "Joined remote pair session", variant: "success" })

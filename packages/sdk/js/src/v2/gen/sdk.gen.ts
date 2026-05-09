@@ -84,6 +84,8 @@ import type {
   PairControlRevokeResponses,
   PairInviteCreateErrors,
   PairInviteCreateResponses,
+  PairInviteLinkCreateErrors,
+  PairInviteLinkCreateResponses,
   PairJoinErrors,
   PairJoinResponses,
   PairLeaveErrors,
@@ -94,6 +96,18 @@ import type {
   PairRoomCreateResponses,
   PairRoomGetErrors,
   PairRoomGetResponses,
+  PairSessionDiffErrors,
+  PairSessionDiffResponses,
+  PairSessionEventErrors,
+  PairSessionEventResponses,
+  PairSessionInfoErrors,
+  PairSessionInfoResponses,
+  PairSessionMessagesErrors,
+  PairSessionMessagesResponses,
+  PairSessionPartsErrors,
+  PairSessionPartsResponses,
+  PairSessionTodosErrors,
+  PairSessionTodosResponses,
   PairSignalingErrors,
   PairSignalingResponses,
   PairSignalingTokenErrors,
@@ -2320,6 +2334,14 @@ export class Invite extends HeyApiClient {
         | "approve_permissions"
         | "share_terminal"
       >
+      connectionProfile?: {
+        method: "direct" | "tailnet" | "private_network" | "ssh_tunnel" | "relay" | "manual"
+        hostUrl: string
+        vpnHost?: string
+        tunnelCommand?: string
+        relayId?: string
+        attachCommand?: string
+      }
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -2333,12 +2355,79 @@ export class Invite extends HeyApiClient {
             { in: "query", key: "workspace" },
             { in: "body", key: "actorPeerID" },
             { in: "body", key: "capabilities" },
+            { in: "body", key: "connectionProfile" },
           ],
         },
       ],
     )
     return (options?.client ?? this.client).post<PairInviteCreateResponses, PairInviteCreateErrors, ThrowOnError>({
       url: "/pair/rooms/{roomID}/invite",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class InviteLink extends HeyApiClient {
+  /**
+   * Resolve pair invite link
+   *
+   * Create a scoped invite and return a full invite link with connection profile.
+   */
+  public create<ThrowOnError extends boolean = false>(
+    parameters: {
+      roomID: string
+      directory?: string
+      workspace?: string
+      actorPeerID?: string
+      capabilities?: Array<
+        | "view_session"
+        | "view_files"
+        | "send_prompt"
+        | "request_control"
+        | "control_driver"
+        | "edit_files"
+        | "run_shell"
+        | "approve_permissions"
+        | "share_terminal"
+      >
+      connectionProfile?: {
+        method: "direct" | "tailnet" | "private_network" | "ssh_tunnel" | "relay" | "manual"
+        hostUrl: string
+        vpnHost?: string
+        tunnelCommand?: string
+        relayId?: string
+        attachCommand?: string
+      }
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "roomID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "actorPeerID" },
+            { in: "body", key: "capabilities" },
+            { in: "body", key: "connectionProfile" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      PairInviteLinkCreateResponses,
+      PairInviteLinkCreateErrors,
+      ThrowOnError
+    >({
+      url: "/pair/rooms/{roomID}/invite-link",
       ...options,
       ...params,
       headers: {
@@ -2469,6 +2558,206 @@ export class Control extends HeyApiClient {
         ...options?.headers,
         ...params.headers,
       },
+    })
+  }
+}
+
+export class Session2 extends HeyApiClient {
+  /**
+   * Get pair session info
+   *
+   * Get session info for a pair room's session using pair credentials.
+   */
+  public info<ThrowOnError extends boolean = false>(
+    parameters: {
+      roomID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "roomID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<PairSessionInfoResponses, PairSessionInfoErrors, ThrowOnError>({
+      url: "/pair/rooms/{roomID}/session",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get pair session messages
+   *
+   * Get messages for a pair room's session using pair credentials.
+   */
+  public messages<ThrowOnError extends boolean = false>(
+    parameters: {
+      roomID: string
+      directory?: string
+      workspace?: string
+      limit?: number
+      cursor?: number
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "roomID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "limit" },
+            { in: "query", key: "cursor" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<PairSessionMessagesResponses, PairSessionMessagesErrors, ThrowOnError>({
+      url: "/pair/rooms/{roomID}/session/messages",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get pair session parts
+   *
+   * Get parts for a specific message in the pair room's session.
+   */
+  public parts<ThrowOnError extends boolean = false>(
+    parameters: {
+      roomID: string
+      directory?: string
+      workspace?: string
+      messageID: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "roomID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "messageID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<PairSessionPartsResponses, PairSessionPartsErrors, ThrowOnError>({
+      url: "/pair/rooms/{roomID}/session/parts",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get pair session todos
+   *
+   * Get todos for the pair room's session.
+   */
+  public todos<ThrowOnError extends boolean = false>(
+    parameters: {
+      roomID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "roomID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<PairSessionTodosResponses, PairSessionTodosErrors, ThrowOnError>({
+      url: "/pair/rooms/{roomID}/session/todos",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get pair session diff
+   *
+   * Get the file changes diff for the pair room's session.
+   */
+  public diff<ThrowOnError extends boolean = false>(
+    parameters: {
+      roomID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "roomID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<PairSessionDiffResponses, PairSessionDiffErrors, ThrowOnError>({
+      url: "/pair/rooms/{roomID}/session/diff",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Subscribe to pair session events
+   *
+   * Stream room-scoped pair session events for a remote guest.
+   */
+  public event<ThrowOnError extends boolean = false>(
+    parameters: {
+      roomID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "roomID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<PairSessionEventResponses, PairSessionEventErrors, ThrowOnError>({
+      url: "/pair/rooms/{roomID}/session/event",
+      ...options,
+      ...params,
     })
   }
 }
@@ -2634,9 +2923,19 @@ export class Pair extends HeyApiClient {
     return (this._invite ??= new Invite({ client: this.client }))
   }
 
+  private _inviteLink?: InviteLink
+  get inviteLink(): InviteLink {
+    return (this._inviteLink ??= new InviteLink({ client: this.client }))
+  }
+
   private _control?: Control
   get control(): Control {
     return (this._control ??= new Control({ client: this.client }))
+  }
+
+  private _session?: Session2
+  get session(): Session2 {
+    return (this._session ??= new Session2({ client: this.client }))
   }
 }
 
@@ -3445,7 +3744,7 @@ export class Provider extends HeyApiClient {
   }
 }
 
-export class Session2 extends HeyApiClient {
+export class Session3 extends HeyApiClient {
   /**
    * List sessions
    *
@@ -4652,7 +4951,7 @@ export class Sync extends HeyApiClient {
   }
 }
 
-export class Session3 extends HeyApiClient {
+export class Session4 extends HeyApiClient {
   /**
    * List v2 sessions
    *
@@ -4874,9 +5173,9 @@ export class Session3 extends HeyApiClient {
 }
 
 export class V2 extends HeyApiClient {
-  private _session?: Session3
-  get session(): Session3 {
-    return (this._session ??= new Session3({ client: this.client }))
+  private _session?: Session4
+  get session(): Session4 {
+    return (this._session ??= new Session4({ client: this.client }))
   }
 }
 
@@ -5612,9 +5911,9 @@ export class OpencodeClient extends HeyApiClient {
     return (this._provider ??= new Provider({ client: this.client }))
   }
 
-  private _session?: Session2
-  get session(): Session2 {
-    return (this._session ??= new Session2({ client: this.client }))
+  private _session?: Session3
+  get session(): Session3 {
+    return (this._session ??= new Session3({ client: this.client }))
   }
 
   private _part?: Part

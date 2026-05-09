@@ -28,12 +28,14 @@ function mapError(error: Pair.RoomNotFoundError | Pair.PeerNotFoundError | Pair.
 }
 
 function mapJoinError(
-  error: Pair.InviteNotFoundError | Pair.InviteExpiredError | Pair.InviteConsumedError | Pair.RoomNotFoundError | Pair.PeerNotFoundError | Pair.PairCredentialIssueError,
+  error: unknown,
 ) {
-  if (error._tag === "Pair.InviteNotFoundError" || error._tag === "Pair.RoomNotFoundError" || error._tag === "Pair.PeerNotFoundError") {
-    return ApiError.notFound("Pair invite not found")
-  }
-  if (error._tag === "Pair.CredentialIssueError") return new HttpApiError.BadRequest({})
+  if (error instanceof Pair.InviteNotFoundError) return ApiError.notFound("Pair invite not found")
+  if (error instanceof Pair.InviteExpiredError) return ApiError.notFound("Pair invite expired")
+  if (error instanceof Pair.InviteConsumedError) return ApiError.notFound("Pair invite consumed")
+  if (error instanceof Pair.RoomNotFoundError) return ApiError.notFound("Pair room not found")
+  if (error instanceof Pair.PeerNotFoundError) return ApiError.notFound("Pair peer not found")
+  if (error instanceof Pair.PairCredentialIssueError) return new HttpApiError.BadRequest({})
   return new HttpApiError.BadRequest({})
 }
 

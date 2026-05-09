@@ -1,3 +1,4 @@
+import { BusEvent } from "@/bus/bus-event"
 import { Session } from "@/session/session"
 import { MessageV2 } from "@/session/message-v2"
 import { Todo } from "@/session/todo"
@@ -19,7 +20,24 @@ export const PairSessionPaths = {
   parts: `${root}/parts`,
   todos: `${root}/todos`,
   diff: `${root}/diff`,
+  event: `${root}/event`,
 } as const
+
+const ServerConnected = Schema.Struct({
+  id: Schema.String,
+  type: Schema.Literal("server.connected"),
+  properties: Schema.Struct({}),
+})
+
+const ServerHeartbeat = Schema.Struct({
+  id: Schema.String,
+  type: Schema.Literal("server.heartbeat"),
+  properties: Schema.Struct({}),
+})
+
+const PairSessionEvent = Schema.Union([...BusEvent.effectPayloads(), ServerConnected, ServerHeartbeat]).annotate({
+  identifier: "PairSessionEvent",
+})
 
 export const PairSessionMessagesQuery = Schema.Struct({
   limit: Schema.optional(Schema.NumberFromString),
@@ -30,10 +48,15 @@ export const PairSessionPartsQuery = Schema.Struct({
   messageID: Schema.String,
 })
 
+const PairSessionRoomParams = {
+  roomID: Schema.String,
+}
+
 export const PairSessionApi = HttpApi.make("pair-session").add(
   HttpApiGroup.make("pair-session")
     .add(
       HttpApiEndpoint.get("sessionInfo", PairSessionPaths.info, {
+        params: PairSessionRoomParams,
         success: described(Session.Info, "Pair session info"),
         error: [ApiNotFoundError, HttpApiError.Forbidden],
       }).annotateMerge(
@@ -44,6 +67,7 @@ export const PairSessionApi = HttpApi.make("pair-session").add(
         }),
       ),
       HttpApiEndpoint.get("sessionMessages", PairSessionPaths.messages, {
+        params: PairSessionRoomParams,
         query: PairSessionMessagesQuery,
         success: described(Schema.Array(MessageV2.WithParts), "Session messages"),
         error: [ApiNotFoundError, HttpApiError.Forbidden],
@@ -55,6 +79,7 @@ export const PairSessionApi = HttpApi.make("pair-session").add(
         }),
       ),
       HttpApiEndpoint.get("sessionParts", PairSessionPaths.parts, {
+        params: PairSessionRoomParams,
         query: PairSessionPartsQuery,
         success: described(Schema.Array(MessageV2.Part), "Session parts"),
         error: [ApiNotFoundError, HttpApiError.Forbidden, HttpApiError.BadRequest],
@@ -66,6 +91,7 @@ export const PairSessionApi = HttpApi.make("pair-session").add(
         }),
       ),
       HttpApiEndpoint.get("sessionTodos", PairSessionPaths.todos, {
+        params: PairSessionRoomParams,
         success: described(Schema.Array(Todo.Info), "Session todos"),
         error: [ApiNotFoundError, HttpApiError.Forbidden],
       }).annotateMerge(
@@ -76,6 +102,7 @@ export const PairSessionApi = HttpApi.make("pair-session").add(
         }),
       ),
       HttpApiEndpoint.get("sessionDiff", PairSessionPaths.diff, {
+        params: PairSessionRoomParams,
         success: described(Schema.Array(Snapshot.FileDiff), "Session diff"),
         error: [ApiNotFoundError, HttpApiError.Forbidden],
       }).annotateMerge(
@@ -83,6 +110,17 @@ export const PairSessionApi = HttpApi.make("pair-session").add(
           identifier: "pair.session.diff",
           summary: "Get pair session diff",
           description: "Get the file changes diff for the pair room's session.",
+        }),
+      ),
+      HttpApiEndpoint.get("sessionEvent", PairSessionPaths.event, {
+        params: PairSessionRoomParams,
+        success: described(PairSessionEvent, "Pair session event stream"),
+        error: [ApiNotFoundError, HttpApiError.Forbidden],
+      }).annotateMerge(
+        OpenApi.annotations({
+          identifier: "pair.session.event",
+          summary: "Subscribe to pair session events",
+          description: "Stream room-scoped pair session events for a remote guest.",
         }),
       ),
     )

@@ -14,6 +14,168 @@ Host:                     Guest:
   (send link to guest)
 ```
 
+## Examples
+
+### Example 1: Two terminals on the same machine
+
+This is the fastest path. The host and guest both connect to the same local
+opencode server, so the guest can use either a raw invite token or the full
+invite URI.
+
+Host:
+
+```text
+/pair-start
+/pair-invite
+```
+
+Guest:
+
+```text
+/pair-join
+paste: 2v6A5f1qV0P4d4...  (raw token)
+```
+
+What happens:
+
+- The guest joins the same server the host is already using.
+- No VPN, tunnel, or tailnet setup is needed.
+- The guest lands in the host's session and can request control.
+
+### Example 2: Two people on the same LAN or VPN
+
+Use this when the host server is reachable on a private IP address such as
+`192.168.1.5:4096`.
+
+Host:
+
+```text
+/pair-start
+/pair-invite
+```
+
+Invite URI:
+
+```text
+opencode://pair-join?hostUrl=http%3A%2F%2F192.168.1.5%3A4096&roomID=room-abc&token=tok-123&sessionID=ses-456&expiresAt=2026-12-31T23%3A59%3A59.000Z&connectionProfile=%7B%22method%22%3A%22private_network%22%2C%22hostUrl%22%3A%22http%3A%2F%2F192.168.1.5%3A4096%22%7D
+```
+
+Guest:
+
+```text
+/pair-join
+paste the invite URI
+```
+
+What happens:
+
+- The guest must be on the same private network or VPN.
+- `pair-status` shows `Access: private_network`.
+- If the host is unreachable, the guest sees the private-network error
+  message and can check routing or firewall settings.
+
+### Example 3: Tailscale or Headscale tailnet
+
+Use this when both machines are connected to the same tailnet and the host is
+reachable via MagicDNS or a tailnet IP.
+
+Host:
+
+```text
+/pair-start
+/pair-invite
+```
+
+Setup:
+
+```text
+tailscale status
+```
+
+If you run Headscale, connect the client to your control server first:
+
+```text
+tailscale up --login-server https://headscale.example.com
+```
+
+Invite URI:
+
+```text
+opencode://pair-join?hostUrl=http%3A%2F%2Fmonitoring.yak-bebop.ts.net%3A4096&roomID=room-tailnet&token=tok-789&sessionID=ses-999&expiresAt=2026-12-31T23%3A59%3A59.000Z&connectionProfile=%7B%22method%22%3A%22tailnet%22%2C%22hostUrl%22%3A%22http%3A%2F%2Fmonitoring.yak-bebop.ts.net%3A4096%22%7D
+```
+
+Guest:
+
+```text
+/pair-join
+paste the invite URI
+```
+
+What happens:
+
+- Both machines stay on the tailnet instead of exposing the host publicly.
+- The guest can use a `*.ts.net` MagicDNS hostname or a `100.x` tailnet IP.
+- `pair-status` shows `Access: tailnet`.
+- If you want a stable hostname, enable MagicDNS for the tailnet.
+
+### Example 4: Host behind NAT with an SSH tunnel
+
+Use this when the host cannot be reached directly, but you can forward the
+host port through SSH.
+
+Guest:
+
+```bash
+ssh -L 4096:localhost:4096 user@host-machine
+```
+
+Host:
+
+```text
+/pair-start
+/pair-invite
+```
+
+Guest:
+
+```text
+/pair-join
+paste the invite URI
+```
+
+What happens:
+
+- The local `localhost:4096` on the guest forwards traffic to the host.
+- The guest keeps using the invite URI, but the tunnel makes the host
+  reachable.
+- `pair-status` shows `Access: ssh_tunnel` when the invite describes that
+  transport.
+
+### Example 5: Control handoff during a session
+
+Once the guest has joined, control can move back and forth without leaving
+the room.
+
+Host:
+
+```text
+/pair-status
+/pair-grant
+```
+
+Guest:
+
+```text
+/pair-request
+```
+
+What happens:
+
+- The guest requests control.
+- The host sees the request and grants it.
+- The guest becomes the driver and can submit prompts.
+- The host can later run `/pair-revoke` to take control back.
+
 ## Commands
 
 | Command          | Who                  | What it does                              |
@@ -54,6 +216,12 @@ Host:                     Guest:
    - Session routing metadata
    - Connection profile (how the guest should reach you)
 
+   opencode automatically tags the connection profile as one of:
+   - `direct` for public URLs
+   - `tailnet` for Tailscale / Headscale paths
+   - `private_network` for RFC1918 private addresses
+   - `ssh_tunnel`, `relay`, or `manual` when the host needs an explicit attach path
+
 3. Invites expire after **15 minutes** and are **single-use**. Generate a new
    invite for each guest.
 
@@ -64,6 +232,7 @@ After copying the invite, opencode detects how reachable your server is:
 | Host address       | Detection              | Toast message                                             |
 | ------------------ | ---------------------- | --------------------------------------------------------- |
 | Public IP / domain | `direct`               | No extra toast; link works as-is                          |
+| Tailnet host       | `tailnet`              | "Share the MagicDNS name or 100.x tailnet address"       |
 | Private IP         | `private_network`      | "Guest must be on same VPN/network"                       |
 | localhost          | `manual`               | "Share connection instructions manually"                  |
 | Any non-public     | depends on IP range    | Host is notified if the guest needs special setup         |
@@ -97,6 +266,30 @@ The host's server is on a private IP (10.x, 192.168.x, 172.16-31.x).
 2. Paste the invite link and press Enter.
 3. If the host is unreachable, opencode shows:
    `Could not reach http://192.168.1.5:4096. Ensure you are on the same VPN/private network.`
+
+#### Tailscale / Headscale Tailnet
+
+The host is reachable over a tailnet address or MagicDNS name.
+
+1. Make sure both machines are connected to the same tailnet.
+2. Paste the invite link and press Enter.
+3. If the host is unreachable, opencode shows:
+   `Could not reach http://monitoring.yak-bebop.ts.net:4096. Make sure Tailscale or Headscale is connected and the MagicDNS name or tailnet IP resolves.`
+
+Setup notes:
+
+- Install the Tailscale client on both machines.
+- Sign both machines into the same tailnet.
+- Make sure the host's opencode server listens on a non-loopback interface, such as `0.0.0.0` or the machine's reachable tailnet/LAN address. If the server only listens on `localhost`, the guest cannot reach it over tailnet.
+- If you want to use a human-friendly hostname instead of the tailnet IP, enable MagicDNS for the tailnet and give the host a stable machine name.
+- If you use Headscale, point the Tailscale client at your Headscale control server with `tailscale up --login-server <YOUR_HEADSCALE_URL>` and complete registration.
+- On the guest machine, `tailscale status` should show the host as online before you join.
+
+Tailnet hosts can use either:
+
+- A `*.ts.net` MagicDNS hostname
+- A `100.64.0.0/10` tailnet IP
+- A custom Headscale-backed DNS name that resolves over the tailnet
 
 #### SSH Tunnel
 
@@ -272,6 +465,17 @@ Could not reach http://192.168.1.5:4096. Ensure you are on the same VPN/private 
 - Both machines must be on the same private network or VPN.
 - Verify the private IP is correct and reachable: `ping 192.168.1.5`.
 
+### Guest can't connect (tailnet method)
+
+```
+Could not reach http://monitoring.yak-bebop.ts.net:4096. Make sure Tailscale or Headscale is connected and the MagicDNS name or tailnet IP resolves.
+```
+
+- Confirm both machines are attached to the same tailnet.
+- Try `tailscale status` on both machines and confirm the peer is online.
+- If you use Headscale, confirm the client is logged into the expected control server and the hostname resolves inside the tailnet DNS.
+- Verify the tailnet hostname or `100.x` address is reachable from the guest machine.
+
 ### Guest can't connect (ssh_tunnel method)
 
 ```
@@ -322,6 +526,9 @@ backoff (1s → 30s).
   bypassed for pair-session paths when a valid pair credential is
   presented. Pair credentials are the sole authorization for those
   endpoints.
+- **Tailnet connectivity** is still transport, not authorization. A
+  Tailscale or Headscale path only helps the guest reach the host server;
+  the guest still needs a valid pair invite and scoped credential.
 - **Single-use invites**: Each token can only be consumed once. After a
   guest joins, the invite is marked consumed.
 - **Driver isolation**: Non-drivers cannot submit prompts. Only the

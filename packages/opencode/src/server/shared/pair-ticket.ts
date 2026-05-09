@@ -18,6 +18,12 @@ export function isPairSessionPath(pathname: string) {
   return PAIR_SESSION_PATH.test(pathname)
 }
 
+const PAIR_JOIN_PATH = /^\/pair\/join$/
+
+export function isPairJoinPath(pathname: string) {
+  return PAIR_JOIN_PATH.test(pathname)
+}
+
 export const PAIR_CREDENTIAL_QUERY = "pair_credential"
 
 export function hasPairCredentialParam(url: URL) {

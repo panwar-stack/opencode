@@ -24,7 +24,7 @@ export type Event =
   | EventSessionIdle
   | EventTuiPromptAppend
   | EventTuiCommandExecute
-  | EventTuiToastShow1
+  | EventTuiToastShow22
   | EventTuiSessionSelect
   | EventTeamCreated
   | EventTeamClosed
@@ -55,7 +55,7 @@ export type Event =
   | EventPairControlRevoked
   | EventPairRemoteSubmitted
   | EventPairPresenceUpdated
-  | EventPairCursorUpdated1
+  | EventPairCursorUpdated2
   | EventPairSelectionUpdated
   | EventPairPromptUpdated
   | EventPairTypingUpdated
@@ -1660,6 +1660,110 @@ export type NotFoundError = {
 export type EffectHttpApiErrorForbidden = {
   _tag: "Forbidden"
 }
+
+export type PairSessionEvent =
+  | EventServerInstanceDisposed
+  | EventFileEdited
+  | EventFileWatcherUpdated
+  | EventLspClientDiagnostics
+  | EventLspUpdated
+  | EventMessagePartDelta
+  | EventPermissionAsked
+  | EventPermissionReplied
+  | EventSessionDiff
+  | EventSessionError
+  | EventInstallationUpdated
+  | EventInstallationUpdateAvailable
+  | EventQuestionAsked
+  | EventQuestionReplied
+  | EventQuestionRejected
+  | EventSessionStatus
+  | EventSessionIdle
+  | EventTuiPromptAppend
+  | EventTuiCommandExecute
+  | EventTuiToastShow
+  | EventTuiSessionSelect
+  | EventTeamCreated
+  | EventTeamClosed
+  | EventTeamMemberUpdated
+  | EventTeamMessageReceived
+  | EventTodoUpdated
+  | EventSessionCompacted
+  | EventMcpToolsChanged
+  | EventMcpBrowserOpenFailed
+  | EventCommandExecuted
+  | EventProjectUpdated
+  | EventVcsBranchUpdated
+  | EventWorkspaceReady
+  | EventWorkspaceFailed
+  | EventWorkspaceStatus
+  | EventWorktreeReady
+  | EventWorktreeFailed
+  | EventPtyCreated
+  | EventPtyUpdated
+  | EventPtyExited
+  | EventPtyDeleted
+  | EventPairRoomCreated
+  | EventPairRoomClosed
+  | EventPairPeerJoined
+  | EventPairPeerLeft
+  | EventPairControlRequested
+  | EventPairControlGranted
+  | EventPairControlRevoked
+  | EventPairRemoteSubmitted
+  | EventPairPresenceUpdated
+  | EventPairCursorUpdated
+  | EventPairSelectionUpdated
+  | EventPairPromptUpdated
+  | EventPairTypingUpdated
+  | EventPairConnectionUpdated
+  | EventMessageUpdated
+  | EventMessageRemoved
+  | EventMessagePartUpdated
+  | EventMessagePartRemoved
+  | EventSessionCreated
+  | EventSessionUpdated
+  | EventSessionDeleted
+  | EventSessionNextAgentSwitched
+  | EventSessionNextModelSwitched
+  | EventSessionNextPrompted
+  | EventSessionNextSynthetic
+  | EventSessionNextShellStarted
+  | EventSessionNextShellEnded
+  | EventSessionNextStepStarted
+  | EventSessionNextStepEnded
+  | EventSessionNextStepFailed
+  | EventSessionNextTextStarted
+  | EventSessionNextTextDelta
+  | EventSessionNextTextEnded
+  | EventSessionNextReasoningStarted
+  | EventSessionNextReasoningDelta
+  | EventSessionNextReasoningEnded
+  | EventSessionNextToolInputStarted
+  | EventSessionNextToolInputDelta
+  | EventSessionNextToolInputEnded
+  | EventSessionNextToolCalled
+  | EventSessionNextToolProgress
+  | EventSessionNextToolSuccess
+  | EventSessionNextToolFailed
+  | EventSessionNextRetried
+  | EventSessionNextCompactionStarted
+  | EventSessionNextCompactionDelta
+  | EventSessionNextCompactionEnded
+  | {
+      id: string
+      type: "server.connected"
+      properties: {
+        [key: string]: unknown
+      }
+    }
+  | {
+      id: string
+      type: "server.heartbeat"
+      properties: {
+        [key: string]: unknown
+      }
+    }
 
 export type ProviderAuthMethod = {
   type: "oauth" | "api"
@@ -3510,7 +3614,7 @@ export type SessionMessage =
   | SessionMessageAssistant
   | SessionMessageCompaction
 
-export type EventTuiToastShow1 = {
+export type EventTuiToastShow22 = {
   id: string
   type: "tui.toast.show"
   properties: {
@@ -3521,7 +3625,7 @@ export type EventTuiToastShow1 = {
   }
 }
 
-export type EventPairCursorUpdated1 = {
+export type EventPairCursorUpdated2 = {
   id: string
   type: "pair.cursor.updated"
   properties: {
@@ -4944,6 +5048,14 @@ export type PairInviteCreateData = {
       | "approve_permissions"
       | "share_terminal"
     >
+    connectionProfile?: {
+      method: "direct" | "tailnet" | "private_network" | "ssh_tunnel" | "relay" | "manual"
+      hostUrl: string
+      vpnHost?: string
+      tunnelCommand?: string
+      relayId?: string
+      attachCommand?: string
+    }
   }
   path: {
     roomID: string
@@ -4991,6 +5103,14 @@ export type PairInviteCreateResponses = {
       | "approve_permissions"
       | "share_terminal"
     >
+    connectionProfile?: {
+      method: "direct" | "tailnet" | "private_network" | "ssh_tunnel" | "relay" | "manual"
+      hostUrl: string
+      vpnHost?: string
+      tunnelCommand?: string
+      relayId?: string
+      attachCommand?: string
+    }
     expiresAt: string
     consumedAt: string
     time: {
@@ -5001,6 +5121,81 @@ export type PairInviteCreateResponses = {
 }
 
 export type PairInviteCreateResponse = PairInviteCreateResponses[keyof PairInviteCreateResponses]
+
+export type PairInviteLinkCreateData = {
+  body?: {
+    actorPeerID: string
+    capabilities?: Array<
+      | "view_session"
+      | "view_files"
+      | "send_prompt"
+      | "request_control"
+      | "control_driver"
+      | "edit_files"
+      | "run_shell"
+      | "approve_permissions"
+      | "share_terminal"
+    >
+    connectionProfile?: {
+      method: "direct" | "tailnet" | "private_network" | "ssh_tunnel" | "relay" | "manual"
+      hostUrl: string
+      vpnHost?: string
+      tunnelCommand?: string
+      relayId?: string
+      attachCommand?: string
+    }
+  }
+  path: {
+    roomID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/pair/rooms/{roomID}/invite-link"
+}
+
+export type PairInviteLinkCreateErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Forbidden
+   */
+  403: EffectHttpApiErrorForbidden
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type PairInviteLinkCreateError = PairInviteLinkCreateErrors[keyof PairInviteLinkCreateErrors]
+
+export type PairInviteLinkCreateResponses = {
+  /**
+   * Pair invite link
+   */
+  200: {
+    hostUrl: string
+    roomID: string
+    token: string
+    sessionID: string
+    expiresAt: string
+    connectionProfile: {
+      method: "direct" | "tailnet" | "private_network" | "ssh_tunnel" | "relay" | "manual"
+      hostUrl: string
+      vpnHost?: string
+      tunnelCommand?: string
+      relayId?: string
+      attachCommand?: string
+    }
+    workspaceID?: string
+    directory?: string
+  }
+}
+
+export type PairInviteLinkCreateResponse = PairInviteLinkCreateResponses[keyof PairInviteLinkCreateResponses]
 
 export type PairJoinData = {
   body?: {
@@ -5078,6 +5273,14 @@ export type PairJoinResponses = {
         created: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
         updated: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
       }
+    }
+    credential?: {
+      peerID: string
+      roomID: string
+      sessionID: string
+      capabilities: Array<string>
+      token: string
+      expiresAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
     }
   }
 }
@@ -5316,6 +5519,220 @@ export type PairSignalingTokenResponses = {
 }
 
 export type PairSignalingTokenResponse = PairSignalingTokenResponses[keyof PairSignalingTokenResponses]
+
+export type PairSessionInfoData = {
+  body?: never
+  path: {
+    roomID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/pair/rooms/{roomID}/session"
+}
+
+export type PairSessionInfoErrors = {
+  /**
+   * Forbidden
+   */
+  403: EffectHttpApiErrorForbidden
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type PairSessionInfoError = PairSessionInfoErrors[keyof PairSessionInfoErrors]
+
+export type PairSessionInfoResponses = {
+  /**
+   * Pair session info
+   */
+  200: Session
+}
+
+export type PairSessionInfoResponse = PairSessionInfoResponses[keyof PairSessionInfoResponses]
+
+export type PairSessionMessagesData = {
+  body?: never
+  path: {
+    roomID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+    limit?: number
+    cursor?: number
+  }
+  url: "/pair/rooms/{roomID}/session/messages"
+}
+
+export type PairSessionMessagesErrors = {
+  /**
+   * Forbidden
+   */
+  403: EffectHttpApiErrorForbidden
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type PairSessionMessagesError = PairSessionMessagesErrors[keyof PairSessionMessagesErrors]
+
+export type PairSessionMessagesResponses = {
+  /**
+   * Session messages
+   */
+  200: Array<{
+    info: Message
+    parts: Array<Part>
+  }>
+}
+
+export type PairSessionMessagesResponse = PairSessionMessagesResponses[keyof PairSessionMessagesResponses]
+
+export type PairSessionPartsData = {
+  body?: never
+  path: {
+    roomID: string
+  }
+  query: {
+    directory?: string
+    workspace?: string
+    messageID: string
+  }
+  url: "/pair/rooms/{roomID}/session/parts"
+}
+
+export type PairSessionPartsErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Forbidden
+   */
+  403: EffectHttpApiErrorForbidden
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type PairSessionPartsError = PairSessionPartsErrors[keyof PairSessionPartsErrors]
+
+export type PairSessionPartsResponses = {
+  /**
+   * Session parts
+   */
+  200: Array<Part>
+}
+
+export type PairSessionPartsResponse = PairSessionPartsResponses[keyof PairSessionPartsResponses]
+
+export type PairSessionTodosData = {
+  body?: never
+  path: {
+    roomID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/pair/rooms/{roomID}/session/todos"
+}
+
+export type PairSessionTodosErrors = {
+  /**
+   * Forbidden
+   */
+  403: EffectHttpApiErrorForbidden
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type PairSessionTodosError = PairSessionTodosErrors[keyof PairSessionTodosErrors]
+
+export type PairSessionTodosResponses = {
+  /**
+   * Session todos
+   */
+  200: Array<Todo>
+}
+
+export type PairSessionTodosResponse = PairSessionTodosResponses[keyof PairSessionTodosResponses]
+
+export type PairSessionDiffData = {
+  body?: never
+  path: {
+    roomID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/pair/rooms/{roomID}/session/diff"
+}
+
+export type PairSessionDiffErrors = {
+  /**
+   * Forbidden
+   */
+  403: EffectHttpApiErrorForbidden
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type PairSessionDiffError = PairSessionDiffErrors[keyof PairSessionDiffErrors]
+
+export type PairSessionDiffResponses = {
+  /**
+   * Session diff
+   */
+  200: Array<SnapshotFileDiff>
+}
+
+export type PairSessionDiffResponse = PairSessionDiffResponses[keyof PairSessionDiffResponses]
+
+export type PairSessionEventData = {
+  body?: never
+  path: {
+    roomID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/pair/rooms/{roomID}/session/event"
+}
+
+export type PairSessionEventErrors = {
+  /**
+   * Forbidden
+   */
+  403: EffectHttpApiErrorForbidden
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type PairSessionEventError = PairSessionEventErrors[keyof PairSessionEventErrors]
+
+export type PairSessionEventResponses = {
+  /**
+   * Pair session event stream
+   */
+  200: PairSessionEvent
+}
+
+export type PairSessionEventResponse = PairSessionEventResponses[keyof PairSessionEventResponses]
 
 export type ProjectListData = {
   body?: never

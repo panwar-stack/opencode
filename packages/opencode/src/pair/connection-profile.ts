@@ -1,6 +1,6 @@
 import { Option, Schema } from "effect"
 
-export const ConnectionMethod = Schema.Literals(["direct", "private_network", "ssh_tunnel", "relay", "manual"])
+export const ConnectionMethod = Schema.Literals(["direct", "tailnet", "private_network", "ssh_tunnel", "relay", "manual"])
 export type ConnectionMethod = Schema.Schema.Type<typeof ConnectionMethod>
 
 export const ConnectionProfile = Schema.Struct({
@@ -31,17 +31,35 @@ const PRIVATE_IP_RANGES = [
   [/^192\.168\./, /^192\.168\./],
 ] as const
 
-const LOCALHOST_PATTERNS = [/^localhost$/i, /^127\.0\.0\.1$/, /^\[::1\]$/] as const
+const TAILNET_HOST_PATTERNS = [/^(?:[a-z0-9-]+\.)+ts\.net$/i, /^(?:[a-z0-9-]+\.)+beta\.tailscale\.net$/i] as const
+
+const TAILNET_IP_RANGES = [
+  [/^100\.(6[4-9]|7\d|8\d|9\d|10\d|11\d|12[0-7])\./, /^100\.(6[4-9]|7\d|8\d|9\d|10\d|11\d|12[0-7])\./],
+  [/^fd7a:115c:a1e0:/i, /^fd7a:115c:a1e0:/i],
+] as const
+
+const LOCALHOST_PATTERNS = [/^localhost$/i, /^127\.0\.0\.1$/, /^::1$/] as const
+
+function normalizeHostname(hostname: string) {
+  return hostname.trim().toLowerCase().replace(/^\[(.*)\]$/, "$1")
+}
+
+export function isTailnetHost(hostname: string): boolean {
+  const normalized = normalizeHostname(hostname)
+  if (TAILNET_HOST_PATTERNS.some((re) => re.test(normalized))) return true
+  return TAILNET_IP_RANGES.some(([re]) => re.test(normalized))
+}
 
 export function detectHostReachability(hostname: string): ConnectionMethod {
-  if (LOCALHOST_PATTERNS.some((re) => re.test(hostname))) return "manual"
-  if (PRIVATE_IP_RANGES.some(([re]) => re.test(hostname))) return "private_network"
+  const normalized = normalizeHostname(hostname)
+  if (LOCALHOST_PATTERNS.some((re) => re.test(normalized))) return "manual"
+  if (isTailnetHost(normalized)) return "tailnet"
+  if (PRIVATE_IP_RANGES.some(([re]) => re.test(normalized))) return "private_network"
   return "direct"
 }
 
 export function isNonPublicHost(hostname: string): boolean {
-  if (LOCALHOST_PATTERNS.some((re) => re.test(hostname))) return true
-  return PRIVATE_IP_RANGES.some(([re]) => re.test(hostname))
+  return detectHostReachability(hostname) !== "direct"
 }
 
 const INVITE_LINK_PREFIX = "opencode://pair-join?"
