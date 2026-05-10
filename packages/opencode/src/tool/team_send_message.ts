@@ -55,22 +55,27 @@ export const TeamSendMessageTool = Tool.define(
             recipients,
             body: params.body,
           })
+          const lead = ctx.sessionID === context.value.team.lead_session_id
           const promptOps = ctx.extra?.promptOps as TaskPromptOps | undefined
           if (promptOps) {
             yield* Effect.forEach(
               recipients.filter((recipient) => recipient !== ctx.sessionID),
-              (recipient) => wakeTeamSession(promptOps, recipient).pipe(Effect.ignore, Effect.forkIn(scope)),
-              { discard: true },
+              (recipient) =>
+                lead
+                  ? wakeTeamSession(promptOps, recipient).pipe(Effect.ignore)
+                  : wakeTeamSession(promptOps, recipient).pipe(Effect.ignore, Effect.forkIn(scope)),
+              { concurrency: "unbounded", discard: true },
             )
           }
-          const lead = ctx.sessionID === context.value.team.lead_session_id
           return {
             title: "Message Sent",
             output: [
               `Sent to ${recipients.length} recipient(s).`,
-              "Delivery is asynchronous. Busy recipients will only see this when their current run reaches the next prompt boundary.",
               lead
-                ? "If you are waiting on teammate work, end this turn instead of polling for an immediate reply."
+                ? "Lead session waited for woken teammate run(s) to finish."
+                : "Delivery is asynchronous. Busy recipients will only see this when their current run reaches the next prompt boundary.",
+              lead
+                ? "Check team_get_messages once for any teammate response before deciding the next coordination step."
                 : "Continue your assigned work unless this message reports a blocker.",
             ].join("\n"),
             metadata: { messageID: msg.id },
