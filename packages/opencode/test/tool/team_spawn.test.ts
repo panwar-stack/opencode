@@ -8,6 +8,7 @@ import { MessageID, PartID } from "@/session/schema"
 import { Session } from "@/session/session"
 import { Team } from "@/team/team"
 import { TeamSpawnTool } from "@/tool/team_spawn"
+import { TeamWaitTool } from "@/tool/team_wait"
 import type { TaskPromptOps } from "@/tool/task"
 import { Truncate } from "@/tool/truncate"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
@@ -172,29 +173,21 @@ describe("tool.team_spawn", () => {
           const tool = yield* TeamSpawnTool
           const def = yield* tool.init()
 
-          let architectDone = false
-          const architectFiber = yield* def
-            .execute(
-              {
-                name: "architect",
-                agent_type: "general",
-                role_prompt: "Design the architecture",
-              },
-              context({ lead, assistant, promptOps }),
-            )
-            .pipe(
-              Effect.tap(() => Effect.sync(() => (architectDone = true))),
-              Effect.forkChild,
-            )
+          const architectResult = yield* def.execute(
+            {
+              name: "architect",
+              agent_type: "general",
+              role_prompt: "Design the architecture",
+            },
+            context({ lead, assistant, promptOps }),
+          )
+          expect(architectResult.title).toBe("Teammate Spawned")
+          expect(architectResult.output).toContain("running asynchronously")
           yield* waitUntil(() => Effect.sync(() => calls.length === 1))
-          expect(architectDone).toBe(false)
           const architectPrompt = calls[0]?.parts.map((part) => (part.type === "text" ? part.text : "")).join("\n")
           expect(architectPrompt).toContain("Proactive communication requirements:")
-          expect(architectPrompt).toContain('team_send_message recipient "lead"')
-          const pendingLeadAfterStart = yield* team.getPendingMessages(lead.id, info.id)
-          expect(pendingLeadAfterStart.some((message) => message.body.includes("architect (general) started"))).toBe(
-            true,
-          )
+          expect(architectPrompt).toContain("Send concise progress updates to the lead")
+          expect(yield* team.getPendingMessages(lead.id, info.id)).toHaveLength(0)
 
           yield* def.execute(
             {
@@ -224,10 +217,6 @@ describe("tool.team_spawn", () => {
           )
 
           expect(calls).toHaveLength(2)
-          const architectResult = yield* Fiber.join(architectFiber)
-          expect(architectDone).toBe(true)
-          expect(architectResult.title).toBe("Teammate Completed")
-          expect(architectResult.output).toContain("architecture ready")
           expect(calls[1]?.parts.map((part) => (part.type === "text" ? part.text : "")).join("\n")).toContain(
             "architecture ready",
           )
@@ -257,51 +246,56 @@ describe("tool.team_spawn", () => {
             loop: (input) => Effect.sync(() => reply({ sessionID: input.sessionID, parts: [] }, "looped")),
             prompt: (input) =>
               Effect.promise(async () => {
-                const release = calls.length === 0 ? firstReleased : secondReleased
                 calls.push(input)
-                await release
-                return reply(
-                  input,
-                  input.parts.some((part) => part.type === "text" && part.text.includes("routes"))
-                    ? "routes done"
-                    : "cli done",
-                )
+                const cli = input.parts.some((part) => part.type === "text" && part.text.includes("Review workflow CLI"))
+                await (cli ? secondReleased : firstReleased)
+                return reply(input, cli ? "cli done" : "routes done")
               }),
           }
           const { lead, assistant } = yield* seed()
           const tool = yield* TeamSpawnTool
+          const waitTool = yield* TeamWaitTool
           const def = yield* tool.init()
+          const waitDef = yield* waitTool.init()
 
-          const first = yield* def
-            .execute(
-              {
-                name: "routes",
-                agent_type: "general",
-                role_prompt: "Review workflow routes",
-              },
-              context({ lead, assistant, promptOps }),
-            )
-            .pipe(Effect.forkChild)
-          const second = yield* def
-            .execute(
-              {
-                name: "cli",
-                agent_type: "general",
-                role_prompt: "Review workflow CLI",
-              },
-              context({ lead, assistant, promptOps }),
-            )
-            .pipe(Effect.forkChild)
+          const first = yield* def.execute(
+            {
+              name: "routes",
+              agent_type: "general",
+              role_prompt: "Review workflow routes",
+            },
+            context({ lead, assistant, promptOps }),
+          )
+          const second = yield* def.execute(
+            {
+              name: "cli",
+              agent_type: "general",
+              role_prompt: "Review workflow CLI",
+            },
+            context({ lead, assistant, promptOps }),
+          )
 
           yield* waitUntil(() => Effect.sync(() => calls.length === 2))
+          expect([first.title, second.title]).toEqual(["Teammate Spawned", "Teammate Spawned"])
+
+          const firstWait = yield* waitDef
+            .execute({ timeout_seconds: 1 }, context({ lead, assistant, promptOps }))
+            .pipe(Effect.forkChild)
           releaseFirst()
+          const firstResult = yield* Fiber.join(firstWait)
+
+          expect(firstResult.title).toBe("Team Wait")
+          expect(firstResult.output).toContain("routes done")
+          expect(firstResult.output).toContain("cli (general, active")
+
+          const secondWait = yield* waitDef
+            .execute({ timeout_seconds: 1 }, context({ lead, assistant, promptOps }))
+            .pipe(Effect.forkChild)
           releaseSecond()
+          const secondResult = yield* Fiber.join(secondWait)
 
-          const results = yield* Effect.all([Fiber.join(first), Fiber.join(second)], { concurrency: "unbounded" })
-
-          expect(results.map((result) => result.title)).toEqual(["Teammate Completed", "Teammate Completed"])
-          expect(results.map((result) => result.output).join("\n")).toContain("routes done")
-          expect(results.map((result) => result.output).join("\n")).toContain("cli done")
+          expect(secondResult.title).toBe("Team Wait")
+          expect(secondResult.output).toContain("cli done")
         }),
       { config: { experimental: { agent_teams: true } } },
     ),
