@@ -1,6 +1,8 @@
 Send a message to one or more teammates via the team mailbox.
 Use a teammate name, teammate session ID, "lead", or comma-separated recipients.
 Messages wake idle recipient sessions immediately — they will see your message as part of their next prompt. Recipients do not need to poll for your message.
-Delivery is asynchronous. If a recipient is already busy, they will only process the message after the current run reaches the next prompt boundary.
-As team lead, do not use this for routine status checks while teammates are working; end your turn and let teammate progress, blocker, or completion messages wake you.
+When the lead sends a message to teammates, this call waits for woken teammate run(s) to finish.
+When a teammate sends a message, delivery stays asynchronous so teammate work is not blocked.
+If a recipient is already busy, they will only process the message after the current run reaches the next prompt boundary.
+As team lead, do not use this for routine status checks while teammates are working.
 Use this to coordinate work between teammates or provide information from the lead.
