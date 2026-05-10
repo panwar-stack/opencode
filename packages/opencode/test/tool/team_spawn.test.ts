@@ -1,5 +1,5 @@
 import { afterEach, describe, expect } from "bun:test"
-import { Effect, Layer } from "effect"
+import { Effect, Fiber, Layer } from "effect"
 import { Agent } from "@/agent/agent"
 import { Config } from "@/config/config"
 import { MessageV2 } from "@/session/message-v2"
@@ -172,15 +172,22 @@ describe("tool.team_spawn", () => {
           const tool = yield* TeamSpawnTool
           const def = yield* tool.init()
 
-          yield* def.execute(
-            {
-              name: "architect",
-              agent_type: "general",
-              role_prompt: "Design the architecture",
-            },
-            context({ lead, assistant, promptOps }),
-          )
+          let architectDone = false
+          const architectFiber = yield* def
+            .execute(
+              {
+                name: "architect",
+                agent_type: "general",
+                role_prompt: "Design the architecture",
+              },
+              context({ lead, assistant, promptOps }),
+            )
+            .pipe(
+              Effect.tap(() => Effect.sync(() => (architectDone = true))),
+              Effect.forkChild,
+            )
           yield* waitUntil(() => Effect.sync(() => calls.length === 1))
+          expect(architectDone).toBe(false)
           const architectPrompt = calls[0]?.parts.map((part) => (part.type === "text" ? part.text : "")).join("\n")
           expect(architectPrompt).toContain("Proactive communication requirements:")
           expect(architectPrompt).toContain('team_send_message recipient "lead"')
@@ -217,11 +224,84 @@ describe("tool.team_spawn", () => {
           )
 
           expect(calls).toHaveLength(2)
+          const architectResult = yield* Fiber.join(architectFiber)
+          expect(architectDone).toBe(true)
+          expect(architectResult.title).toBe("Teammate Completed")
+          expect(architectResult.output).toContain("architecture ready")
           expect(calls[1]?.parts.map((part) => (part.type === "text" ? part.text : "")).join("\n")).toContain(
             "architecture ready",
           )
           const pendingLead = yield* team.getPendingMessages(lead.id, info.id)
           expect(pendingLead.some((message) => message.body.includes("implementation done"))).toBe(true)
+        }),
+      { config: { experimental: { agent_teams: true } } },
+    ),
+  )
+
+  it.live("starts independent teammates in parallel", () =>
+    provideTmpdirInstance(
+      () =>
+        Effect.gen(function* () {
+          let releaseFirst = () => {}
+          let releaseSecond = () => {}
+          const firstReleased = new Promise<void>((resolve) => {
+            releaseFirst = resolve
+          })
+          const secondReleased = new Promise<void>((resolve) => {
+            releaseSecond = resolve
+          })
+          const calls: SessionPrompt.PromptInput[] = []
+          const promptOps: TaskPromptOps = {
+            cancel: () => Effect.void,
+            resolvePromptParts: (template) => Effect.succeed([{ type: "text" as const, text: template }]),
+            loop: (input) => Effect.sync(() => reply({ sessionID: input.sessionID, parts: [] }, "looped")),
+            prompt: (input) =>
+              Effect.promise(async () => {
+                const release = calls.length === 0 ? firstReleased : secondReleased
+                calls.push(input)
+                await release
+                return reply(
+                  input,
+                  input.parts.some((part) => part.type === "text" && part.text.includes("routes"))
+                    ? "routes done"
+                    : "cli done",
+                )
+              }),
+          }
+          const { lead, assistant } = yield* seed()
+          const tool = yield* TeamSpawnTool
+          const def = yield* tool.init()
+
+          const first = yield* def
+            .execute(
+              {
+                name: "routes",
+                agent_type: "general",
+                role_prompt: "Review workflow routes",
+              },
+              context({ lead, assistant, promptOps }),
+            )
+            .pipe(Effect.forkChild)
+          const second = yield* def
+            .execute(
+              {
+                name: "cli",
+                agent_type: "general",
+                role_prompt: "Review workflow CLI",
+              },
+              context({ lead, assistant, promptOps }),
+            )
+            .pipe(Effect.forkChild)
+
+          yield* waitUntil(() => Effect.sync(() => calls.length === 2))
+          releaseFirst()
+          releaseSecond()
+
+          const results = yield* Effect.all([Fiber.join(first), Fiber.join(second)], { concurrency: "unbounded" })
+
+          expect(results.map((result) => result.title)).toEqual(["Teammate Completed", "Teammate Completed"])
+          expect(results.map((result) => result.output).join("\n")).toContain("routes done")
+          expect(results.map((result) => result.output).join("\n")).toContain("cli done")
         }),
       { config: { experimental: { agent_teams: true } } },
     ),
