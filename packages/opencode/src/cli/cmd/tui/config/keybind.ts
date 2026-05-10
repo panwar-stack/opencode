@@ -199,6 +199,7 @@ const Definitions = {
   which_key_page_down: keybind("ctrl+alt+pagedown", "Page which-key down"),
   which_key_home: keybind("ctrl+alt+home", "Jump to first which-key binding"),
   which_key_end: keybind("ctrl+alt+end", "Jump to last which-key binding"),
+  workflow_list: keybind("<leader>w", "Show workflow list"),
 } satisfies Record<string, Definition>
 
 type KeybindName = keyof typeof Definitions & string
@@ -353,6 +354,7 @@ export const CommandMap = {
   which_key_page_down: "which-key.page.down",
   which_key_home: "which-key.home",
   which_key_end: "which-key.end",
+  workflow_list: "workflow.list",
 } satisfies BindingCommandMap
 const CommandDescriptions = Object.fromEntries(
   Object.entries(Definitions).map(([name, item]) => [

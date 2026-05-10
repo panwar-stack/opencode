@@ -50,6 +50,7 @@ import { SyncEvent } from "@/sync"
 import { ToolRegistry } from "@/tool/registry"
 import { lazy } from "@/util/lazy"
 import { Vcs } from "@/project/vcs"
+import { WorkflowSession } from "@/workflow/session"
 import { Worktree } from "@/worktree"
 import { Workspace } from "@/control-plane/workspace"
 import { CorsConfig, isAllowedCorsOrigin, type CorsOptions } from "@/server/cors"
@@ -57,6 +58,7 @@ import { serveUIEffect } from "@/server/shared/ui"
 import { ServerAuth } from "@/server/auth"
 import { InstanceHttpApi, RootHttpApi } from "./api"
 import { PublicApi } from "./public"
+import { WorkflowApi } from "./groups/workflow"
 import { authorizationLayer, authorizationRouterMiddleware } from "./middleware/authorization"
 import { EventApi, eventHandlers } from "./event"
 import { configHandlers } from "./handlers/config"
@@ -75,6 +77,7 @@ import { sessionHandlers } from "./handlers/session"
 import { syncHandlers } from "./handlers/sync"
 import { tuiHandlers } from "./handlers/tui"
 import { v2Handlers } from "./handlers/v2"
+import { workflowHandlers } from "./handlers/workflow"
 import { workspaceHandlers } from "./handlers/workspace"
 import { instanceContextLayer, instanceRouterMiddleware } from "./middleware/instance-context"
 import { workspaceRouterMiddleware, workspaceRoutingLayer } from "./middleware/workspace-routing"
@@ -144,8 +147,12 @@ const instanceApiRoutes = HttpApiBuilder.layer(InstanceHttpApi).pipe(
   ]),
 )
 
+const workflowApiRoutes = HttpApiBuilder.layer(WorkflowApi).pipe(
+  Layer.provide(workflowHandlers),
+)
+
 const rawInstanceRoutes = Layer.mergeAll(ptyConnectRoute).pipe(Layer.provide(instanceRouterLayer))
-const instanceRoutes = Layer.mergeAll(rawInstanceRoutes, instanceApiRoutes).pipe(
+const instanceRoutes = Layer.mergeAll(rawInstanceRoutes, instanceApiRoutes, workflowApiRoutes).pipe(
   Layer.provide([
     httpApiAuthLayer,
     workspaceRoutingLayer.pipe(Layer.provide(Socket.layerWebSocketConstructorGlobal)),
@@ -218,8 +225,9 @@ export function createRoutes(corsOptions?: CorsOptions) {
       ToolRegistry.defaultLayer,
       Vcs.defaultLayer,
       Workspace.defaultLayer,
-      Worktree.appLayer,
       Bus.layer,
+      WorkflowSession.defaultLayer,
+      Worktree.appLayer,
       AppFileSystem.defaultLayer,
       FetchHttpClient.layer,
       HttpServer.layerServices,
@@ -227,7 +235,7 @@ export function createRoutes(corsOptions?: CorsOptions) {
     Layer.provideMerge(Layer.succeed(CorsConfig)(corsOptions)),
     Layer.provideMerge(InstanceLayer.layer),
     Layer.provideMerge(Observability.layer),
-  )
+  ) as any
 }
 
 export const routes = createRoutes()

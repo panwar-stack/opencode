@@ -19,7 +19,17 @@ export type PluginRoute = {
   data?: Record<string, unknown>
 }
 
-export type Route = HomeRoute | SessionRoute | PluginRoute
+export type WorkflowRoute = {
+  type: "workflow"
+}
+
+export type WorkflowDetailRoute = {
+  type: "workflow_detail"
+  workflowID: string
+  tab?: string
+}
+
+export type Route = HomeRoute | SessionRoute | PluginRoute | WorkflowRoute | WorkflowDetailRoute
 
 export const { use: useRoute, provider: RouteProvider } = createSimpleContext({
   name: "Route",

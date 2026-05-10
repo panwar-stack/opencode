@@ -41,6 +41,7 @@ import { ConfigReference } from "./reference"
 import { ConfigServer } from "./server"
 import { ConfigSkills } from "./skills"
 import { ConfigVariable } from "./variable"
+import { ConfigWorkflow } from "./workflow"
 import { Npm } from "@opencode-ai/core/npm"
 
 const log = Log.create({ service: "config" })
@@ -279,6 +280,9 @@ export const Info = Schema.Struct({
       }),
     }),
   ),
+  workflow: Schema.optional(ConfigWorkflow.Info).annotate({
+    description: "Autonomous workflow loop configuration",
+  }),
   experimental: Schema.optional(
     Schema.Struct({
       disable_paste_summary: Schema.optional(Schema.Boolean),

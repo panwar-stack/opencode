@@ -44,6 +44,7 @@ import { DialogConsoleOrg } from "@tui/component/dialog-console-org"
 import { ThemeProvider, useTheme } from "@tui/context/theme"
 import { Home } from "@tui/routes/home"
 import { Session } from "@tui/routes/session"
+import { Workflow } from "@tui/routes/workflow"
 import { PromptHistoryProvider } from "./component/prompt/history"
 import { FrecencyProvider } from "./component/prompt/frecency"
 import { PromptStashProvider } from "./component/prompt/stash"
@@ -104,6 +105,7 @@ const appBindingCommands = [
   "app.toggle.diffwrap",
   "app.toggle.paste_summary",
   "app.toggle.session_directory_filter",
+  "workflow.list",
 ] as const
 
 function rendererConfig(_config: TuiConfig.Resolved): CliRendererConfig {
@@ -350,6 +352,14 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
 
     if (route.data.type === "plugin") {
       renderer.setTerminalTitle(`OC | ${route.data.id}`)
+    }
+
+    if (route.data.type === "workflow") {
+      renderer.setTerminalTitle("OC | Workflows")
+    }
+
+    if (route.data.type === "workflow_detail") {
+      renderer.setTerminalTitle(`OC | Workflow`)
     }
   })
 
@@ -770,6 +780,17 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
           dialog.clear()
         },
       },
+      {
+        name: "workflow.list",
+        title: "Workflows",
+        category: "Workflow",
+        suggested: true,
+        slashName: "workflows",
+        run: () => {
+          route.navigate({ type: "workflow" })
+          dialog.clear()
+        },
+      },
     ].map((command) => ({
       namespace: "palette",
       ...command,
@@ -909,6 +930,9 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
             </Match>
             <Match when={route.data.type === "session"}>
               <Session />
+            </Match>
+            <Match when={route.data.type === "workflow" || route.data.type === "workflow_detail"}>
+              <Workflow />
             </Match>
           </Switch>
           {plugin()}

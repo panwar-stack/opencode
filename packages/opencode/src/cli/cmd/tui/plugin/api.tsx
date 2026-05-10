@@ -93,6 +93,16 @@ function routeCurrent(route: ReturnType<typeof useRoute>): TuiPluginApi["route"]
       },
     }
   }
+  if (route.data.type === "workflow") return { name: "workflow" }
+  if (route.data.type === "workflow_detail") {
+    return {
+      name: "workflow_detail",
+      params: {
+        workflowID: route.data.workflowID,
+        tab: route.data.tab,
+      },
+    }
+  }
 
   return {
     name: route.data.id,

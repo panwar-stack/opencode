@@ -20,6 +20,7 @@ import { SyncApi } from "./groups/sync"
 import { TuiApi } from "./groups/tui"
 import { WorkspaceApi } from "./groups/workspace"
 import { V2Api } from "./groups/v2"
+import { WorkflowApi } from "./groups/workflow"
 import { Authorization } from "./middleware/authorization"
 
 // SSE event schemas built from the BusEvent/SyncEvent registries.
@@ -46,6 +47,7 @@ export const InstanceHttpApi = HttpApi.make("opencode-instance")
   .addHttpApi(SyncApi)
   .addHttpApi(V2Api)
   .addHttpApi(TuiApi)
+  .addHttpApi(WorkflowApi)
   .addHttpApi(WorkspaceApi)
 
 export const OpenCodeHttpApi = HttpApi.make("opencode")
