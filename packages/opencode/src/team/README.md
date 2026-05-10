@@ -2,7 +2,7 @@
 
 This guide explains the agent team system from the implementation side.
 
-The short version: one normal OpenCode session becomes the **lead**, and every teammate is a background **child session** registered as a team member. Coordination happens through tool calls, persisted team tables, mailbox messages, dependency checks, and the normal session prompt loop.
+The short version: one normal OpenCode session becomes the **lead**, and every teammate is a **child session** registered as a team member. Coordination happens through tool calls, persisted team tables, mailbox messages, dependency checks, and the normal session prompt loop.
 
 ## Mental Model
 
@@ -24,7 +24,7 @@ So when you read the code, do not look for a central "team scheduler" that owns 
 - `src/team/team.sql.ts`: database schema for teams, members, tasks, messages, and per-recipient delivery.
 - `src/team/team.ts`: core service for creating teams, adding members, updating status, tasks, messages, and shutdown.
 - `src/tool/team_create.ts`: tool that makes the current session the lead.
-- `src/tool/team_spawn.ts`: tool that creates background teammate child sessions.
+- `src/tool/team_spawn.ts`: tool that creates and runs teammate child sessions.
 - `src/tool/team_send_message.ts`: direct mailbox messages.
 - `src/tool/team_broadcast.ts`: mailbox broadcast to active participants.
 - `src/tool/team_get_messages.ts`: explicit mailbox read tool.
@@ -122,7 +122,7 @@ The flow is:
 7. Insert a `team_member` row with status `starting`.
 8. Notify active dependency teammates if someone is waiting on them.
 9. If dependencies are incomplete, mark the new teammate `blocked`.
-10. If dependencies are complete, start the teammate in a background fiber.
+10. If dependencies are complete, start the teammate and wait for its current run to finish.
 
 Starting a teammate means building a prompt that includes:
 
@@ -138,13 +138,15 @@ Starting a teammate means building a prompt that includes:
 
 Then `ops.prompt` runs the child session with the selected agent and model.
 
-## Background Execution
+## Lead Waiting And Parallel Spawn
 
-Teammates do not block the lead.
+Running teammates block the lead's current assistant step.
 
-`team_spawn` creates a background task and forks it with `Effect.forkIn(scope)`. The tool returns to the lead after the teammate is registered or started.
+`team_spawn` waits for the teammate's current run and returns the teammate result to the lead. This matches the older `task` tool strategy: while delegated work is running, the lead session stays busy instead of continuing to reason over unknown future outputs.
 
-Inside the background task:
+The lead can still start multiple teammates in parallel by emitting multiple `team_spawn` tool calls in the same assistant step. The AI SDK executes sibling tool calls concurrently, so each `team_spawn` call waits for its own teammate while the overall step remains blocked until all sibling calls complete.
+
+Inside the teammate run:
 
 1. Member status becomes `active`.
 2. Lead gets an automatic "teammate started" message.
@@ -155,7 +157,7 @@ Inside the background task:
 7. Member status becomes `completed`.
 8. Any blocked teammates that depended on this session are checked and possibly started.
 
-This is why the lead can spawn several teammates and then continue coordinating instead of waiting synchronously.
+When a completed teammate unblocks multiple dependents, those newly ready teammates are started concurrently. The lead resumes after the relevant running teammates finish, then it can integrate results and decide the next coordination step.
 
 ## Dependencies
 
@@ -261,7 +263,7 @@ The service publishes bus events for team lifecycle and member updates:
 - `team.member.updated`
 - `team.message.received`
 
-The TUI stores `team_member_status` by session ID and displays it in the team sidebar and team panel.
+The TUI sidebar lists child sessions for the current parent session. That means older `task` subagents and team teammates can appear in the same Team section because both are child sessions. `team_member_status` is keyed by session ID and adds team-specific status for teammate children; plain subagents do not have a `team_member` row.
 
 The UI does not orchestrate work. It reads state, shows members/tasks/messages, displays pending permissions/questions, and can call shutdown.
 
@@ -293,7 +295,7 @@ Tool calls are still the primary way models create teams, spawn teammates, and c
 
 `team_spawn` is not the same as the older `task` tool.
 
-The `task` tool runs a subagent-style task and returns a result to the current session. `team_spawn` creates a persistent child session that can receive mailbox messages, have dependencies, be displayed in the TUI, and continue independently.
+The `task` tool runs a subagent-style task and returns a result to the current session. `team_spawn` creates a persistent child session that can receive mailbox messages, have dependencies, be displayed in the TUI, and keep team membership state.
 
 There is no central loop polling all teammates.
 
@@ -361,7 +363,7 @@ team_spawn creates child session + team_member row
 if dependencies incomplete:
   member status = blocked
 else:
-  fork background prompt for child session
+  run child session and wait for teammate result
   |
 teammate runs normal prompt loop
   |

@@ -1082,6 +1082,92 @@ it.live("does not inject lead team guidance into teammate sessions", () =>
   ),
 )
 
+it.live("team lead starts multiple teammates from one assistant step in parallel", () =>
+  provideTmpdirServer(
+    Effect.fnUntraced(function* ({ llm }) {
+      let releaseRoutes = () => {}
+      let releaseCli = () => {}
+      const routesReleased = new Promise<void>((resolve) => {
+        releaseRoutes = resolve
+      })
+      const cliReleased = new Promise<void>((resolve) => {
+        releaseCli = resolve
+      })
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const team = yield* Team.Service
+      const lead = yield* sessions.create({
+        title: "Lead",
+        permission: [{ permission: "*", pattern: "*", action: "allow" }],
+      })
+      yield* team.create({ name: "parallel-team", goal: "Check workflows", leadSessionID: lead.id })
+      yield* prompt.prompt({
+        sessionID: lead.id,
+        agent: "build",
+        model: ref,
+        noReply: true,
+        parts: [{ type: "text", text: "check workflow routes and cli" }],
+      })
+
+      yield* llm.push(
+        reply()
+          .tool("team_spawn", {
+            name: "routes",
+            agent_type: "general",
+            role_prompt: "Review workflow routes",
+          })
+          .tool("team_spawn", {
+            name: "cli",
+            agent_type: "general",
+            role_prompt: "Review workflow CLI",
+          }),
+      )
+      yield* llm.pushMatch(
+        (hit) => JSON.stringify(hit.body).includes("Review workflow routes"),
+        reply().wait(routesReleased).text("routes done").stop(),
+      )
+      yield* llm.pushMatch(
+        (hit) => JSON.stringify(hit.body).includes("Review workflow CLI"),
+        reply().wait(cliReleased).text("cli done").stop(),
+      )
+      yield* llm.text("lead done")
+
+      const fiber = yield* prompt.loop({ sessionID: lead.id }).pipe(Effect.forkChild)
+      yield* Effect.promise(async () => {
+        const end = Date.now() + 5_000
+        while (Date.now() < end) {
+          const bodies = (await Effect.runPromise(llm.inputs)).map((input) => JSON.stringify(input))
+          if (
+            bodies.some((body) => body.includes("Review workflow routes")) &&
+            bodies.some((body) => body.includes("Review workflow CLI"))
+          ) {
+            return
+          }
+          await new Promise((done) => setTimeout(done, 20))
+        }
+        throw new Error("timed out waiting for both teammate prompts")
+      })
+      releaseRoutes()
+      releaseCli()
+
+      const result = yield* Fiber.join(fiber)
+      expect(result.info.role).toBe("assistant")
+      expect(result.parts.some((part) => part.type === "text" && part.text === "lead done")).toBe(true)
+      const active = yield* team.getActive(lead.id)
+      if (Option.isNone(active)) throw new Error("expected active team")
+      const members = yield* team.getMembers(active.value.id)
+      expect(members.filter((member) => member.status === "completed")).toHaveLength(2)
+    }),
+    {
+      git: true,
+      config: (url) => ({
+        ...providerCfg(url),
+        experimental: { agent_teams: true },
+      }),
+    },
+  ),
+)
+
 it.live(
   "canceling a team lead shuts down and interrupts active members",
   () =>
