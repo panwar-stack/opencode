@@ -1,6 +1,5 @@
 Broadcast a message to all teammates in the team.
 This sends the same message to every active teammate at once, and to the lead when called by a teammate.
-When the lead broadcasts to teammates, this call waits for woken teammate run(s) to finish.
-When a teammate broadcasts, delivery stays asynchronous so teammate work is not blocked.
+Delivery is asynchronous. When the lead needs the next teammate response or result, use team_wait.
 Use this for announcements, goal changes, or urgent coordination.
 Do not use this for routine "are you still working?" checks. Busy teammates process broadcasts at their next prompt boundary, and teammates should proactively wake the lead with progress, blockers, or results.
