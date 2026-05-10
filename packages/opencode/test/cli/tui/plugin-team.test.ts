@@ -1,5 +1,6 @@
 import { expect, spyOn, test } from "bun:test"
 import { createTuiPluginApi } from "../../fixture/tui-plugin"
+import { createTuiResolvedConfig } from "../../fixture/tui-runtime"
 import { INTERNAL_TUI_PLUGINS } from "../../../src/cli/cmd/tui/plugin/internal"
 
 const { TuiPluginRuntime } = await import("../../../src/cli/cmd/tui/plugin/runtime")
@@ -17,11 +18,11 @@ test("team sidebar plugin loads and is active", async () => {
   const wait = spyOn(TuiConfig, "waitForDependencies").mockResolvedValue()
 
   const api = createTuiPluginApi()
-  const config = {
+  const config = createTuiResolvedConfig({
     plugin: [] as string[],
     plugin_origins: [],
     plugin_enabled: {},
-  }
+  })
 
   try {
     await TuiPluginRuntime.init({ api, config })
@@ -43,13 +44,13 @@ test("plugin_enabled false prevents team plugin from activating", async () => {
   const wait = spyOn(TuiConfig, "waitForDependencies").mockResolvedValue()
 
   const api = createTuiPluginApi()
-  const config = {
+  const config = createTuiResolvedConfig({
     plugin: [] as string[],
     plugin_origins: [],
     plugin_enabled: {
       "internal:sidebar-team": false,
     },
-  }
+  })
 
   try {
     await TuiPluginRuntime.init({ api, config })
@@ -70,11 +71,11 @@ test("team plugin toggles off and on", async () => {
   const wait = spyOn(TuiConfig, "waitForDependencies").mockResolvedValue()
 
   const api = createTuiPluginApi()
-  const config = {
+  const config = createTuiResolvedConfig({
     plugin: [] as string[],
     plugin_origins: [],
     plugin_enabled: {},
-  }
+  })
 
   try {
     await TuiPluginRuntime.init({ api, config })
