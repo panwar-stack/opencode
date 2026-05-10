@@ -63,6 +63,7 @@ export const pairAuthLayer = Layer.effect(
 
         const urlRoomID = extractRoomID(request)
         if (!urlRoomID || credential.value.roomID !== urlRoomID) return yield* new HttpApiError.Unauthorized({})
+        if (!credential.value.capabilities.includes("view_session")) return yield* new HttpApiError.Unauthorized({})
 
         return yield* effect.pipe(
           Effect.provideService(PairAuthContext, credential.value),

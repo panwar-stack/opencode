@@ -1,4 +1,4 @@
-import { afterEach, describe, expect } from "bun:test"
+import { afterEach, describe, expect, test } from "bun:test"
 import { Bus } from "@/bus"
 import { Pair } from "@/pair/pair"
 import { PairCredential } from "@/pair/credential"
@@ -8,9 +8,10 @@ import { SessionID } from "@/session/schema"
 import { SessionTable } from "@/session/session.sql"
 import { Database } from "@/storage/db"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
-import { Effect, Layer, Option } from "effect"
+import { Cause, Deferred, Effect, Exit, Layer, Option } from "effect"
+import * as Stream from "effect/Stream"
 import { resetDatabase } from "../fixture/db"
-import { provideTmpdirInstance } from "../fixture/fixture"
+import { provideInstance, provideTmpdirInstance, tmpdir } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 
 afterEach(async () => {
@@ -18,6 +19,19 @@ afterEach(async () => {
 })
 
 const it = testEffect(Layer.mergeAll(CrossSpawnSpawner.defaultLayer, Pair.defaultLayer, PairCredential.defaultLayer))
+const failingPairCredentialLayer = Layer.succeed(
+  PairCredential.Service,
+  PairCredential.Service.of({
+    issue: () => Effect.die("credential issuance failed"),
+    validate: () => Effect.succeed(Option.none()),
+  }),
+)
+const itCredentialFailure = testEffect(
+  Layer.mergeAll(
+    CrossSpawnSpawner.defaultLayer,
+    Pair.layer.pipe(Layer.provide(Bus.layer), Layer.provide(failingPairCredentialLayer)),
+  ),
+)
 
 const seedSession = () =>
   Database.use((db) => {
@@ -186,6 +200,71 @@ describe("pair service", () => {
     ),
   )
 
+  test("publishes pair bus events for room lifecycle actions", async () => {
+    await using tmp = await tmpdir({ git: true, config: { formatter: false, lsp: false } })
+    const busLayer = Bus.layer
+    const layer = Layer.mergeAll(
+      CrossSpawnSpawner.defaultLayer,
+      busLayer,
+      Pair.layer.pipe(Layer.provide(busLayer), Layer.provide(PairCredential.defaultLayer)),
+    )
+
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const pair = yield* Pair.Service
+        const bus = yield* Bus.Service
+        const events: string[] = []
+        const expected = [
+          Pair.Event.RoomCreated.type,
+          Pair.Event.PeerJoined.type,
+          Pair.Event.PeerJoined.type,
+          Pair.Event.ControlRequested.type,
+          Pair.Event.ControlGranted.type,
+          Pair.Event.ControlRevoked.type,
+          Pair.Event.PeerLeft.type,
+          Pair.Event.RoomClosed.type,
+        ]
+        const controlRequested = yield* Deferred.make<void>()
+        const eventsDone = yield* Deferred.make<void>()
+        let controlRequestedEvent: { roomID: string; peerID: string } | undefined
+        let count = 0
+
+        yield* Stream.runForEach(bus.subscribeAll(), (event) =>
+          Effect.sync(() => {
+            if (!event.type.startsWith("pair.")) return
+            events.push(event.type)
+            count += 1
+            if (count === expected.length) Deferred.doneUnsafe(eventsDone, Effect.void)
+          }),
+        ).pipe(Effect.forkScoped)
+
+        yield* Stream.runForEach(bus.subscribe(Pair.Event.ControlRequested), (event) =>
+          Effect.sync(() => {
+            controlRequestedEvent = event.properties
+            Deferred.doneUnsafe(controlRequested, Effect.void)
+          }),
+        ).pipe(Effect.forkScoped)
+
+        yield* Effect.sleep("10 millis")
+        const room = yield* pair.createRoom({ sessionID: seedSession() })
+        const invite = yield* pair.issueInvite({ roomID: room.id, actorPeerID: room.hostPeerID })
+        const joined = yield* pair.join({ inviteToken: invite.token, name: "Guest" })
+
+        yield* pair.requestControl({ roomID: room.id, peerID: joined.peer.id })
+        yield* Deferred.await(controlRequested)
+        expect(controlRequestedEvent).toEqual({ roomID: room.id, peerID: joined.peer.id })
+
+        yield* pair.grantControl({ roomID: room.id, peerID: joined.peer.id, actorPeerID: room.hostPeerID })
+        yield* pair.revokeControl({ roomID: room.id, peerID: joined.peer.id, actorPeerID: room.hostPeerID })
+        yield* pair.leave({ roomID: room.id, peerID: joined.peer.id, actorPeerID: joined.peer.id })
+        yield* pair.closeRoom({ roomID: room.id, actorPeerID: room.hostPeerID })
+
+        yield* Deferred.await(eventsDone)
+        expect(events).toEqual(expected)
+      }).pipe(Effect.scoped, provideInstance(tmp.path), Effect.provide(layer)),
+    )
+  })
+
   it.live("issueInvite accepts connectionProfile and returns it in response", () =>
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
@@ -276,6 +355,20 @@ describe("pair service", () => {
           expect(validated.value.peerID).toBe(joined.peer.id)
           expect(validated.value.roomID).toBe(room.id)
         }
+      }),
+    ),
+  )
+
+  itCredentialFailure.live("maps credential issuance failures to PairCredentialIssueError", () =>
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const pair = yield* Pair.Service
+        const room = yield* pair.createRoom({ sessionID: seedSession() })
+        const invite = yield* pair.issueInvite({ roomID: room.id, actorPeerID: room.hostPeerID })
+        const exit = yield* Effect.exit(pair.join({ inviteToken: invite.token, name: "Guest" }))
+
+        expect(Exit.isFailure(exit)).toBe(true)
+        if (Exit.isFailure(exit)) expect(Cause.squash(exit.cause)).toBeInstanceOf(Pair.PairCredentialIssueError)
       }),
     ),
   )

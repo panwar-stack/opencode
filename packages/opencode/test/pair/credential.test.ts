@@ -1,9 +1,10 @@
 import { describe, expect } from "bun:test"
-import { Effect, Option } from "effect"
+import { Duration, Effect, Layer, Option } from "effect"
 import { PairCredential } from "@/pair/credential"
 import { testEffect } from "../lib/effect"
 
 const it = testEffect(PairCredential.defaultLayer)
+const itExpiring = testEffect(Layer.effect(PairCredential.Service, PairCredential.make(Duration.millis(5))))
 
 describe("PairCredential", () => {
   it.live("issue creates credential with correct scope", () =>
@@ -90,6 +91,23 @@ describe("PairCredential", () => {
         expect(v2.value.sessionID).toBe("ses-b")
         expect(v2.value.capabilities).toEqual(["view_files"])
       }
+    }),
+  )
+
+  itExpiring.live("returns none after a credential TTL elapses", () =>
+    Effect.gen(function* () {
+      const svc = yield* PairCredential.Service
+      const cred = yield* svc.issue({
+        peerID: "peer-exp",
+        roomID: "room-exp",
+        sessionID: "ses-exp",
+        capabilities: ["view_session"],
+      })
+
+      yield* Effect.sleep("25 millis")
+
+      const validated = yield* svc.validate(cred.token)
+      expect(Option.isNone(validated)).toBe(true)
     }),
   )
 

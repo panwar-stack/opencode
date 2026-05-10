@@ -2,13 +2,18 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import * as Log from "@opencode-ai/core/util/log"
 import { createOpencodeClient } from "@opencode-ai/sdk/v2"
+import { Effect } from "effect"
 import { ProjectID } from "../../src/project/schema"
 import { ProjectTable } from "../../src/project/project.sql"
+import { WithInstance } from "../../src/project/with-instance"
+import { ModelID, ProviderID } from "../../src/provider/schema"
 import { PairInviteTable } from "../../src/pair/pair.sql"
 import { PairPaths } from "../../src/server/routes/instance/httpapi/groups/pair"
 import { PairSessionPaths } from "../../src/server/routes/instance/httpapi/groups/pair-session"
 import { Server } from "../../src/server/server"
-import { SessionID } from "../../src/session/schema"
+import { MessageV2 } from "../../src/session/message-v2"
+import { Session } from "../../src/session/session"
+import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import { SessionTable } from "../../src/session/session.sql"
 import { Database, eq } from "../../src/storage/db"
 import { resetDatabase } from "../fixture/db"
@@ -17,7 +22,6 @@ import { disposeAllInstances, tmpdir } from "../fixture/fixture"
 void Log.init({ print: false })
 
 const original = {
-  OPENCODE_EXPERIMENTAL_HTTPAPI: Flag.OPENCODE_EXPERIMENTAL_HTTPAPI,
   OPENCODE_SERVER_PASSWORD: Flag.OPENCODE_SERVER_PASSWORD,
   OPENCODE_SERVER_USERNAME: Flag.OPENCODE_SERVER_USERNAME,
   envPassword: process.env.OPENCODE_SERVER_PASSWORD,
@@ -30,8 +34,8 @@ const auth = {
 }
 
 function app(experimental = true) {
-  Flag.OPENCODE_EXPERIMENTAL_HTTPAPI = experimental
-  return experimental ? Server.Default().app : Server.Legacy().app
+  void experimental
+  return Server.Default().app
 }
 
 function authorization() {
@@ -51,6 +55,40 @@ function path(route: string, roomID: string) {
 
 function sessionPath(route: string, roomID: string) {
   return path(route, roomID)
+}
+
+function runSession<A, E>(fx: Effect.Effect<A, E, Session.Service>) {
+  return Effect.runPromise(fx.pipe(Effect.provide(Session.defaultLayer)))
+}
+
+async function createTextMessage(directory: string, sessionID: SessionID) {
+  return await WithInstance.provide({
+    directory,
+    fn: async () =>
+      await runSession(
+        Effect.gen(function* () {
+          const session = yield* Session.Service
+          const info = yield* session.updateMessage({
+            id: MessageID.ascending(),
+            sessionID,
+            role: "user",
+            time: { created: Date.now() },
+            agent: "test",
+            model: { providerID: ProviderID.make("test"), modelID: ModelID.make("test") },
+            tools: {},
+            mode: "",
+          } as unknown as MessageV2.Info)
+          yield* session.updatePart({
+            id: PartID.ascending(),
+            sessionID,
+            messageID: info.id,
+            type: "text",
+            text: "hello from pair",
+          })
+          return info.id
+        }),
+      ),
+  })
 }
 
 function serverFetch(experimental: boolean) {
@@ -133,7 +171,6 @@ function seedSession(directory: string) {
 }
 
 afterEach(async () => {
-  Flag.OPENCODE_EXPERIMENTAL_HTTPAPI = original.OPENCODE_EXPERIMENTAL_HTTPAPI
   Flag.OPENCODE_SERVER_PASSWORD = original.OPENCODE_SERVER_PASSWORD
   Flag.OPENCODE_SERVER_USERNAME = original.OPENCODE_SERVER_USERNAME
   if (original.envPassword === undefined) delete process.env.OPENCODE_SERVER_PASSWORD
@@ -150,14 +187,18 @@ describe("pair HttpApi bridge", () => {
     const headers = { "x-opencode-directory": tmp.path }
     const room = await createRoom({ experimental: true, directory: tmp.path, sessionID: seedSession(tmp.path) })
 
-    const invite = await app().request(path(PairPaths.issueInvite, room.id), {
+    const invite = await app().request(path(PairPaths.resolveInviteLink, room.id), {
       method: "POST",
       headers: { ...headers, "content-type": "application/json" },
-      body: JSON.stringify({ actorPeerID: room.hostPeerID }),
+      body: JSON.stringify({
+        actorPeerID: room.hostPeerID,
+        connectionProfile: { method: "direct", hostUrl: "https://pair.example" },
+      }),
     })
     expect(invite.status).toBe(200)
-    const inviteBody = (await invite.json()) as { token: string; capabilities: string[] }
-    expect(inviteBody.capabilities).not.toContain("run_shell")
+    const inviteBody = (await invite.json()) as { token: string; hostUrl: string; connectionProfile: { method: string; hostUrl: string } }
+    expect(inviteBody.hostUrl).toBe("https://pair.example")
+    expect(inviteBody.connectionProfile).toMatchObject({ method: "direct", hostUrl: "https://pair.example" })
 
     const joined = await app().request(PairPaths.join, {
       method: "POST",
@@ -167,6 +208,14 @@ describe("pair HttpApi bridge", () => {
     expect(joined.status).toBe(200)
     const joinedBody = (await joined.json()) as { peer: { id: string } }
 
+    const requested = await app().request(path(PairPaths.requestControl, room.id), {
+      method: "POST",
+      headers: { ...headers, "content-type": "application/json" },
+      body: JSON.stringify({ peerID: joinedBody.peer.id }),
+    })
+    expect(requested.status).toBe(200)
+    expect(await requested.json()).toBe(true)
+
     const grant = await app().request(path(PairPaths.grantControl, room.id), {
       method: "POST",
       headers: { ...headers, "content-type": "application/json" },
@@ -174,6 +223,30 @@ describe("pair HttpApi bridge", () => {
     })
     expect(grant.status).toBe(200)
     expect(await grant.json()).toMatchObject({ id: room.id, driverPeerID: joinedBody.peer.id })
+
+    const revoke = await app().request(path(PairPaths.revokeControl, room.id), {
+      method: "POST",
+      headers: { ...headers, "content-type": "application/json" },
+      body: JSON.stringify({ peerID: joinedBody.peer.id, actorPeerID: room.hostPeerID }),
+    })
+    expect(revoke.status).toBe(200)
+    expect(await revoke.json()).toMatchObject({ id: room.id, driverPeerID: room.hostPeerID })
+
+    const leave = await app().request(path(PairPaths.leave, room.id), {
+      method: "POST",
+      headers: { ...headers, "content-type": "application/json" },
+      body: JSON.stringify({ peerID: joinedBody.peer.id, actorPeerID: joinedBody.peer.id }),
+    })
+    expect(leave.status).toBe(200)
+    expect(await leave.json()).toBe(true)
+
+    const closed = await app().request(path(PairPaths.closeRoom, room.id), {
+      method: "DELETE",
+      headers: { ...headers, "content-type": "application/json" },
+      body: JSON.stringify({ actorPeerID: room.hostPeerID }),
+    })
+    expect(closed.status).toBe(200)
+    expect(await closed.json()).toBe(true)
   })
 
   test("requires actor authority for privileged pair routes", async () => {
@@ -256,6 +329,34 @@ describe("pair auth middleware", () => {
       headers: { ...headers, authorization: `Bearer ${joinedBody.credential!.token}` },
     })
     expect(sessionResp.status).toBe(200)
+  })
+
+  test("pair-session endpoint rejects credentials without view_session capability", async () => {
+    await using tmp = await tmpdir({ git: true, config: { formatter: false, lsp: false } })
+    const headers = { "x-opencode-directory": tmp.path }
+    const room = await createRoom({ experimental: true, directory: tmp.path, sessionID: seedSession(tmp.path) })
+
+    const invite = await app().request(path(PairPaths.issueInvite, room.id), {
+      method: "POST",
+      headers: { ...headers, "content-type": "application/json" },
+      body: JSON.stringify({ actorPeerID: room.hostPeerID, capabilities: ["view_files"] }),
+    })
+    expect(invite.status).toBe(200)
+    const inviteBody = (await invite.json()) as { token: string }
+    const joined = await app().request(PairPaths.join, {
+      method: "POST",
+      headers: { ...headers, "content-type": "application/json" },
+      body: JSON.stringify({ inviteToken: inviteBody.token, name: "Guest" }),
+    })
+    expect(joined.status).toBe(200)
+    const joinedBody = (await joined.json()) as { credential?: { token: string } }
+    expect(joinedBody.credential).toBeTruthy()
+
+    const response = await app().request(sessionPath(PairSessionPaths.info, room.id), {
+      headers: { ...headers, authorization: `Bearer ${joinedBody.credential!.token}` },
+    })
+
+    expect(response.status).toBe(401)
   })
 
   test("pair-session endpoint rejects request with invalid credential", async () => {
@@ -546,29 +647,91 @@ describe("pair session history bootstrap", () => {
   test("session endpoints return data for the room in the URL path", async () => {
     await using tmp = await tmpdir({ git: true, config: { formatter: false, lsp: false } })
     const headers = { "x-opencode-directory": tmp.path }
+    const sessionID1 = seedSession(tmp.path)
+    const room1 = await createRoom({ experimental: true, directory: tmp.path, sessionID: sessionID1 })
     const sessionID2 = seedSession(tmp.path)
     const room2 = await createRoom({ experimental: true, directory: tmp.path, sessionID: sessionID2 })
 
-    const invite = await app().request(path(PairPaths.issueInvite, room2.id), {
+    const invite1 = await app().request(path(PairPaths.issueInvite, room1.id), {
+      method: "POST",
+      headers: { ...headers, "content-type": "application/json" },
+      body: JSON.stringify({ actorPeerID: room1.hostPeerID }),
+    })
+    const inviteBody1 = (await invite1.json()) as { token: string }
+    const joined1 = await app().request(PairPaths.join, {
+      method: "POST",
+      headers: { ...headers, "content-type": "application/json" },
+      body: JSON.stringify({ inviteToken: inviteBody1.token, name: "Guest One" }),
+    })
+    const joinedBody1 = (await joined1.json()) as { credential?: { token: string } }
+    expect(joinedBody1.credential).toBeTruthy()
+
+    const wrongRoomResp = await app().request(sessionPath(PairSessionPaths.info, room2.id), {
+      headers: { ...headers, authorization: `Bearer ${joinedBody1.credential!.token}` },
+    })
+    expect(wrongRoomResp.status).toBe(401)
+
+    const invite2 = await app().request(path(PairPaths.issueInvite, room2.id), {
       method: "POST",
       headers: { ...headers, "content-type": "application/json" },
       body: JSON.stringify({ actorPeerID: room2.hostPeerID }),
     })
+    const inviteBody2 = (await invite2.json()) as { token: string }
+    const joined2 = await app().request(PairPaths.join, {
+      method: "POST",
+      headers: { ...headers, "content-type": "application/json" },
+      body: JSON.stringify({ inviteToken: inviteBody2.token, name: "Guest Two" }),
+    })
+    const joinedBody2 = (await joined2.json()) as { credential?: { token: string } }
+    expect(joinedBody2.credential).toBeTruthy()
+
+    const sessionResp = await app().request(sessionPath(PairSessionPaths.info, room2.id), {
+      headers: { ...headers, authorization: `Bearer ${joinedBody2.credential!.token}` },
+    })
+    expect(sessionResp.status).toBe(200)
+    const sessionBody = (await sessionResp.json()) as { id: string }
+    expect(sessionBody.id).toBe(sessionID2)
+  })
+
+  test("GET /pair/rooms/:roomID/session/parts returns parts with query credentials", async () => {
+    await using tmp = await tmpdir({ git: true, config: { formatter: false, lsp: false } })
+    const headers = { "x-opencode-directory": tmp.path }
+    const sessionID = seedSession(tmp.path)
+    const room = await createRoom({ experimental: true, directory: tmp.path, sessionID })
+
+    const invite = await app().request(path(PairPaths.issueInvite, room.id), {
+      method: "POST",
+      headers: { ...headers, "content-type": "application/json" },
+      body: JSON.stringify({ actorPeerID: room.hostPeerID }),
+    })
+    expect(invite.status).toBe(200)
     const inviteBody = (await invite.json()) as { token: string }
     const joined = await app().request(PairPaths.join, {
       method: "POST",
       headers: { ...headers, "content-type": "application/json" },
       body: JSON.stringify({ inviteToken: inviteBody.token, name: "Guest" }),
     })
+    expect(joined.status).toBe(200)
     const joinedBody = (await joined.json()) as { credential?: { token: string } }
     expect(joinedBody.credential).toBeTruthy()
 
-    const sessionResp = await app().request(sessionPath(PairSessionPaths.info, room2.id), {
-      headers: { ...headers, authorization: `Bearer ${joinedBody.credential!.token}` },
+    const messageID = await createTextMessage(tmp.path, sessionID)
+    const response = await app().request(
+      `${sessionPath(PairSessionPaths.parts, room.id)}?messageID=${messageID}&pair_credential=${joinedBody.credential!.token}`,
+      {
+        headers: { "x-opencode-directory": tmp.path },
+      },
+    )
+
+    expect(response.status).toBe(200)
+    const parts = (await response.json()) as Array<{ id: string; sessionID: string; messageID: string; type: string; text: string }>
+    expect(parts).toHaveLength(1)
+    expect(parts[0]).toMatchObject({
+      sessionID,
+      messageID,
+      type: "text",
+      text: "hello from pair",
     })
-    expect(sessionResp.status).toBe(200)
-    const sessionBody = (await sessionResp.json()) as { id: string }
-    expect(sessionBody.id).toBe(sessionID2)
   })
 
 })
