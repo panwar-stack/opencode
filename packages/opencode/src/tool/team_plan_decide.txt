@@ -1,4 +1,4 @@
 Approve or reject a teammate's submitted plan.
 Approval removes the read-only overlay and allows the teammate to proceed with implementation.
 Rejection sends feedback back to the teammate and keeps them in plan mode.
-Delivery is asynchronous. Use team_wait when you need the teammate's next response or result.
+The lead session waits for the woken teammate run after a decision.

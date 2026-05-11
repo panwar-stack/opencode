@@ -1,15 +1,15 @@
 Spawn a teammate agent as part of the current team.
 The teammate runs as a child session with its own agent type, prompt, and permissions.
-The spawn call starts the teammate asynchronously and returns after the teammate is registered/launched.
-The teammate receives team context and its final result is posted back to the lead automatically through team_wait/team_get_messages.
-Teammates are instructed to send proactive progress, handoff, and blocker updates through the team mailbox.
-The lead receives automatic completion/error updates, and active dependency teammates are notified when someone is waiting on their work.
+The spawn call waits for the teammate's current run to finish, keeping the lead session busy the same way task subagents do.
+The teammate receives team context and its final result is posted back to the lead automatically.
+Teammates are instructed to send proactive kickoff, progress, handoff, and blocker updates through the team mailbox.
+The lead receives automatic started/waiting updates, and active dependency teammates are notified when someone is waiting on their work.
 Use this when you need multiple agents working in parallel on different aspects of the team's goal.
 Use this aggressively for independent research, file reading, implementation slices, reviews, and verification so the lead session can preserve context and focus on coordination.
 Prefer several focused teammates over one broad teammate when the work can proceed in parallel.
 Spawn multiple independent teammates in one parallel tool-call batch whenever possible.
 Use depends_on or wait_for when this teammate must wait for one or more teammate names/session IDs to complete before starting.
 
-After spawning teammates or sending instructions to active teammates, use team_wait when you need the next teammate result, blocker, or response before deciding the next coordination step. team_wait returns as soon as one teammate produces an update; it does not wait for every active teammate to finish. You will also be automatically woken when teammates send you messages — DO NOT poll team_get_messages in a loop.
+After teammate results return, check team_get_messages ONCE for any pending handoff or blocker messages before deciding the next coordination step. You will be automatically woken when teammates send you messages — DO NOT poll team_get_messages in a loop.
 
 CRITICAL: As the lead, your role is to delegate and coordinate. Do NOT start working on teammate tasks yourself while waiting. You cannot predict what work they will produce, and duplicating their effort wastes resources and creates conflicts. Wait for their results, then integrate. As results arrive, continuously think about what new sub-tasks can be split off and delegated — decomposition is an ongoing process, not a one-time step.
