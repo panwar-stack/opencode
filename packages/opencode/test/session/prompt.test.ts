@@ -997,8 +997,7 @@ it.live("injects team orchestration guidance for primary lead sessions when agen
           (body) =>
             body.includes("Agent team orchestration is enabled") &&
             body.includes("team_create") &&
-            body.includes("team_spawn") &&
-            body.includes("team_wait"),
+            body.includes("team_spawn"),
         ),
       ).toBe(true)
     }),
@@ -1054,7 +1053,7 @@ it.live("does not inject lead team guidance into teammate sessions", () =>
   ),
 )
 
-it.live("team lead can continue after the first parallel teammate result", () =>
+it.live("team lead starts multiple teammates from one assistant step in parallel", () =>
   provideTmpdirServer(
     Effect.fnUntraced(function* ({ llm }) {
       let releaseRoutes = () => {}
@@ -1095,10 +1094,6 @@ it.live("team lead can continue after the first parallel teammate result", () =>
           }),
       )
       yield* llm.pushMatch(
-        (hit) => JSON.stringify(hit.body).includes("Teammate spawned"),
-        reply().tool("team_wait", { timeout_seconds: 5 }),
-      )
-      yield* llm.pushMatch(
         (hit) => JSON.stringify(hit.body).includes("Review workflow routes"),
         reply().wait(routesReleased).text("routes done").stop(),
       )
@@ -1106,7 +1101,7 @@ it.live("team lead can continue after the first parallel teammate result", () =>
         (hit) => JSON.stringify(hit.body).includes("Review workflow CLI"),
         reply().wait(cliReleased).text("cli done").stop(),
       )
-      yield* llm.text("lead saw first result")
+      yield* llm.text("lead done")
 
       const fiber = yield* prompt.loop({ sessionID: lead.id }).pipe(Effect.forkChild)
       yield* Effect.promise(async () => {
@@ -1124,25 +1119,15 @@ it.live("team lead can continue after the first parallel teammate result", () =>
         throw new Error("timed out waiting for both teammate prompts")
       })
       releaseRoutes()
+      releaseCli()
 
       const result = yield* Fiber.join(fiber)
       expect(result.info.role).toBe("assistant")
-      expect(result.parts.some((part) => part.type === "text" && part.text === "lead saw first result")).toBe(true)
+      expect(result.parts.some((part) => part.type === "text" && part.text === "lead done")).toBe(true)
       const active = yield* team.getActive(lead.id)
       if (Option.isNone(active)) throw new Error("expected active team")
       const members = yield* team.getMembers(active.value.id)
-      expect(members.some((member) => member.name === "routes" && member.status === "completed")).toBe(true)
-      expect(members.some((member) => member.name === "cli" && member.status === "active")).toBe(true)
-      releaseCli()
-      yield* Effect.promise(async () => {
-        const end = Date.now() + 5_000
-        while (Date.now() < end) {
-          const members = await Effect.runPromise(team.getMembers(active.value.id))
-          if (members.some((member) => member.name === "cli" && member.status === "completed")) return
-          await new Promise((done) => setTimeout(done, 20))
-        }
-        throw new Error("timed out waiting for cli teammate to complete")
-      })
+      expect(members.filter((member) => member.status === "completed")).toHaveLength(2)
     }),
     {
       git: true,
