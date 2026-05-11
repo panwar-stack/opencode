@@ -110,6 +110,8 @@ OpenCode include due agenti integrati tra cui puoi passare usando il tasto `Tab`
 È inoltre incluso un sotto-agente **general** per ricerche complesse e attività multi-step.
 Viene utilizzato internamente e può essere invocato usando `@general` nei messaggi.
 
+I sotto-agenti sono tipi di agente specializzati che un agente primario può invocare per un'attività. I teammate sono diversi: sono sessioni figlie in background dentro un agent team, ciascuna con nome, tipo di agente, prompt di ruolo, dipendenze, messaggi mailbox e approvazione opzionale del piano. Un teammate può eseguire un tipo di sotto-agente, ma "teammate" è il ruolo di coordinamento del team, non una modalità agente.
+
 Scopri di più sugli [agenti](https://opencode.ai/docs/agents).
 
 ### Documentazione

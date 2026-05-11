@@ -110,6 +110,8 @@ OpenCode bao gồm hai agent được tích hợp sẵn mà bạn có thể chuy
 Ngoài ra còn có một subagent **general** dùng cho các tìm kiếm phức tạp và tác vụ nhiều bước.
 Agent này được sử dụng nội bộ và có thể gọi bằng cách dùng `@general` trong tin nhắn.
 
+Subagent là các kiểu agent chuyên biệt mà agent chính có thể gọi cho một tác vụ. Teammate thì khác: đó là các phiên con chạy nền trong một agent team, mỗi phiên có tên, kiểu agent, role prompt, phụ thuộc, tin nhắn mailbox và tùy chọn phê duyệt kế hoạch riêng. Một teammate có thể chạy một kiểu subagent, nhưng "teammate" là vai trò điều phối trong team, không phải một chế độ agent.
+
 Tìm hiểu thêm về [agents](https://opencode.ai/docs/agents).
 
 ### Tài liệu
