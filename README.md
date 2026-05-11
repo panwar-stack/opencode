@@ -110,6 +110,8 @@ OpenCode includes two built-in agents you can switch between with the `Tab` key.
 Also included is a **general** subagent for complex searches and multistep tasks.
 This is used internally and can be invoked using `@general` in messages.
 
+Subagents are specialized agent types that a primary agent can invoke for a task. Teammates are different: they are background child sessions in an agent team, each with its own name, agent type, role prompt, dependencies, mailbox messages, and optional plan approval. A teammate can run a subagent type, but "teammate" is the team coordination role, not an agent mode.
+
 Learn more about [agents](https://opencode.ai/docs/agents).
 
 ### Documentation
