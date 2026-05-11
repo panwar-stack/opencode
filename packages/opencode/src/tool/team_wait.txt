@@ -1,5 +1,0 @@
-Wait for the next teammate message, blocker, or result.
-Use this after spawning or messaging active teammates when you need their next handoff before deciding the next coordination step.
-This returns as soon as one or more pending lead messages are available; it does not wait for every active teammate to finish.
-If no teammate can currently make progress, it returns the current team status immediately.
-Do not use team_get_messages as a polling loop while teammates are active; use team_wait when waiting is required.

@@ -6,7 +6,9 @@ import { Agent } from "@/agent/agent"
 import { Config } from "@/config/config"
 import type { TaskPromptOps } from "./task"
 import { wakeTeamSession } from "./team_wake"
-import { Cause, Effect, Schema, Scope, Option } from "effect"
+import { EffectBridge } from "@/effect/bridge"
+import { SessionID } from "@/session/schema"
+import { Cause, Effect, Exit, Schema, Scope, Option } from "effect"
 
 const Parameters = Schema.Struct({
   name: Schema.String.annotate({ description: "Name for this teammate" }),
@@ -29,6 +31,7 @@ type Metadata = {
 
 const CommunicationGuidance = [
   "Proactive communication requirements:",
+  '- Before doing substantial work, send a brief kickoff update to the lead with team_send_message recipient "lead".',
   "- Send concise progress updates to the lead after material findings, decisions, completed milestones, and before or after risky edits.",
   "- Message teammates directly when your work affects them, unblocks them, or gives them information they need.",
   "- Check team_get_messages at natural handoff points, after sending updates, and whenever you may have been unblocked or redirected.",
@@ -207,8 +210,6 @@ export const TeamSpawnTool = Tool.define(
             })
 
           let startMember: (member: any, extraPrompt: string) => Effect.Effect<string>
-          const launchMember = (member: any, extraPrompt: string) =>
-            startMember(member, extraPrompt).pipe(Effect.ignore, Effect.forkIn(scope), Effect.asVoid)
           const startReadyBlockedMembers = (completedSessionID: string): Effect.Effect<void> =>
             Effect.gen(function* () {
               const members = yield* team.getMembers(teamID)
@@ -221,7 +222,7 @@ export const TeamSpawnTool = Tool.define(
               })
               yield* Effect.forEach(
                 ready,
-                (member) => launchMember(member, dependencyResults(members, member.dependency_ids ?? [])),
+                (member) => startMember(member, dependencyResults(members, member.dependency_ids ?? [])),
                 { concurrency: "unbounded", discard: true },
               )
             })
@@ -267,6 +268,16 @@ export const TeamSpawnTool = Tool.define(
                 }
 
                 yield* team.updateMemberStatus(member.id, "active")
+                yield* notifyLead(
+                  member.session_id,
+                  [
+                    `Teammate ${member.name} (${member.agent_type}) started.`,
+                    "",
+                    "Assignment:",
+                    member.role_prompt,
+                    ...(extraPrompt ? ["", "Dependency context was provided in this teammate's prompt."] : []),
+                  ].join("\n"),
+                )
                 const result = yield* ops.prompt({
                   sessionID: member.session_id,
                   model: nextAgent.model,
@@ -285,9 +296,18 @@ export const TeamSpawnTool = Tool.define(
                   return "Teammate stopped before completing."
                 }
                 const output = result.parts.findLast((part) => part.type === "text")?.text ?? ""
-                yield* team.updateMemberStatus(member.id, "completed", output || "(no text result)")
+                yield* notifyLead(
+                  member.session_id,
+                  [
+                    `Teammate ${member.name} (${member.agent_type}) completed and returned this result:`,
+                    "",
+                    "<teammate_result>",
+                    output || "(no text result)",
+                    "</teammate_result>",
+                  ].join("\n"),
+                )
+                yield* team.updateMemberStatus(member.id, "completed", output)
                 yield* startReadyBlockedMembers(member.session_id)
-                yield* wakeTeamSession(ops, activeTeam.value.lead_session_id).pipe(Effect.ignore, Effect.forkIn(scope))
                 return output || "(no text result)"
               }).pipe(
                 Effect.catchCause((cause) =>
@@ -315,6 +335,16 @@ export const TeamSpawnTool = Tool.define(
           )
           if (blocked) {
             yield* team.updateMemberStatus(member.id, "blocked")
+            yield* notifyLead(
+              member.session_id,
+              [
+                `Teammate ${member.name} (${member.agent_type}) is waiting on dependency teammate(s):`,
+                ...dependencyIDs.map((dependency) => {
+                  const match = latestMembers.find((candidate) => candidate.session_id === dependency)
+                  return `- ${match?.name ?? dependency} (${dependency})`
+                }),
+              ].join("\n"),
+            )
             return {
               title: "Teammate Spawned",
               output: `Teammate spawned: ${member.name} (${member.session_id}) [${member.agent_type}], waiting on ${dependencyIDs.length} dependency(ies)`,
@@ -322,15 +352,46 @@ export const TeamSpawnTool = Tool.define(
             }
           }
 
-          yield* launchMember(member, dependencyResults(latestMembers, dependencyIDs))
-          return {
-            title: "Teammate Spawned",
-            output: [
-              `Teammate spawned: ${member.name} (${member.session_id}) [${member.agent_type}]`,
-              "The teammate is running asynchronously. Use team_wait to receive the next teammate result or blocker before coordinating further work.",
-            ].join("\n"),
-            metadata: { memberID: member.id, sessionID: member.session_id, dependencyIDs } as Metadata,
+          const runCancel = yield* EffectBridge.make()
+          const cancelMember = Effect.gen(function* () {
+            yield* team.updateMemberStatus(member.id, "cancelled").pipe(Effect.ignore)
+            yield* ops.cancel(SessionID.make(member.session_id)).pipe(Effect.ignore)
+          })
+          function onAbort() {
+            runCancel.fork(cancelMember)
           }
+
+          return yield* Effect.acquireUseRelease(
+            Effect.sync(() => {
+              ctx.abort.addEventListener("abort", onAbort)
+              if (ctx.abort.aborted) onAbort()
+            }),
+            () =>
+              Effect.gen(function* () {
+                const result = yield* startMember(member, dependencyResults(latestMembers, dependencyIDs))
+                return {
+                  title: "Teammate Completed",
+                  output: [
+                    `Teammate completed: ${member.name} (${member.session_id}) [${member.agent_type}]`,
+                    "",
+                    "<teammate_result>",
+                    result,
+                    "</teammate_result>",
+                  ].join("\n"),
+                  metadata: { memberID: member.id, sessionID: member.session_id, dependencyIDs } as Metadata,
+                }
+              }),
+            (_, exit) =>
+              Effect.gen(function* () {
+                if (Exit.hasInterrupts(exit)) yield* cancelMember
+              }).pipe(
+                Effect.ensuring(
+                  Effect.sync(() => {
+                    ctx.abort.removeEventListener("abort", onAbort)
+                  }),
+                ),
+              ),
+          )
         }).pipe(Effect.orDie),
     }
   }),

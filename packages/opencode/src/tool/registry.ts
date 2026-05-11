@@ -15,7 +15,6 @@ import { InvalidTool } from "./invalid"
 import { SkillTool } from "./skill"
 import { TeamCreateTool } from "./team_create"
 import { TeamSpawnTool } from "./team_spawn"
-import { TeamWaitTool } from "./team_wait"
 import { TeamGetMessagesTool } from "./team_get_messages"
 import { TeamSendMessageTool } from "./team_send_message"
 import { TeamBroadcastTool } from "./team_broadcast"
@@ -151,7 +150,6 @@ export const layer: Layer.Layer<
     const agent = yield* Agent.Service
     const teamCreate = yield* TeamCreateTool
     const teamSpawn = yield* TeamSpawnTool
-    const teamWait = yield* TeamWaitTool
     const teamGetMessages = yield* TeamGetMessagesTool
     const teamSendMessage = yield* TeamSendMessageTool
     const teamBroadcast = yield* TeamBroadcastTool
@@ -270,7 +268,6 @@ export const layer: Layer.Layer<
           plan: Tool.init(plan),
           teamCreate: Tool.init(teamCreate),
           teamSpawn: Tool.init(teamSpawn),
-          teamWait: Tool.init(teamWait),
           teamGetMessages: Tool.init(teamGetMessages),
           teamSendMessage: Tool.init(teamSendMessage),
           teamBroadcast: Tool.init(teamBroadcast),
@@ -308,7 +305,6 @@ export const layer: Layer.Layer<
               ? [
                   tool.teamCreate,
                   tool.teamSpawn,
-                  tool.teamWait,
                   tool.teamGetMessages,
                   tool.teamSendMessage,
                   tool.teamBroadcast,
