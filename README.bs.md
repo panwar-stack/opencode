@@ -110,6 +110,8 @@ OpenCode uključuje dva ugrađena agenta između kojih možeš prebacivati taste
 Uključen je i **general** pod-agent za složene pretrage i višekoračne zadatke.
 Koristi se interno i može se pozvati pomoću `@general` u porukama.
 
+Pod-agenti su specijalizovani tipovi agenata koje primarni agent može pozvati za određeni zadatak. Teammates su drugačiji: to su pozadinske child sesije u agent team-u, svaka sa svojim imenom, tipom agenta, role promptom, zavisnostima, mailbox porukama i opcionalnim odobravanjem plana. Teammate može pokretati tip pod-agenta, ali "teammate" je koordinaciona uloga u timu, nije mod agenta.
+
 Saznaj više o [agentima](https://opencode.ai/docs/agents).
 
 ### Dokumentacija

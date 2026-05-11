@@ -110,6 +110,8 @@ OpenCode, `Tab` tuşuyla aralarında geçiş yapabileceğiniz iki yerleşik (bui
 Ayrıca, karmaşık aramalar ve çok adımlı görevler için bir **genel** alt ajan bulunmaktadır.
 Bu dahili olarak kullanılır ve mesajlarda `@general` ile çağrılabilir.
 
+Alt ajanlar, birincil ajanın belirli bir görev için çağırabildiği uzmanlaşmış ajan türleridir. Teammate'ler farklıdır: agent team içinde çalışan arka plan alt oturumlarıdır; her birinin kendi adı, ajan türü, rol promptu, bağımlılıkları, mailbox mesajları ve isteğe bağlı plan onayı vardır. Bir teammate bir alt ajan türünü çalıştırabilir, ancak "teammate" ekip koordinasyon rolüdür, ajan modu değildir.
+
 [Ajanlar](https://opencode.ai/docs/agents) hakkında daha fazla bilgi edinin.
 
 ### Dokümantasyon
