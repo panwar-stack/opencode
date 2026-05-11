@@ -235,30 +235,30 @@ export const layer = Layer.effect(
       yield* bus.publish(MemberUpdated, { memberID: row.id, sessionID: row.session_id, status: row.status })
 
       if (row.status === "completed" || row.status === "idle") {
+        const statusText = row.status === "completed" ? "completed their work" : "became idle"
         const team = Database.use(() => db().select().from(TeamTable).where(eq(TeamTable.id, row.team_id)).get())
         if (team) {
-          yield* sendMessage({
-            teamID: row.team_id,
-            sender: row.session_id,
-            recipients: [team.lead_session_id],
-            body:
-              row.status === "completed" && row.result
-                ? [
-                    `Teammate ${row.name} (${row.agent_type}) completed and returned this result:`,
-                    "",
-                    "<teammate_result>",
-                    row.result,
-                    "</teammate_result>",
-                  ].join("\n")
-                : `Teammate ${row.name} (${row.agent_type}) has ${
-                    row.status === "completed" ? "completed their work" : "became idle"
-                  }.`,
+          const msgId = crypto.randomUUID()
+          const msgNow = Date.now()
+          Database.use(() => {
+            db()
+              .insert(TeamMessageTable)
+              .values({
+                id: msgId,
+                team_id: row.team_id,
+                sender: row.session_id,
+                recipients: [team.lead_session_id],
+                body: `Teammate ${row.name} (${row.agent_type}) has ${statusText}.`,
+                delivery_status: "pending",
+                time_created: msgNow,
+                time_updated: msgNow,
+              } as any)
+              .run()
           })
+          yield* bus.publish(MessageReceived, { messageID: msgId, teamID: row.team_id, sender: row.session_id })
           yield* bus.publish(TuiEvent.ToastShow, {
             title: "Teammate Update",
-            message: `${row.name} (${row.agent_type}) has ${
-              row.status === "completed" ? "completed their work" : "became idle"
-            }.`,
+            message: `${row.name} (${row.agent_type}) has ${statusText}.`,
             variant: "info",
             duration: 5000,
           })

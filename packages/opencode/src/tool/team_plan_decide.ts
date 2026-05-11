@@ -6,7 +6,7 @@ import { Config } from "@/config/config"
 import { Permission } from "@/permission"
 import type { TaskPromptOps } from "./task"
 import { wakeTeamSession } from "./team_wake"
-import { Effect, Option, Schema, Scope } from "effect"
+import { Effect, Option, Schema } from "effect"
 
 const Parameters = Schema.Struct({
   member_name: Schema.String.annotate({ description: "Teammate name" }),
@@ -20,7 +20,6 @@ export const TeamPlanDecideTool = Tool.define(
     const team = yield* Team.Service
     const sessions = yield* Session.Service
     const config = yield* Config.Service
-    const scope = yield* Scope.Scope
     return {
       description: DESCRIPTION,
       parameters: Parameters,
@@ -58,13 +57,9 @@ export const TeamPlanDecideTool = Tool.define(
             })
             const promptOps = ctx.extra?.promptOps as TaskPromptOps | undefined
             if (promptOps) {
-              yield* wakeTeamSession(promptOps, target.session_id).pipe(Effect.ignore, Effect.forkIn(scope))
+              yield* wakeTeamSession(promptOps, target.session_id).pipe(Effect.ignore)
             }
-            return {
-              title: "Plan Approved",
-              output: `Plan for ${params.member_name} approved. Use team_wait for the next teammate result.`,
-              metadata: {},
-            }
+            return { title: "Plan Approved", output: `Plan for ${params.member_name} approved.`, metadata: {} }
           }
           yield* team.sendMessage({
             teamID: activeTeam.value.id,
@@ -74,13 +69,9 @@ export const TeamPlanDecideTool = Tool.define(
           })
           const promptOps = ctx.extra?.promptOps as TaskPromptOps | undefined
           if (promptOps) {
-            yield* wakeTeamSession(promptOps, target.session_id).pipe(Effect.ignore, Effect.forkIn(scope))
+            yield* wakeTeamSession(promptOps, target.session_id).pipe(Effect.ignore)
           }
-          return {
-            title: "Plan Rejected",
-            output: `Plan for ${params.member_name} rejected. Use team_wait for the next teammate response if needed.`,
-            metadata: {},
-          }
+          return { title: "Plan Rejected", output: `Plan for ${params.member_name} rejected.`, metadata: {} }
         }).pipe(Effect.orDie),
     }
   }),

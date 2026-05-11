@@ -1279,7 +1279,7 @@ export const layer = Layer.effect(
           "<team-messages>",
           context.value.member
             ? "You have pending team mailbox messages. Address them now and continue your teammate task."
-            : "You have pending team mailbox messages. As team lead, coordinate follow-up work and report to the user when the team goal is complete. Do NOT attempt to do teammate tasks yourself — your role is to delegate, wait for results with team_wait when needed, and integrate them. Trust your teammates to complete their assigned work. As you process these messages, look for new sub-tasks that can be split off and delegated to new or existing teammates.",
+            : "You have pending team mailbox messages. As team lead, coordinate follow-up work and report to the user when the team goal is complete. Do NOT attempt to do teammate tasks yourself — your role is to delegate, wait for results, and integrate them. Trust your teammates to complete their assigned work. As you process these messages, look for new sub-tasks that can be split off and delegated to new or existing teammates.",
           "",
           ...messages.map((message) =>
             [`From ${senderName(message.sender)} (${message.sender}):`, message.body].join("\n"),
@@ -1310,7 +1310,7 @@ export const layer = Layer.effect(
         "Agent team orchestration is enabled.",
         "For non-trivial tasks, create a team with team_create early and use team_spawn to delegate independent work before doing local implementation.",
         "Use teammates aggressively to save lead-session context: delegate broad searches, file reads, investigation, implementation slices, review, and verification when those can run independently.",
-        "Spawn multiple independent teammates in parallel whenever possible. team_spawn launches teammates asynchronously; use team_wait to receive the next teammate result, blocker, or response without waiting for all active teammates to finish. Use dependencies only when one teammate truly needs another teammate's result.",
+        "Spawn multiple independent teammates in parallel whenever possible. Use dependencies only when one teammate truly needs another teammate's result.",
         "As lead, focus on task decomposition, coordination, decisions, integration, and the final user-facing result. Trust teammate outputs instead of redoing their work.",
         "CONTINUOUS DECOMPOSITION: Throughout the session, constantly think about how to break the remaining problem into pieces for team members. Before starting any substantial work yourself, ask: can this be split and handed off to teammates? As results come in, identify new sub-tasks that emerge from those results and delegate them. Your default posture should be to delegate, not to do.",
         "Do not create a team for trivial one-step requests or when the user explicitly asks you to work alone.",

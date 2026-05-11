@@ -45,7 +45,7 @@ The lead is responsible for:
 
 - creating the team
 - spawning teammates
-- waiting for completion, response, and blocker updates
+- receiving start, waiting, completion, and blocker updates
 - approving or rejecting plan-mode work
 - coordinating follow-up work
 - shutting down the team when needed
@@ -122,7 +122,7 @@ The flow is:
 7. Insert a `team_member` row with status `starting`.
 8. Notify active dependency teammates if someone is waiting on them.
 9. If dependencies are incomplete, mark the new teammate `blocked`.
-10. If dependencies are complete, launch the teammate in the background and return to the lead.
+10. If dependencies are complete, start the teammate and wait for its current run to finish.
 
 Starting a teammate means building a prompt that includes:
 
@@ -140,25 +140,24 @@ Then `ops.prompt` runs the child session with the selected agent and model.
 
 ## Lead Waiting And Parallel Spawn
 
-Running teammates do not block `team_spawn`.
+Running teammates block the lead's current assistant step.
 
-`team_spawn` registers the teammate, starts the child session in a background fiber, and returns a launch result. Teammate results are delivered to the lead through mailbox messages.
+`team_spawn` waits for the teammate's current run and returns the teammate result to the lead. This matches the older `task` tool strategy: while delegated work is running, the lead session stays busy instead of continuing to reason over unknown future outputs.
 
-After spawning or messaging active teammates, the lead should call `team_wait` when it needs a teammate handoff before deciding the next coordination step. `team_wait` returns as soon as one or more pending lead messages are available; it does not wait for every active teammate to finish.
-
-The lead can start multiple teammates in parallel by emitting multiple `team_spawn` tool calls in the same assistant step. Since each spawn returns after launch, the next lead step can wait for the first result, integrate it, and delegate follow-up work while other teammates continue.
+The lead can still start multiple teammates in parallel by emitting multiple `team_spawn` tool calls in the same assistant step. The AI SDK executes sibling tool calls concurrently, so each `team_spawn` call waits for its own teammate while the overall step remains blocked until all sibling calls complete.
 
 Inside the teammate run:
 
 1. Member status becomes `active`.
-2. The child session receives its assignment prompt.
-3. The teammate runs through the normal session prompt pipeline.
-4. When the teammate finishes, the last text result is extracted.
-5. The lead gets an automatic completion message containing the result.
-6. Member status becomes `completed`.
-7. Any blocked teammates that depended on this session are checked and possibly started.
+2. Lead gets an automatic "teammate started" message.
+3. The child session receives its assignment prompt.
+4. The teammate runs through the normal session prompt pipeline.
+5. When the teammate finishes, the last text result is extracted.
+6. The lead gets an automatic completion message containing the result.
+7. Member status becomes `completed`.
+8. Any blocked teammates that depended on this session are checked and possibly started.
 
-When a completed teammate unblocks multiple dependents, those newly ready teammates are launched concurrently. The lead can receive each result through `team_wait` and continue coordinating without waiting for unrelated active teammates.
+When a completed teammate unblocks multiple dependents, those newly ready teammates are started concurrently. The lead resumes after the relevant running teammates finish, then it can integrate results and decide the next coordination step.
 
 ## Dependencies
 
@@ -364,7 +363,7 @@ team_spawn creates child session + team_member row
 if dependencies incomplete:
   member status = blocked
 else:
-  launch child session in background
+  run child session and wait for teammate result
   |
 teammate runs normal prompt loop
   |
@@ -375,8 +374,6 @@ messages wake recipient sessions and inject <team-messages>
 teammate finishes
   |
 result sent to lead and stored on team_member
-  |
-lead uses team_wait to receive the next result/update
   |
 dependent blocked teammates may start
   |
