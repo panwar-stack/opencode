@@ -109,6 +109,8 @@ OpenCode 內建了兩種 Agent，您可以使用 `Tab` 鍵快速切換。
 
 此外，OpenCode 還包含一個 **general** 子 Agent，用於處理複雜搜尋與多步驟任務。此 Agent 供系統內部使用，亦可透過在訊息中輸入 `@general` 來呼叫。
 
+子 Agent 是主要 Agent 可針對某個任務呼叫的專用 Agent 類型。Teammate 則不同：它是 agent team 中的背景子工作階段，每個 teammate 都有自己的名稱、Agent 類型、角色提示、相依項目、mailbox 訊息，以及可選的計畫核准流程。Teammate 可以執行某個子 Agent 類型，但 "teammate" 是團隊協調角色，不是 Agent 模式。
+
 了解更多關於 [Agents](https://opencode.ai/docs/agents) 的資訊。
 
 ### 線上文件

@@ -110,6 +110,8 @@ OpenCode には組み込みの Agent が2つあり、`Tab` キーで切り替え
 また、複雑な検索やマルチステップのタスク向けに **general** サブ Agent も含まれています。
 内部的に使用されており、メッセージで `@general` と入力して呼び出せます。
 
+サブ Agent は、プライマリ Agent が特定のタスクのために呼び出せる専用の Agent タイプです。Teammate は別物で、agent team 内のバックグラウンド子セッションです。それぞれが名前、Agent タイプ、ロールプロンプト、依存関係、mailbox メッセージ、任意のプラン承認を持ちます。Teammate はサブ Agent タイプを実行できますが、"teammate" はチーム調整の役割であり、Agent のモードではありません。
+
 [agents](https://opencode.ai/docs/agents) の詳細はこちら。
 
 ### ドキュメント
