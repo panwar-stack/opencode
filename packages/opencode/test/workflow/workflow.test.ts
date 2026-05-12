@@ -62,7 +62,6 @@ describe("workflow", () => {
     const state = await Workflow.start({
       directory: tmp.path,
       title: "Add password reset flow",
-      localDraft: true,
     })
 
     expect(state.workflow_id).toStartWith("wf_")

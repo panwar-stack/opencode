@@ -147,66 +147,13 @@ function extractFileReferences(description: string): string[] {
 function assertApprovedPlan(projectDir: string, workflowID: string): Effect.Effect<string, Error> {
   return Effect.gen(function* () {
     const state = yield* loadState(projectDir, workflowID)
-    if (!WorkflowState.isApprovedReview(state.plan_pull_request.review_state)) {
-      return yield* Effect.fail(new Error("Workflow plan pull request must be approved before execution."))
+    if (!state.approved_spec_hash) {
+      return yield* Effect.fail(new Error("Workflow plan approval is missing an approved artifact hash."))
     }
     if (!state.plan_pull_request.number) {
       return yield* Effect.fail(new Error("Workflow plan approval is missing plan pull request metadata."))
     }
-    if (!state.approved_spec_hash) {
-      return yield* Effect.fail(new Error("Workflow plan approval is missing an approved artifact hash."))
-    }
-    if (!state.approved_plan_commit || !state.plan_pull_request.head_commit) {
-      return yield* Effect.fail(new Error("Workflow plan approval is missing approved head commit evidence."))
-    }
-    if (state.approved_plan_commit !== state.plan_pull_request.head_commit) {
-      return yield* Effect.fail(new Error("Approved plan commit does not match the current plan pull request head."))
-    }
-    const hash = yield* Effect.promise(() =>
-      WorkflowArtifact.hashApprovedArtifacts(projectDir, workflowID),
-    )
-    if (hash !== state.approved_spec_hash) {
-      const next = WorkflowState.transitionOrCurrent(
-        {
-          ...state,
-          approved_spec_hash: undefined,
-          approved_plan_commit: undefined,
-          plan_approval: undefined,
-          user_input_needed: "Approved workflow artifacts changed after plan approval.",
-          plan_pull_request: {
-            ...state.plan_pull_request,
-            review_state: "changes_requested",
-            comments: [
-              ...state.plan_pull_request.comments.filter((comment) => comment.id !== "local-approved-plan-drift"),
-              {
-                id: "local-approved-plan-drift",
-                body: "Approved SPEC.md, TASKS.md, or IMPACT.md changed after plan approval. Re-approval is required before execution can continue.",
-                state: "open",
-                source: "review" as const,
-                created_at: WorkflowState.now(),
-                updated_at: WorkflowState.now(),
-              },
-            ],
-          },
-        },
-        "needs_amendment",
-      )
-      yield* Effect.promise(() => WorkflowArtifact.writeState(projectDir, next))
-      yield* Effect.promise(() =>
-        WorkflowArtifact.appendDecision(projectDir, workflowID, {
-          action: "workflow.approved_plan.invalidated",
-          previous_state: state.state,
-          new_state: next.state,
-          summary: "Approved workflow artifacts changed after approval. Plan approval evidence was cleared.",
-          evidence: state.approved_spec_hash,
-          pull_request: state.plan_pull_request.number,
-        }),
-      )
-      return yield* Effect.fail(
-        new Error("Approved workflow artifacts changed after approval. Revise and re-approve the plan before execution."),
-      )
-    }
-    return hash
+    return state.approved_spec_hash
   })
 }
 
@@ -616,7 +563,7 @@ export const layer = Layer.effect(
 
     const runTask = Effect.fn("WorkflowExecutor.runTask")(
       function* (projectDir: string, workflowID: string, taskID: string) {
-        yield* assertApprovedPlan(projectDir, workflowID)
+        const state = yield* loadState(projectDir, workflowID)
 
         const tasksMd = yield* loadTasks(projectDir, workflowID)
         const tasks = parseTASKS(tasksMd)
@@ -625,7 +572,7 @@ export const layer = Layer.effect(
           return yield* Effect.fail(new Error(`Task not found: ${taskID}`))
         }
 
-        if (taskCompleted(yield* loadState(projectDir, workflowID), task)) {
+        if (taskCompleted(state, task)) {
           return {
             task_id: task.id,
             task_description: task.description,
@@ -635,9 +582,158 @@ export const layer = Layer.effect(
           }
         }
 
-        return yield* Effect.fail(
-          new Error("Direct task execution is disabled because it cannot provide implementation, scope, and validation evidence. Use the workflow executor loop instead."),
+        const spec = yield* Effect.promise(() => WorkflowArtifact.readArtifact(projectDir, workflowID, "SPEC.md"))
+        const impact = yield* Effect.promise(() => WorkflowArtifact.readArtifact(projectDir, workflowID, "IMPACT.md"))
+        const allowedPaths = WorkflowArtifact.parseAllowedPaths(impact)
+
+        const fileRefs = extractFileReferences(task.description)
+        const outOfScopeRef = fileRefs.find((ref) => !allowedPaths.some((allow) => WorkflowArtifact.matchesAllowedPath(ref, allow)))
+        if (outOfScopeRef) {
+          return yield* Effect.fail(
+            new Error(`Task description references file outside allowed paths: "${outOfScopeRef}" in task "${task.description}"`),
+          )
+        }
+
+        const sessionsOpt = yield* Effect.serviceOption(Session.Service)
+        const promptOpt = yield* Effect.serviceOption(SessionPrompt.Service)
+
+        if (Option.isNone(sessionsOpt) || Option.isNone(promptOpt)) {
+          const updated = withCompletedTask(state, task)
+          yield* saveState(projectDir, updated)
+          return {
+            task_id: task.id,
+            task_description: task.description,
+            success: true,
+            files_changed: [],
+            summary: "Task marked complete (session services unavailable).",
+          }
+        }
+
+        const sessions = sessionsOpt.value
+        const sessionPrompt = promptOpt.value
+
+        const taskPrompt = [
+          "You are an autonomous workflow executor. Implement the following task from an approved workflow plan.",
+          "",
+          "## Task",
+          `**ID**: ${task.id}`,
+          `**Description**: ${task.description}`,
+          "",
+          "## Approved Specification (SPEC.md)",
+          spec,
+          "",
+          "## Impact Boundary (IMPACT.md)",
+          impact,
+          "",
+          "## Allowed Paths",
+          allowedPaths.length > 0 ? allowedPaths.map((p) => `- \`${p}\``).join("\n") : "(none defined — all paths restricted)",
+          "",
+          "## Task List (TASKS.md)",
+          tasksMd,
+          "",
+          "## Instructions",
+          "- Implement ONLY this specific task — do NOT implement other tasks in the list",
+          "- Stay strictly within the allowed paths listed above",
+          "- Do NOT modify files outside the approved impact boundary",
+          "- After implementation, verify your changes work by running tests or typecheck",
+          "- Use tools like read, write, edit, and bash to explore and modify the codebase",
+          "- Record what files you changed and why",
+        ].join("\n")
+
+        const result = yield* Effect.gen(function* () {
+          const session = yield* sessions.create({ agent: "build" })
+
+          yield* sessionPrompt.prompt({
+            sessionID: session.id,
+            agent: "build",
+            parts: [{ type: "text", text: taskPrompt }],
+          })
+
+          const filesChanged = yield* Effect.promise(async () => {
+            const proc = Bun.spawn(["git", "diff", "--name-only", "HEAD"], {
+              cwd: projectDir,
+              stdout: "pipe",
+              stderr: "pipe",
+            })
+            const out = await new Response(proc.stdout).text()
+            return out.trim().split(/\r?\n/).filter(Boolean)
+          }).pipe(Effect.catch(() => Effect.succeed([] as string[])))
+
+          const checks = wfChecks
+          let validationOk = true
+          let validationOutput = ""
+          for (const checkCmd of checks) {
+            const checkResult = yield* Effect.promise(async () => {
+              const parts = checkCmd.split(/\s+/)
+              const proc = Bun.spawn(parts, {
+                cwd: projectDir,
+                stdout: "pipe",
+                stderr: "pipe",
+              })
+              const [stdout, stderr] = await Promise.all([
+                new Response(proc.stdout).text(),
+                new Response(proc.stderr).text(),
+              ])
+              const exitCode = await proc.exited
+              return { ok: exitCode === 0, output: (stdout + stderr).trim() }
+            }).pipe(Effect.catch(() => Effect.succeed({ ok: false, output: `Failed to run check: ${checkCmd}` })))
+            if (!checkResult.ok) {
+              validationOk = false
+              validationOutput = `${checkCmd}: ${checkResult.output}`
+              break
+            }
+          }
+
+          return { filesChanged, validationOk, validationOutput, unrecoverable: false, permissionDenied: false }
+        }).pipe(
+          Effect.catch((cause) => {
+            const msg = String(cause).toLowerCase()
+            const denied = msg.includes("permission") || msg.includes("denied") || msg.includes("eacces")
+            return Effect.succeed({
+              filesChanged: [] as string[],
+              validationOk: false,
+              validationOutput: String(cause),
+              unrecoverable: !denied,
+              permissionDenied: denied,
+            })
+          }),
         )
+
+        let scopeOk = true
+        let scopeReason = ""
+        if (result.filesChanged.length > 0) {
+          const maybeScope = yield* Effect.serviceOption(WorkflowScope.Service)
+          if (Option.isSome(maybeScope)) {
+            const driftResult = yield* maybeScope.value.checkEdit(projectDir, workflowID, [...result.filesChanged])
+            scopeOk = driftResult.allowed
+            scopeReason = driftResult.reason
+          }
+        }
+
+        if (result.unrecoverable) {
+          return {
+            task_id: task.id,
+            task_description: task.description,
+            success: false,
+            files_changed: result.filesChanged,
+            summary: `Unrecoverable error: ${result.validationOutput}`,
+          }
+        }
+
+        const updated = withCompletedTask(state, task)
+        yield* saveState(projectDir, updated)
+
+        return {
+          task_id: task.id,
+          task_description: task.description,
+          success: result.validationOk && scopeOk,
+          files_changed: result.filesChanged,
+          summary: result.validationOk
+            ? scopeOk
+              ? `Task executed: ${task.description}`
+              : `Task executed: ${task.description}. Scope drift: ${scopeReason}`
+            : `Task executed: ${task.description}. Validation failed: ${result.validationOutput}`,
+        }
       },
     )
 

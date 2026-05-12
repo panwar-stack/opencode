@@ -459,6 +459,7 @@ const amendmentState = (
 }
 
 export interface Interface {
+  readonly init: () => Effect.Effect<void>
   readonly start: (input: StartInput) => Effect.Effect<WorkflowStateFile, Error>
   readonly get: (directory: string, workflowID: string) => Effect.Effect<WorkflowStateFile, Error>
   readonly all: (directory: string) => Effect.Effect<readonly WorkflowStateFile[], Error>
@@ -472,6 +473,7 @@ export interface Interface {
   readonly submitCode: (input: SubmitInput) => Effect.Effect<WorkflowStateFile, Error>
   readonly syncGithub: (input: SyncInput) => Effect.Effect<WorkflowStateFile, Error>
   readonly pause: (directory: string, workflowID: string) => Effect.Effect<WorkflowStateFile, Error>
+  readonly cancel: (directory: string, workflowID: string) => Effect.Effect<WorkflowStateFile, Error>
   readonly resume: (directory: string, workflowID: string) => Effect.Effect<WorkflowStateFile, Error>
   readonly recover: (directory: string, workflowID: string) => Effect.Effect<WorkflowStateFile, Error>
   readonly findSession: (state: WorkflowStateFile, sessionID: string) => WorkflowSession | undefined
@@ -524,8 +526,8 @@ export const layer = Layer.effect(
     const configOpt = yield* Effect.serviceOption(Config.Service)
     const wf = Option.isSome(configOpt) ? (yield* configOpt.value.get()).workflow ?? {} : {}
     const prBaseBranch = wf.pull_request_base ?? "dev"
-    const requirePlanApproval = true
-    const requireCodeApproval = true
+    const requirePlanApproval = wf.require_plan_pull_request_approval ?? true
+    const requireCodeApproval = wf.require_code_pull_request_approval ?? true
     const planReviewerAgent = wf.plan_reviewer_agent
     const codeReviewerAgent = wf.code_reviewer_agent
     const permissionConfig = Option.isSome(configOpt) ? (yield* configOpt.value.get()).permission : undefined
@@ -542,6 +544,9 @@ export const layer = Layer.effect(
     const planPRBase = ghConfig.plan_pull_request_base ?? prBaseBranch
     const codePRBase = ghConfig.code_pull_request_base ?? prBaseBranch
     const checks = wf.checks ?? ["typecheck"]
+    const allowAutoAmendment = wf.allow_auto_amendment ?? false
+    const runningWorkflows = new Set<string>()
+    const syncInterval = ghConfig.comment_sync_interval_seconds ?? 60
 
     const planApprovalRecord = (state: WorkflowStateFile, hash: string): WorkflowState.PlanApprovalRecord | undefined => {
       if (!state.plan_pull_request.number || !state.plan_pull_request.head_commit) return undefined
@@ -590,6 +595,7 @@ export const layer = Layer.effect(
         const scopeResult = yield* scope.checkEdit(directory, state.workflow_id, [path])
         if (scopeResult.allowed) return undefined
         yield* approval.createAmendment(directory, state.workflow_id, scopeResult.reason)
+        if (allowAutoAmendment) return undefined
         return {
           reason: scopeResult.reason,
           state: amendmentState(yield* get(directory, state.workflow_id), scopeResult.reason),
@@ -609,6 +615,7 @@ export const layer = Layer.effect(
       )
       if (classification.tag !== "out_of_scope") return undefined
       yield* approval.createAmendment(directory, state.workflow_id, classification.reason)
+      if (allowAutoAmendment) return undefined
       return {
         reason: classification.reason,
         state: amendmentState(yield* get(directory, state.workflow_id), classification.reason),
@@ -716,9 +723,11 @@ export const layer = Layer.effect(
         ],
       }
 
-      const branch = yield* currentBranch(input.directory).pipe(Effect.catch(() => Effect.succeed(undefined)))
-      if (branch && branch !== state.plan_branch) {
-        yield* runRequired("git", ["checkout", "-b", state.plan_branch], input.directory)
+      if (!input.localDraft) {
+        const branch = yield* currentBranch(input.directory).pipe(Effect.catch(() => Effect.succeed(undefined)))
+        if (branch && branch !== state.plan_branch) {
+          yield* runRequired("git", ["checkout", "-b", state.plan_branch], input.directory)
+        }
       }
 
       yield* artifact.writeInitialArtifacts(input.directory, state)
@@ -861,6 +870,7 @@ export const layer = Layer.effect(
         pull_request: prState.number,
       })
       if (next.plan_approval && !state.plan_approval) {
+        yield* approval.recordPlanApproval(input.directory, input.workflowID, next.plan_approval)
         yield* artifact.appendDecision(input.directory, input.workflowID, {
           action: "workflow.plan_review.approved",
           previous_state: state.state,
@@ -920,6 +930,7 @@ export const layer = Layer.effect(
       })
 
     const revisePlan = Effect.fn("Workflow.revisePlan")(function* (input: RevisePlanInput) {
+      yield* guardPermission("workflow_address_plan_review")
       const state = yield* get(input.directory, input.workflowID)
       const task = input.instruction ?? "Address plan review feedback"
       const feedback = planFeedbackBody(state, input.instruction)
@@ -1050,11 +1061,20 @@ export const layer = Layer.effect(
     })
 
     const run = Effect.fn("Workflow.run")(function* (input: RunInput) {
-      const prepared = yield* runApprovedPlan(input)
-      if (input.dryRun) return prepared
-      if (Option.isNone(executorOpt)) return prepared
-      yield* executorOpt.value.run(input.directory, input.workflowID)
-      return yield* get(input.directory, input.workflowID)
+      if (runningWorkflows.has(input.workflowID)) {
+        return yield* Effect.fail(new Error(`Workflow ${input.workflowID} is already executing.`))
+      }
+      runningWorkflows.add(input.workflowID)
+      const result = yield* (Effect.gen(function* () {
+        const prepared = yield* runApprovedPlan(input)
+        if (input.dryRun) return prepared
+        if (Option.isNone(executorOpt)) return prepared
+        yield* executorOpt.value.run(input.directory, input.workflowID)
+        return yield* get(input.directory, input.workflowID)
+      }) as Effect.Effect<WorkflowStateFile, Error>).pipe(
+        Effect.onExit(() => Effect.sync(() => { runningWorkflows.delete(input.workflowID) })),
+      )
+      return result
     })
 
     const submitCode = Effect.fn("Workflow.submitCode")(function* (input: SubmitInput) {
@@ -1181,6 +1201,7 @@ export const layer = Layer.effect(
         pull_request: prState.number,
       })
       if (next.code_approval && !state.code_approval) {
+        yield* approval.recordCodeApproval(input.directory, input.workflowID, next.code_approval)
         yield* artifact.appendDecision(input.directory, input.workflowID, {
           action: "workflow.code_review.approved",
           previous_state: state.state,
@@ -1202,6 +1223,7 @@ export const layer = Layer.effect(
     })
 
     const syncGithub = Effect.fn("Workflow.syncGithub")(function* (input: SyncInput) {
+      yield* guardPermission("workflow_sync_github")
       const state = yield* get(input.directory, input.workflowID)
       if (!state.plan_pull_request.number && !state.code_pull_request.number) {
         return yield* Effect.fail(new Error("No GitHub pull request is recorded for this workflow."))
@@ -1288,6 +1310,7 @@ export const layer = Layer.effect(
         pull_request: plan.number,
       })
       if (next.plan_approval && !state.plan_approval) {
+        yield* approval.recordPlanApproval(input.directory, input.workflowID, next.plan_approval)
         yield* artifact.appendDecision(input.directory, input.workflowID, {
           action: "workflow.plan_review.approved",
           previous_state: state.state,
@@ -1298,6 +1321,7 @@ export const layer = Layer.effect(
         })
       }
       if (next.code_approval && !state.code_approval) {
+        yield* approval.recordCodeApproval(input.directory, input.workflowID, next.code_approval)
         yield* artifact.appendDecision(input.directory, input.workflowID, {
           action: "workflow.code_review.approved",
           previous_state: state.state,
@@ -1593,6 +1617,7 @@ export const layer = Layer.effect(
     })
 
     const markComment = Effect.fn("Workflow.markComment")(function* (input: MarkCommentInput) {
+      yield* guardPermission("workflow_address_code_review")
       const state = yield* get(input.directory, input.workflowID)
       const next = withCommentBookkeepingState(
         WorkflowState.markComment(state, input.pullRequest, input.commentID, input.state),
@@ -1672,6 +1697,8 @@ export const layer = Layer.effect(
     const addComment = recordComment
 
     const processAmendment = Effect.fn("Workflow.processAmendment")(function* (input: AmendmentInput) {
+      yield* guardPermission("workflow_amend")
+      const approved = allowAutoAmendment || input.approve
       const state = yield* get(input.directory, input.workflowID)
       const resolvedAt = WorkflowState.now()
       const amendment = yield* artifact.readArtifact(input.directory, input.workflowID, "AMENDMENT.md").pipe(
@@ -1681,16 +1708,16 @@ export const layer = Layer.effect(
         input.directory,
         input.workflowID,
         "AMENDMENT.md",
-        withAmendmentStatus(amendment, input.approve ? "approved" : "rejected", resolvedAt),
+        withAmendmentStatus(amendment, approved ? "approved" : "rejected", resolvedAt),
       )
-      const next = WorkflowState.withState(state, input.approve ? "executing" : "paused")
+      const next = WorkflowState.withState(state, approved ? "executing" : "paused")
       yield* persist(artifact, input.directory, next)
       yield* artifact.appendDecision(input.directory, input.workflowID, {
-        action: input.approve ? "workflow.amendment.approved" : "workflow.amendment.rejected",
+        action: approved ? "workflow.amendment.approved" : "workflow.amendment.rejected",
         previous_state: state.state,
         new_state: next.state,
         actor: "user",
-        summary: input.reason ?? (input.approve ? "Amendment approved by user." : "Amendment rejected by user."),
+        summary: input.reason ?? (approved ? "Amendment approved by user." : "Amendment rejected by user."),
       })
       return next
     })
@@ -1720,6 +1747,10 @@ export const layer = Layer.effect(
       )
     })
 
+    const init = Effect.fn("Workflow.init")(function* () {
+      // background sync is handled by Effect.forkScoped in the layer definition
+    })
+
     const sessions = (state: WorkflowStateFile) => state.sessions
 
     const branchFn = (state: WorkflowStateFile) => ({
@@ -1727,7 +1758,51 @@ export const layer = Layer.effect(
       code: state.code_branch,
     })
 
+    const cancel = Effect.fn("Workflow.cancel")(function* (directory: string, workflowID: string) {
+      const state = yield* get(directory, workflowID)
+      const next = WorkflowState.withState(
+        {
+          ...state,
+          user_input_needed: undefined,
+          current_task: "Workflow cancelled",
+          updated_at: WorkflowState.now(),
+        },
+        "cancelled",
+      )
+      yield* persist(artifact, directory, next)
+      yield* artifact.appendDecision(directory, workflowID, {
+        action: "workflow.cancelled",
+        previous_state: state.state,
+        new_state: next.state,
+        summary: "Workflow cancelled by user.",
+      })
+      return next
+    })
+
+    yield* Effect.forkScoped(
+      Effect.gen(function* () {
+        const activeStates = [
+          "awaiting_plan_review",
+          "addressing_plan_comments",
+          "awaiting_code_review",
+          "addressing_code_comments",
+        ]
+        while (true) {
+          yield* Effect.sleep(syncInterval * 1000)
+          const workflows = yield* all(prBaseBranch).pipe(Effect.catch(() => Effect.succeed([])))
+          for (const wf of workflows) {
+            if (!wf.plan_pull_request.number && !wf.code_pull_request.number) continue
+            if (!activeStates.includes(wf.state)) continue
+            yield* syncGithub({ directory: wf.artifact_dir, workflowID: wf.workflow_id }).pipe(
+              Effect.catch(() => Effect.void),
+            )
+          }
+        }
+      }),
+    )
+
     return Service.of({
+      init,
       start,
       get,
       all,
@@ -1741,6 +1816,7 @@ export const layer = Layer.effect(
       submitCode,
       syncGithub,
       pause,
+      cancel,
       resume,
       recover,
       findSession,
@@ -1843,6 +1919,10 @@ export async function syncGithub(input: SyncInput) {
 
 export async function pause(directory: string, workflowID: string) {
   return runPromise((svc) => svc.pause(directory, workflowID))
+}
+
+export async function cancel(directory: string, workflowID: string) {
+  return runPromise((svc) => svc.cancel(directory, workflowID))
 }
 
 export async function resume(directory: string, workflowID: string) {
