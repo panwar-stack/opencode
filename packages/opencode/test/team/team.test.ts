@@ -59,6 +59,51 @@ describe("team", () => {
     ),
   )
 
+  it.live("shutdown publishes final member statuses", () =>
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const team = yield* Team.Service
+        const bus = yield* Bus.Service
+        const leadSessionID = "ses_test_lead_shutdown_status"
+        const events: { sessionID: string; status: string }[] = []
+
+        const created = yield* team.create({ name: "shutdown-status", goal: "Goal", leadSessionID })
+        const completed = yield* team.addMember({
+          teamID: created.id,
+          sessionID: "ses_shutdown_completed",
+          name: "done",
+          agentType: "build",
+          rolePrompt: "Finish",
+        })
+        const active = yield* team.addMember({
+          teamID: created.id,
+          sessionID: "ses_shutdown_active",
+          name: "active",
+          agentType: "build",
+          rolePrompt: "Keep working",
+        })
+
+        yield* team.updateMemberStatus(completed.id, "completed")
+        yield* team.updateMemberStatus(active.id, "active")
+
+        const unsubscribe = yield* bus.subscribeAllCallback((event) => {
+          if (event.type !== "team.member.updated") return
+          events.push({
+            sessionID: event.properties.sessionID,
+            status: event.properties.status,
+          })
+        })
+
+        yield* team.shutdown(created.id)
+        yield* Effect.sleep("10 millis")
+        yield* Effect.sync(unsubscribe)
+
+        expect(events).toContainEqual({ sessionID: completed.session_id, status: "completed" })
+        expect(events).toContainEqual({ sessionID: active.session_id, status: "cancelled" })
+      }),
+    ),
+  )
+
   it.live("add member and get members", () =>
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
