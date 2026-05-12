@@ -51,11 +51,15 @@ function parseTASKS(tasksMd: string): ParsedTask[] {
   let taskIndex = 0
   return lines
     .map((line, lineIndex) => {
-      const match = line.trim().match(/^- \[(?<checked>[ x])\]\s+(?<description>.+)$/)
+      const match = line.trim().match(/^- \[(?<checked>[ x])\]\s+(?<content>.+)$/)
       if (!match) return undefined
+      const content = match.groups!.content.trim()
+      const pipeIdx = content.indexOf("|")
+      const id = pipeIdx >= 0 ? content.slice(0, pipeIdx).trim() : `task_${taskIndex}`
+      const description = pipeIdx >= 0 ? content.slice(pipeIdx + 1).replace(/\|.*$/, "").trim() : content
       const task: ParsedTask = {
-        id: `task_${taskIndex}`,
-        description: match.groups!.description.trim(),
+        id,
+        description,
         checked: match.groups!.checked === "x",
         line_index: lineIndex,
       }
@@ -320,18 +324,24 @@ export const layer = Layer.effect(
           const promptOpt = yield* Effect.serviceOption(SessionPrompt.Service)
 
           if (Option.isNone(sessionsOpt) || Option.isNone(promptOpt)) {
-            state = withCompletedTask(state, task)
-            tasksCompleted = countChecked(state, tasks)
-            yield* saveState(projectDir, state)
+            const next = WorkflowState.withState(state, "failed")
+            yield* saveState(projectDir, next)
             yield* Effect.promise(() =>
               WorkflowArtifact.appendDecision(projectDir, workflowID, {
-                action: "workflow.executor.task_completed",
+                action: "workflow.executor.unrecoverable_error",
                 previous_state: state.state,
-                new_state: state.state,
-                summary: `Completed task ${task.id}: ${task.description}`,
+                new_state: next.state,
+                summary: "Workflow executor requires Session and SessionPrompt services for autonomous implementation. These are only available when opencode is running with the full service stack (not CLI-only mode).",
               }),
             )
-            continue
+            return {
+              workflow_id: workflowID,
+              state: next.state,
+              tasks_completed: tasksCompleted,
+              tasks_total: tasksTotal,
+              stop_reason: "unrecoverable_error" as const,
+              summary: "Workflow executor requires Session and SessionPrompt services for autonomous implementation. These are only available when opencode is running with the full service stack (not CLI-only mode).",
+            }
           }
 
           const sessions = sessionsOpt.value
@@ -598,15 +608,9 @@ export const layer = Layer.effect(
         const promptOpt = yield* Effect.serviceOption(SessionPrompt.Service)
 
         if (Option.isNone(sessionsOpt) || Option.isNone(promptOpt)) {
-          const updated = withCompletedTask(state, task)
-          yield* saveState(projectDir, updated)
-          return {
-            task_id: task.id,
-            task_description: task.description,
-            success: true,
-            files_changed: [],
-            summary: "Task marked complete (session services unavailable).",
-          }
+          return yield* Effect.fail(
+            new Error("Workflow executor requires Session and SessionPrompt services for autonomous implementation. These are only available when opencode is running with the full service stack (not CLI-only mode)."),
+          )
         }
 
         const sessions = sessionsOpt.value

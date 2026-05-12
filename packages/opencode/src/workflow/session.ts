@@ -1,5 +1,7 @@
-import { Context, Effect, Layer } from "effect"
+import { Context, Effect, Layer, Option } from "effect"
 import { Bus } from "@/bus"
+import { Session } from "@/session/session"
+import { Permission } from "@/permission"
 import { Workflow } from "./workflow"
 import { WorkflowState, type SessionRole, type WorkflowSession, type ReviewComment } from "./state"
 import { WorkflowEvents } from "./events"
@@ -74,6 +76,34 @@ export const layer = Layer.effect(
     const workflow = yield* Workflow.Service
     const artifact = yield* WorkflowArtifact.Service
 
+    const readOnlyPerm: Permission.Ruleset = [
+      { permission: "edit", pattern: "**", action: "deny" },
+      { permission: "write", pattern: "**", action: "deny" },
+      { permission: "bash", pattern: "**", action: "deny" },
+    ]
+
+    const plannerPerm: Permission.Ruleset = [
+      { permission: "edit", pattern: "**", action: "deny" },
+      { permission: "write", pattern: "**", action: "deny" },
+      { permission: "edit", pattern: ".opencode/workflows/**", action: "allow" },
+      { permission: "write", pattern: ".opencode/workflows/**", action: "allow" },
+    ]
+
+    const rolePermissions = (role: SessionRole): Permission.Ruleset => {
+      switch (role) {
+        case "planner":
+          return plannerPerm
+        case "plan_reviewer":
+        case "validator":
+        case "code_reviewer":
+          return readOnlyPerm
+        case "executor":
+        case "amendment":
+        case "recovery":
+          return []
+      }
+    }
+
     const createSession = Effect.fn("WorkflowSession.createSession")(
       function* (directory: string, workflowID: string, role: SessionRole, agent?: string) {
         const state = yield* workflow.get(directory, workflowID)
@@ -88,9 +118,20 @@ export const layer = Layer.effect(
         }
         const task = taskMap[role]
 
+        const sessionsOpt = yield* Effect.serviceOption(Session.Service)
+        let sessionId = WorkflowState.createSessionID()
+        if (Option.isSome(sessionsOpt)) {
+          const realSession = yield* sessionsOpt.value.create({
+            title: task,
+            agent,
+            permission: rolePermissions(role),
+          })
+          sessionId = realSession.id
+        }
+
         const created = WorkflowState.now()
         const session: WorkflowSession = {
-          id: WorkflowState.createSessionID(),
+          id: sessionId,
           role,
           status: "active",
           task,
@@ -212,9 +253,20 @@ export const layer = Layer.effect(
       function* (directory: string, workflowID: string) {
         const state = yield* workflow.get(directory, workflowID)
         const task = `Recover workflow from ${state.state}`
+
+        const sessionsOpt = yield* Effect.serviceOption(Session.Service)
+        let sessionId = WorkflowState.createSessionID()
+        if (Option.isSome(sessionsOpt)) {
+          const realSession = yield* sessionsOpt.value.create({
+            title: task,
+            permission: rolePermissions("recovery"),
+          })
+          sessionId = realSession.id
+        }
+
         const created = WorkflowState.now()
         const session: WorkflowSession = {
-          id: WorkflowState.createSessionID(),
+          id: sessionId,
           role: "recovery",
           status: "active",
           task,

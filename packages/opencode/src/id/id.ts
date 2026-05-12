@@ -1,4 +1,5 @@
 import { randomBytes } from "crypto"
+import { z } from "zod"
 
 const prefixes = {
   event: "evt",
@@ -10,7 +11,15 @@ const prefixes = {
   pty: "pty",
   tool: "tool",
   workspace: "wrk",
+  entry: "ent",
+  account: "act",
+  workflow: "wf",
+  workflow_session: "wfs",
 } as const
+
+export function schema(prefix: keyof typeof prefixes) {
+  return z.string().startsWith(prefixes[prefix])
+}
 
 const LENGTH = 26
 

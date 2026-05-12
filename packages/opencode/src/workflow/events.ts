@@ -214,4 +214,13 @@ export const WorkflowRecovered = BusEvent.define(
   }),
 )
 
+export const ReviewSyncNeeded = BusEvent.define(
+  "workflow.review_sync.needed",
+  Schema.Struct({
+    workflow_id: Schema.String,
+    directory: Schema.String,
+    pull_request: Schema.Union([Schema.Literal("plan"), Schema.Literal("code")]),
+  }),
+)
+
 export * as WorkflowEvents from "./events"

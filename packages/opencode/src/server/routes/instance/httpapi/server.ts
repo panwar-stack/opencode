@@ -52,6 +52,7 @@ import { lazy } from "@/util/lazy"
 import { Vcs } from "@/project/vcs"
 import { WorkflowSession } from "@/workflow/session"
 import { Worktree } from "@/worktree"
+import { Workflow } from "@/workflow/workflow"
 import { Workspace } from "@/control-plane/workspace"
 import { CorsConfig, isAllowedCorsOrigin, type CorsOptions } from "@/server/cors"
 import { serveUIEffect } from "@/server/shared/ui"
@@ -143,6 +144,7 @@ const instanceApiRoutes = HttpApiBuilder.layer(InstanceHttpApi).pipe(
     syncHandlers,
     v2Handlers,
     tuiHandlers,
+    workflowHandlers,
     workspaceHandlers,
   ]),
 )
@@ -225,9 +227,10 @@ export function createRoutes(corsOptions?: CorsOptions) {
       ToolRegistry.defaultLayer,
       Vcs.defaultLayer,
       Workspace.defaultLayer,
+      Workflow.defaultLayer,
+      Worktree.appLayer,
       Bus.layer,
       WorkflowSession.defaultLayer,
-      Worktree.appLayer,
       AppFileSystem.defaultLayer,
       FetchHttpClient.layer,
       HttpServer.layerServices,

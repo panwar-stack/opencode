@@ -1,4 +1,5 @@
-import { Context, Effect, Layer } from "effect"
+import path from "path"
+import { Context, Effect, Layer, Stream } from "effect"
 import { Bus } from "@/bus"
 import { Workflow } from "./workflow"
 import { WorkflowGithub } from "./github"
@@ -88,7 +89,8 @@ export const layer = Layer.effect(
       const beforeCommentIds = new Set(pr.comments.map((c) => c.id))
       const afterCommentIds = new Set(prAfter.comments.map((c) => c.id))
 
-      const new_comments = [...afterCommentIds].filter((id) => !beforeCommentIds.has(id)).length
+      const newCommentIds = [...afterCommentIds].filter((id) => !beforeCommentIds.has(id))
+      const new_comments = newCommentIds.length
       const resolved_comments = [...beforeCommentIds].filter((id) => !afterCommentIds.has(id)).length
       const review_state_changed = pr.review_state !== prAfter.review_state
 
@@ -109,18 +111,63 @@ export const layer = Layer.effect(
         )
       }
 
-      for (const id of [...afterCommentIds].filter((id) => !beforeCommentIds.has(id))) {
+      for (const id of newCommentIds) {
         const comment = prAfter.comments.find((c) => c.id === id)
-        if (comment) {
-          yield* bus.publish(
-            prType === "plan" ? WorkflowEvents.PlanReviewCommentReceived : WorkflowEvents.CodeReviewCommentReceived,
-            {
-              workflow_id: workflowID,
-              pull_request: prAfter.number ?? 0,
-              comment_id: comment.id,
-              author: comment.author,
-            },
-          )
+        if (!comment) continue
+
+        yield* bus.publish(
+          prType === "plan" ? WorkflowEvents.PlanReviewCommentReceived : WorkflowEvents.CodeReviewCommentReceived,
+          {
+            workflow_id: workflowID,
+            pull_request: prAfter.number ?? 0,
+            comment_id: comment.id,
+            author: comment.author,
+          },
+        )
+
+        const artifactDir = path.join(directory, after.artifact_dir)
+        const spec = yield* Effect.promise(() =>
+          Bun.file(path.join(artifactDir, "SPEC.md")).text(),
+        ).pipe(Effect.catch(() => Effect.succeed("")))
+        const tasks = yield* Effect.promise(() =>
+          Bun.file(path.join(artifactDir, "TASKS.md")).text(),
+        ).pipe(Effect.catch(() => Effect.succeed("")))
+        const impact = yield* Effect.promise(() =>
+          Bun.file(path.join(artifactDir, "IMPACT.md")).text(),
+        ).pipe(Effect.catch(() => Effect.succeed("")))
+
+        const classification = classifyComment(comment, spec, tasks, impact)
+
+        const numId = /^\d+$/.test(comment.id) ? Number(comment.id) : undefined
+
+        if (classification.classification === "out_of_scope") {
+          yield* workflow.markReviewComment({
+            directory,
+            workflowID,
+            pullRequest: prType,
+            commentID: comment.id,
+            state: "out_of_scope",
+            summary: classification.reasoning,
+          })
+          if (numId !== undefined) {
+            yield* replyToComment(directory, workflowID, prType, numId, `This concern falls outside the approved scope. ${classification.reasoning}`)
+          }
+        } else if (classification.classification === "already_addressed") {
+          yield* workflow.markReviewComment({
+            directory,
+            workflowID,
+            pullRequest: prType,
+            commentID: comment.id,
+            state: "addressed",
+            summary: classification.reasoning,
+          })
+          if (numId !== undefined) {
+            yield* replyToComment(directory, workflowID, prType, numId, `This concern appears to already be addressed in the implementation. ${classification.reasoning}`)
+          }
+        } else if (classification.classification === "needs_clarification") {
+          if (numId !== undefined) {
+            yield* replyToComment(directory, workflowID, prType, numId, `Thanks for the feedback. I need clarification to address this properly. ${classification.reasoning}`)
+          }
         }
       }
 
@@ -257,6 +304,15 @@ export const layer = Layer.effect(
           },
         })
       },
+    )
+
+    yield* bus.subscribe(WorkflowEvents.ReviewSyncNeeded).pipe(
+      Stream.runForEach((evt) =>
+        syncReviews(evt.properties.directory, evt.properties.workflow_id, evt.properties.pull_request).pipe(
+          Effect.catch(() => Effect.void),
+        ),
+      ),
+      Effect.forkScoped,
     )
 
     return Service.of({

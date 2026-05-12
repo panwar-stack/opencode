@@ -18,9 +18,9 @@ import { QuestionApi } from "./groups/question"
 import { SessionApi } from "./groups/session"
 import { SyncApi } from "./groups/sync"
 import { TuiApi } from "./groups/tui"
+import { WorkflowApi } from "./groups/workflow"
 import { WorkspaceApi } from "./groups/workspace"
 import { V2Api } from "./groups/v2"
-import { WorkflowApi } from "./groups/workflow"
 import { Authorization } from "./middleware/authorization"
 
 // SSE event schemas built from the BusEvent/SyncEvent registries.
