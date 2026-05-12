@@ -439,6 +439,15 @@ Revert the implementation PR and leave workflow artifacts in place.
             ? `Plan pull request: #${state.plan_pull_request.number}`
             : "Plan pull request: none",
           state.plan_pull_request.url ? `Plan URL: ${state.plan_pull_request.url}` : undefined,
+          state.plan_pull_request.head_commit ? `Plan head commit: ${state.plan_pull_request.head_commit}` : undefined,
+          state.plan_pull_request.reviewers?.length
+            ? `Plan reviewers: ${state.plan_pull_request.reviewers.join(", ")}`
+            : undefined,
+          state.plan_pull_request.latest_review_at
+            ? `Plan latest review: ${state.plan_pull_request.latest_review_at}`
+            : undefined,
+          state.plan_pull_request.approved_by ? `Plan approved by: ${state.plan_pull_request.approved_by}` : undefined,
+          state.plan_pull_request.approved_at ? `Plan approved at: ${state.plan_pull_request.approved_at}` : undefined,
           "",
           `Code branch: ${state.code_branch ?? "none"}`,
           `Code review state: ${state.code_pull_request.review_state}`,
@@ -446,6 +455,15 @@ Revert the implementation PR and leave workflow artifacts in place.
             ? `Code pull request: #${state.code_pull_request.number}`
             : "Code pull request: none",
           state.code_pull_request.url ? `Code URL: ${state.code_pull_request.url}` : undefined,
+          state.code_pull_request.head_commit ? `Code head commit: ${state.code_pull_request.head_commit}` : undefined,
+          state.code_pull_request.reviewers?.length
+            ? `Code reviewers: ${state.code_pull_request.reviewers.join(", ")}`
+            : undefined,
+          state.code_pull_request.latest_review_at
+            ? `Code latest review: ${state.code_pull_request.latest_review_at}`
+            : undefined,
+          state.code_pull_request.approved_by ? `Code approved by: ${state.code_pull_request.approved_by}` : undefined,
+          state.code_pull_request.approved_at ? `Code approved at: ${state.code_pull_request.approved_at}` : undefined,
           "",
           `Open comments: ${WorkflowState.openComments(state).length}`,
         ]

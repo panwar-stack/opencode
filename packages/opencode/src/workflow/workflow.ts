@@ -249,6 +249,19 @@ const codePrBody = (state: WorkflowStateFile) =>
     .filter((line): line is string => line !== undefined)
     .join("\n")
 
+const appendReviewSection = (content: string, header: string, body: string) =>
+  `${content.trimEnd()}\n\n## ${header}\n\n${body.trim()}\n`
+
+const planFeedbackBody = (state: WorkflowStateFile, instruction?: string) => {
+  const feedback = instruction?.trim()
+    ? [instruction.trim()]
+    : state.plan_pull_request.comments
+        .filter((comment) => comment.state === "open")
+        .map((comment) => `${comment.url ? `${comment.url}: ` : ""}${comment.body.trim()}`)
+        .filter((comment) => comment.length > 0)
+  return feedback.length > 0 ? feedback.map((item) => `- ${item}`).join("\n") : "- Review feedback requested plan revision."
+}
+
 const persist = (artifact: WorkflowArtifact.Interface, directory: string, state: WorkflowStateFile) =>
   Effect.all(
     [artifact.writeState(directory, state), artifact.writeGithubSummary(directory, state)],
@@ -859,12 +872,70 @@ export const layer = Layer.effect(
     const revisePlan = Effect.fn("Workflow.revisePlan")(function* (input: RevisePlanInput) {
       const state = yield* get(input.directory, input.workflowID)
       const task = input.instruction ?? "Address plan review feedback"
+      const feedback = planFeedbackBody(state, input.instruction)
+      const stamp = WorkflowState.now()
+      const [spec, tasks, impact] = yield* Effect.all(
+        [
+          artifact.readArtifact(input.directory, input.workflowID, "SPEC.md"),
+          artifact.readArtifact(input.directory, input.workflowID, "TASKS.md"),
+          artifact.readArtifact(input.directory, input.workflowID, "IMPACT.md"),
+        ],
+        { concurrency: 3 },
+      )
+      yield* Effect.all(
+        [
+          artifact.writeArtifact(
+            input.directory,
+            input.workflowID,
+            "SPEC.md",
+            appendReviewSection(spec, `Review Feedback ${stamp}`, feedback),
+          ),
+          artifact.writeArtifact(
+            input.directory,
+            input.workflowID,
+            "TASKS.md",
+            appendReviewSection(
+              tasks,
+              `Review Response Tasks ${stamp}`,
+              `- [ ] review_${stamp.replace(/[^0-9]/g, "")} | Address plan review feedback | files: ${WorkflowArtifact.relativeArtifactDir(input.workflowID)}/SPEC.md, ${WorkflowArtifact.relativeArtifactDir(input.workflowID)}/TASKS.md, ${WorkflowArtifact.relativeArtifactDir(input.workflowID)}/IMPACT.md | validation: opencode workflow submit plan ${input.workflowID} --dry-run | status: pending | evidence: ${input.githubCommentUrl ?? "none"} | github: ${input.githubCommentUrl ?? "none"}`,
+            ),
+          ),
+          artifact.writeArtifact(
+            input.directory,
+            input.workflowID,
+            "IMPACT.md",
+            appendReviewSection(
+              impact,
+              `Review Response Boundaries ${stamp}`,
+              [
+                "The plan revision remains limited to workflow planning artifacts unless an approved amendment expands implementation scope.",
+                "",
+                "Review feedback recorded:",
+                feedback,
+              ].join("\n"),
+            ),
+          ),
+        ],
+        { concurrency: 3 },
+      )
       const next = WorkflowState.upsertSession(
         WorkflowState.transitionOrCurrent(
           {
             ...state,
             current_task: task,
             user_input_needed: undefined,
+            plan_pull_request: {
+              ...state.plan_pull_request,
+              comments: state.plan_pull_request.comments.map((comment) =>
+                comment.state === "open"
+                  ? {
+                      ...comment,
+                      state: "addressed" as const,
+                      updated_at: stamp,
+                    }
+                  : comment,
+              ),
+            },
           },
           "addressing_plan_comments",
         ),

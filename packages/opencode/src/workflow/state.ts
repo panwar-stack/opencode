@@ -63,6 +63,11 @@ export type PullRequestState = {
   readonly branch?: string
   readonly head_commit?: string
   readonly review_state: ReviewState
+  readonly reviewers?: readonly string[]
+  readonly latest_review_at?: string
+  readonly latest_review_url?: string
+  readonly approved_by?: string
+  readonly approved_at?: string
   readonly comments: readonly ReviewComment[]
 }
 

@@ -880,6 +880,59 @@ function WorkflowDetailView(props: { workflowID: string; initialTab?: string }) 
     toast.show({ variant: "success", message: "Workflow steering recorded" })
   }
 
+  const runWorkflowAction = async (
+    label: string,
+    action: (workflow: WorkflowStateFile) => Promise<WorkflowStateFile>,
+  ) => {
+    const workflow = state()
+    if (!workflow) return
+    const next = await action(workflow).catch((error) => {
+      toast.show({
+        variant: "error",
+        message: error instanceof Error ? error.message : `Failed to ${label}`,
+      })
+      return undefined
+    })
+    if (!next) return
+    setState(next)
+    toast.show({ variant: "success", message: `Workflow ${label}` })
+  }
+
+  const revisePlan = async () => {
+    const workflow = state()
+    if (!workflow) return
+    const instruction = await DialogPrompt.show(dialog, "Revise workflow plan", {
+      placeholder: "Describe the plan revision or leave blank to use open GitHub comments",
+      description: () => <text fg={theme.textMuted}>Workflow: {workflow.title}</text>,
+    })
+    await runWorkflowAction("plan revision recorded", (wf) =>
+      WorkflowService.revisePlan({
+        directory: dir(),
+        workflowID: wf.workflow_id,
+        instruction: instruction?.trim() || undefined,
+      }),
+    )
+    dialog.clear()
+  }
+
+  const processAmendment = async (approve: boolean) => {
+    const workflow = state()
+    if (!workflow) return
+    const reason = await DialogPrompt.show(dialog, approve ? "Approve amendment" : "Reject amendment", {
+      placeholder: approve ? "Reason for approving amendment" : "Reason for rejecting amendment",
+      description: () => <text fg={theme.textMuted}>Workflow: {workflow.title}</text>,
+    })
+    await runWorkflowAction(approve ? "amendment approved" : "amendment rejected", (wf) =>
+      WorkflowService.processAmendment({
+        directory: dir(),
+        workflowID: wf.workflow_id,
+        approve,
+        reason: reason?.trim() || undefined,
+      }),
+    )
+    dialog.clear()
+  }
+
   onMount(() => {
     refresh()
     const interval = setInterval(refresh, 5000)
@@ -911,6 +964,78 @@ function WorkflowDetailView(props: { workflowID: string; initialTab?: string }) 
         title: "Steer workflow active session",
         category: "Workflow",
         run: steerActiveSession,
+      },
+      {
+        name: "workflow.submit_plan",
+        title: "Submit workflow plan PR",
+        category: "Workflow",
+        run: () =>
+          runWorkflowAction("plan submitted", (workflow) =>
+            WorkflowService.submitPlan({ directory: dir(), workflowID: workflow.workflow_id }),
+          ),
+      },
+      {
+        name: "workflow.sync_github",
+        title: "Sync workflow GitHub state",
+        category: "Workflow",
+        run: () =>
+          runWorkflowAction("GitHub synced", (workflow) =>
+            WorkflowService.syncGithub({ directory: dir(), workflowID: workflow.workflow_id }),
+          ),
+      },
+      {
+        name: "workflow.revise_plan",
+        title: "Revise workflow plan",
+        category: "Workflow",
+        run: revisePlan,
+      },
+      {
+        name: "workflow.run",
+        title: "Run approved workflow",
+        category: "Workflow",
+        run: () =>
+          runWorkflowAction("run completed", (workflow) =>
+            WorkflowService.run({ directory: dir(), workflowID: workflow.workflow_id }),
+          ),
+      },
+      {
+        name: "workflow.submit_code",
+        title: "Submit workflow code PR",
+        category: "Workflow",
+        run: () =>
+          runWorkflowAction("code submitted", (workflow) =>
+            WorkflowService.submitCode({ directory: dir(), workflowID: workflow.workflow_id }),
+          ),
+      },
+      {
+        name: "workflow.pause",
+        title: "Pause workflow",
+        category: "Workflow",
+        run: () =>
+          runWorkflowAction("paused", (workflow) =>
+            WorkflowService.pause(dir(), workflow.workflow_id),
+          ),
+      },
+      {
+        name: "workflow.resume",
+        title: "Resume workflow",
+        category: "Workflow",
+        run: () =>
+          runWorkflowAction("resumed", (workflow) =>
+            WorkflowService.resume(dir(), workflow.workflow_id),
+          ),
+      },
+      {
+        name: "workflow.amendment.approve",
+        title: "Approve workflow amendment",
+        category: "Workflow",
+        run: () => processAmendment(true),
+      },
+      {
+        name: "workflow.amendment.reject",
+        title: "Reject workflow amendment",
+        category: "Workflow",
+        run: () => processAmendment(false),
       },
     ],
   }))
@@ -1013,6 +1138,32 @@ function WorkflowDetailView(props: { workflowID: string; initialTab?: string }) 
             >
               steer
             </text>
+            <text fg={theme.primary} onMouseUp={() => void runWorkflowAction("GitHub synced", (workflow) => WorkflowService.syncGithub({ directory: dir(), workflowID: workflow.workflow_id }))}>
+              sync
+            </text>
+            <text fg={theme.primary} onMouseUp={() => void revisePlan()}>
+              revise
+            </text>
+            <text fg={theme.primary} onMouseUp={() => void runWorkflowAction("run completed", (workflow) => WorkflowService.run({ directory: dir(), workflowID: workflow.workflow_id }))}>
+              run
+            </text>
+            <text fg={theme.primary} onMouseUp={() => void runWorkflowAction("code submitted", (workflow) => WorkflowService.submitCode({ directory: dir(), workflowID: workflow.workflow_id }))}>
+              submit code
+            </text>
+            <text fg={theme.primary} onMouseUp={() => void runWorkflowAction("paused", (workflow) => WorkflowService.pause(dir(), workflow.workflow_id))}>
+              pause
+            </text>
+            <text fg={theme.primary} onMouseUp={() => void runWorkflowAction("resumed", (workflow) => WorkflowService.resume(dir(), workflow.workflow_id))}>
+              resume
+            </text>
+            <Show when={state()!.state === "needs_amendment"}>
+              <text fg={theme.primary} onMouseUp={() => void processAmendment(true)}>
+                approve amendment
+              </text>
+              <text fg={theme.primary} onMouseUp={() => void processAmendment(false)}>
+                reject amendment
+              </text>
+            </Show>
           </box>
         </box>
         <box flexShrink={0} flexDirection="row" border={["bottom"]} borderColor={theme.border}>

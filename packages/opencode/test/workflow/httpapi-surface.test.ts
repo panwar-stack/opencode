@@ -101,6 +101,10 @@ describe("workflow CLI and HTTP API surface", () => {
         },
         plan_pull_request: {
           review_state: "changes_requested",
+          reviewers: ["reviewer"],
+          latest_review_at: "2026-01-01T00:00:00.000Z",
+          approved_by: "reviewer",
+          approved_at: "2026-01-01T00:00:00.000Z",
           comments: [],
         },
         code_pull_request: {
@@ -112,6 +116,42 @@ describe("workflow CLI and HTTP API surface", () => {
     ).toMatchObject({
       files: ["src/out.ts"],
       allowed_paths: ["packages/opencode/src/**"],
+    })
+  })
+
+  test("keeps pull request approval evidence visible in workflow responses", () => {
+    const decoded = Schema.decodeUnknownSync(WorkflowResponse)({
+      workflow_id: "wf_evidence",
+      title: "Evidence",
+      state: "plan_approved",
+      artifact_dir: ".opencode/workflows/wf_evidence",
+      created_at: "2026-01-01T00:00:00.000Z",
+      updated_at: "2026-01-01T00:00:00.000Z",
+      plan_branch: "opencode/workflow/wf_evidence-plan",
+      plan_pull_request: {
+        number: 7,
+        url: "https://github.com/acme/repo/pull/7",
+        branch: "opencode/workflow/wf_evidence-plan",
+        head_commit: "abc123",
+        review_state: "approved",
+        reviewers: ["reviewer"],
+        latest_review_at: "2026-01-01T00:00:00.000Z",
+        latest_review_url: "https://github.com/acme/repo/pull/7#pullrequestreview-1",
+        approved_by: "reviewer",
+        approved_at: "2026-01-01T00:00:00.000Z",
+        comments: [],
+      },
+      code_pull_request: {
+        review_state: "none",
+        comments: [],
+      },
+      sessions: [],
+    })
+
+    expect(decoded.plan_pull_request).toMatchObject({
+      reviewers: ["reviewer"],
+      latest_review_at: "2026-01-01T00:00:00.000Z",
+      approved_by: "reviewer",
     })
   })
 })

@@ -151,8 +151,11 @@ describe("workflow", () => {
       reviews: [
         {
           id: "rv_1",
-          body: "",
-          state: "COMMENTED",
+          body: "Approved with note.",
+          state: "APPROVED",
+          author: { login: "approver" },
+          submittedAt: "2026-01-01T00:00:00.000Z",
+          url: "https://github.com/acme/repo/pull/42#pullrequestreview-1",
         },
       ],
     })
@@ -164,7 +167,15 @@ describe("workflow", () => {
         state: "open",
         source: "issue_comment",
       }),
+      expect.objectContaining({
+        id: "rv_1",
+        state: "open",
+        source: "review",
+      }),
     ])
+    expect(pr.reviewers).toEqual(["approver"])
+    expect(pr.approved_by).toBe("approver")
+    expect(pr.latest_review_at).toBe("2026-01-01T00:00:00.000Z")
   })
 
   test("hashes approved artifacts and detects later plan drift", async () => {
@@ -682,6 +693,55 @@ pending
     expect(await Bun.file(WorkflowArtifact.artifactPath(tmp.path, state.workflow_id, "AMENDMENT.md")).text()).toContain(
       "Path docs/feature.md matches forbidden path docs/**",
     )
+  })
+
+  test("revise plan records review feedback in plan artifacts", async () => {
+    await using tmp = await tmpdir({ git: true })
+
+    const state = await Workflow.start({
+      directory: tmp.path,
+      title: "Revise reviewed plan",
+      localDraft: true,
+    })
+    await WorkflowArtifact.writeState(tmp.path, {
+      ...state,
+      state: "awaiting_plan_review",
+      plan_pull_request: {
+        number: 7,
+        url: "https://github.com/acme/repo/pull/7",
+        branch: state.plan_branch,
+        head_commit: "abc123",
+        review_state: "changes_requested",
+        comments: [
+          {
+            id: "plan_feedback",
+            url: "https://github.com/acme/repo/pull/7#issuecomment-1",
+            body: "Clarify rollback plan.",
+            state: "open",
+            source: "issue_comment",
+          },
+        ],
+      },
+    })
+
+    const next = await Workflow.revisePlan({
+      directory: tmp.path,
+      workflowID: state.workflow_id,
+    })
+    const spec = await WorkflowArtifact.readArtifact(tmp.path, state.workflow_id, "SPEC.md")
+    const tasks = await WorkflowArtifact.readArtifact(tmp.path, state.workflow_id, "TASKS.md")
+    const impact = await WorkflowArtifact.readArtifact(tmp.path, state.workflow_id, "IMPACT.md")
+
+    expect(next.state).toBe("addressing_plan_comments")
+    expect(next.plan_pull_request.comments).toContainEqual(
+      expect.objectContaining({
+        id: "plan_feedback",
+        state: "addressed",
+      }),
+    )
+    expect(spec).toContain("Clarify rollback plan.")
+    expect(tasks).toContain("Review Response Tasks")
+    expect(impact).toContain("Review Response Boundaries")
   })
 
   test("workflow run invokes the executor loop after preparing the code branch", async () => {

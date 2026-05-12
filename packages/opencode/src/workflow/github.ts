@@ -1,4 +1,5 @@
 import { Octokit } from "@octokit/rest"
+import { graphql } from "@octokit/graphql"
 import { Context, Effect, Layer } from "effect"
 import type { PullRequestState, ReviewComment, ReviewState } from "./state"
 
@@ -38,6 +39,24 @@ type PullRequestInfo = {
   readonly head_commit: string
   readonly review_state: ReviewState
   readonly body?: string
+}
+
+type GraphqlReview = {
+  readonly author?: { readonly login?: string } | null
+  readonly state?: string
+  readonly submittedAt?: string
+  readonly url?: string
+}
+
+type GraphqlPullRequestReviewState = {
+  readonly repository?: {
+    readonly pullRequest?: {
+      readonly reviewDecision?: string | null
+      readonly latestOpinionatedReviews?: {
+        readonly nodes?: readonly GraphqlReview[]
+      }
+    } | null
+  } | null
 }
 
 export function normalizeReviewState(input?: string | null): ReviewState {
@@ -88,12 +107,32 @@ export function commentsFromPullRequest(input: GhPullRequestView): readonly Revi
 }
 
 export function pullRequestStateFromGh(input: GhPullRequestView): PullRequestState {
+  const reviews = input.reviews ?? []
+  const latest = reviews
+    .filter((review) => review.submittedAt || review.updatedAt || review.createdAt)
+    .toSorted((a, b) =>
+      new Date(b.submittedAt ?? b.updatedAt ?? b.createdAt ?? "").getTime() -
+      new Date(a.submittedAt ?? a.updatedAt ?? a.createdAt ?? "").getTime(),
+    )[0]
+  const latestApproval = reviews
+    .filter((review) => review.state?.toLowerCase() === "approved")
+    .toSorted((a, b) =>
+      new Date(b.submittedAt ?? b.updatedAt ?? b.createdAt ?? "").getTime() -
+      new Date(a.submittedAt ?? a.updatedAt ?? a.createdAt ?? "").getTime(),
+    )[0]
   return {
     number: input.number,
     url: input.url,
     branch: input.headRefName,
     head_commit: input.headRefOid,
     review_state: reviewStateFromPullRequest(input),
+    reviewers: [
+      ...new Set(reviews.map((review) => review.author?.login).filter((login): login is string => Boolean(login))),
+    ],
+    latest_review_at: latest?.submittedAt ?? latest?.updatedAt ?? latest?.createdAt,
+    latest_review_url: latest?.url,
+    approved_by: latestApproval?.author?.login,
+    approved_at: latestApproval?.submittedAt ?? latestApproval?.updatedAt ?? latestApproval?.createdAt,
     comments: commentsFromPullRequest(input),
   }
 }
@@ -214,6 +253,67 @@ export const layer = Layer.effect(
     const token = getToken()
 
     const octokit = Effect.sync(() => new Octokit({ auth: token })).pipe(Effect.map((o) => o.rest))
+    const graphqlClient = Effect.sync(() =>
+      graphql.defaults(token ? { headers: { authorization: `token ${token}` } } : {}),
+    )
+
+    const getGraphqlReviewState = Effect.fn("WorkflowGithub.getGraphqlReviewState")(function* (
+      repo: string,
+      prNumber: number,
+    ) {
+      const client = yield* graphqlClient
+      const { owner, repo: repoName } = parseRepo(repo)
+      return yield* Effect.promise(() =>
+        client<GraphqlPullRequestReviewState>(
+          `query PullRequestReviewState($owner: String!, $repo: String!, $number: Int!) {
+            repository(owner: $owner, name: $repo) {
+              pullRequest(number: $number) {
+                reviewDecision
+                latestOpinionatedReviews(last: 20) {
+                  nodes {
+                    author { login }
+                    state
+                    submittedAt
+                    url
+                  }
+                }
+              }
+            }
+          }`,
+          { owner, repo: repoName, number: prNumber },
+        ),
+      ).pipe(
+        Effect.map((result) => {
+          const reviews = result.repository?.pullRequest?.latestOpinionatedReviews?.nodes ?? []
+          const latest = reviews
+            .filter((review) => review.submittedAt)
+            .toSorted((a, b) => new Date(b.submittedAt ?? "").getTime() - new Date(a.submittedAt ?? "").getTime())[0]
+          const latestApproval = reviews
+            .filter((review) => review.state === "APPROVED")
+            .toSorted((a, b) => new Date(b.submittedAt ?? "").getTime() - new Date(a.submittedAt ?? "").getTime())[0]
+          return {
+            reviewDecision: result.repository?.pullRequest?.reviewDecision,
+            reviewers: [
+              ...new Set(reviews.map((review) => review.author?.login).filter((login): login is string => Boolean(login))),
+            ],
+            latest_review_at: latest?.submittedAt,
+            latest_review_url: latest?.url,
+            approved_by: latestApproval?.author?.login,
+            approved_at: latestApproval?.submittedAt,
+          }
+        }),
+        Effect.catch(() =>
+          Effect.succeed({
+            reviewDecision: undefined,
+            reviewers: [] as readonly string[],
+            latest_review_at: undefined,
+            latest_review_url: undefined,
+            approved_by: undefined,
+            approved_at: undefined,
+          }),
+        ),
+      )
+    })
 
     const getPr = Effect.fn("WorkflowGithub.getPullRequest")(function* (repo: string, prNumber: number) {
       const api = yield* octokit
@@ -246,6 +346,7 @@ export const layer = Layer.effect(
         ],
         { concurrency: 4 },
       )
+      const graphqlReviewState = yield* getGraphqlReviewState(repo, prNumber)
 
       const reviewDecision = reviews.data.length > 0
         ? reviews.data
@@ -294,8 +395,19 @@ export const layer = Layer.effect(
         head_commit: pr.data.head.sha,
         review_state: reviewStateFromPullRequest({
           state: pr.data.state,
-          reviewDecision: reviewDecision ?? pr.data.mergeable_state,
+          reviewDecision: graphqlReviewState.reviewDecision ?? reviewDecision,
         }),
+        reviewers: graphqlReviewState.reviewers.length > 0
+          ? graphqlReviewState.reviewers
+          : [
+              ...new Set(
+                reviews.data.map((review) => review.user?.login).filter((login): login is string => Boolean(login)),
+              ),
+            ],
+        latest_review_at: graphqlReviewState.latest_review_at ?? reviewBodies[0]?.created_at,
+        latest_review_url: graphqlReviewState.latest_review_url ?? reviewBodies[0]?.url,
+        approved_by: graphqlReviewState.approved_by ?? reviewBodies.find((review) => review.body)?.author,
+        approved_at: graphqlReviewState.approved_at,
         comments: [
           ...issueComments.data.map((c) =>
             intoReviewComment(

@@ -69,6 +69,11 @@ const PullRequestInfo = Schema.Struct({
   branch: Schema.optional(Schema.String),
   head_commit: Schema.optional(Schema.String),
   review_state: Schema.String,
+  reviewers: Schema.optional(Schema.Array(Schema.String)),
+  latest_review_at: Schema.optional(Schema.String),
+  latest_review_url: Schema.optional(Schema.String),
+  approved_by: Schema.optional(Schema.String),
+  approved_at: Schema.optional(Schema.String),
   comments: Schema.Array(CommentInfo),
 })
 
