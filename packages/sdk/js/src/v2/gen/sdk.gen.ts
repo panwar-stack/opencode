@@ -4580,24 +4580,11 @@ export class Team extends HeyApiClient {
    */
   public get<ThrowOnError extends boolean = false>(
     parameters: {
-      directory?: string
-      workspace?: string
       sessionID: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "query", key: "sessionID" },
-          ],
-        },
-      ],
-    )
+    const params = buildClientParams([parameters], [{ args: [{ in: "query", key: "sessionID" }] }])
     return (options?.client ?? this.client).get<TeamGetResponses, TeamGetErrors, ThrowOnError>({
       url: "/team",
       ...options,
@@ -4613,23 +4600,10 @@ export class Team extends HeyApiClient {
   public getById<ThrowOnError extends boolean = false>(
     parameters: {
       teamID: string
-      directory?: string
-      workspace?: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "path", key: "teamID" },
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
+    const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "teamID" }] }])
     return (options?.client ?? this.client).get<TeamGetByIdResponses, TeamGetByIdErrors, ThrowOnError>({
       url: "/team/{teamID}",
       ...options,
@@ -4645,23 +4619,10 @@ export class Team extends HeyApiClient {
   public tasks<ThrowOnError extends boolean = false>(
     parameters: {
       teamID: string
-      directory?: string
-      workspace?: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "path", key: "teamID" },
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
+    const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "teamID" }] }])
     return (options?.client ?? this.client).get<TeamTasksResponses, TeamTasksErrors, ThrowOnError>({
       url: "/team/{teamID}/tasks",
       ...options,
@@ -4677,23 +4638,10 @@ export class Team extends HeyApiClient {
   public messages<ThrowOnError extends boolean = false>(
     parameters: {
       teamID: string
-      directory?: string
-      workspace?: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "path", key: "teamID" },
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
+    const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "teamID" }] }])
     return (options?.client ?? this.client).get<TeamMessagesResponses, TeamMessagesErrors, ThrowOnError>({
       url: "/team/{teamID}/messages",
       ...options,
@@ -4709,23 +4657,10 @@ export class Team extends HeyApiClient {
   public shutdown<ThrowOnError extends boolean = false>(
     parameters: {
       teamID: string
-      directory?: string
-      workspace?: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "path", key: "teamID" },
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
+    const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "teamID" }] }])
     return (options?.client ?? this.client).post<TeamShutdownResponses, TeamShutdownErrors, ThrowOnError>({
       url: "/team/{teamID}/shutdown",
       ...options,
