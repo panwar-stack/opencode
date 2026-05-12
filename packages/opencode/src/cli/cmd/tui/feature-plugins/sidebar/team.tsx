@@ -11,10 +11,10 @@ function memberStatusDot(
   theme: TuiPluginApi["theme"]["current"],
 ) {
   const t = status?.type
-  if (t === "retry") return theme.error
-  if (t === "busy") return theme.success
   if (teamStatus === "completed") return theme.success
   if (teamStatus === "cancelled") return theme.error
+  if (t === "retry") return theme.error
+  if (t === "busy") return theme.success
   if (teamStatus === "starting" || teamStatus === "blocked" || teamStatus === "active" || teamStatus === "idle")
     return theme.info
   return theme.textMuted
@@ -22,18 +22,19 @@ function memberStatusDot(
 
 function statusLabel(status: { type: string } | undefined, teamStatus: string | undefined) {
   const t = status?.type
+  if (teamStatus === "completed") return "completed"
+  if (teamStatus === "cancelled") return "cancelled"
   if (t === "retry") return "retry"
   if (t === "busy") return "working"
   if (teamStatus === "active") return "active"
   if (teamStatus === "starting") return "starting"
   if (teamStatus === "blocked") return "blocked"
-  if (teamStatus === "completed") return "completed"
-  if (teamStatus === "cancelled") return "cancelled"
   if (teamStatus === "idle") return "idle"
   return "idle"
 }
 
 function isMemberWorking(status: { type: string } | undefined, teamStatus: string | undefined) {
+  if (teamStatus === "completed" || teamStatus === "cancelled") return false
   return status?.type === "busy" || teamStatus === "starting" || teamStatus === "active"
 }
 

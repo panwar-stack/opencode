@@ -6989,8 +6989,6 @@ export type TeamGetData = {
   body?: never
   path?: never
   query: {
-    directory?: string
-    workspace?: string
     sessionID: string
   }
   url: "/team"
@@ -7019,10 +7017,7 @@ export type TeamGetByIdData = {
   path: {
     teamID: string
   }
-  query?: {
-    directory?: string
-    workspace?: string
-  }
+  query?: never
   url: "/team/{teamID}"
 }
 
@@ -7049,10 +7044,7 @@ export type TeamTasksData = {
   path: {
     teamID: string
   }
-  query?: {
-    directory?: string
-    workspace?: string
-  }
+  query?: never
   url: "/team/{teamID}/tasks"
 }
 
@@ -7079,10 +7071,7 @@ export type TeamMessagesData = {
   path: {
     teamID: string
   }
-  query?: {
-    directory?: string
-    workspace?: string
-  }
+  query?: never
   url: "/team/{teamID}/messages"
 }
 
@@ -7109,10 +7098,7 @@ export type TeamShutdownData = {
   path: {
     teamID: string
   }
-  query?: {
-    directory?: string
-    workspace?: string
-  }
+  query?: never
   url: "/team/{teamID}/shutdown"
 }
 
