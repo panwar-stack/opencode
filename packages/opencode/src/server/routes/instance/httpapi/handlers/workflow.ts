@@ -136,6 +136,14 @@ export const workflowHandlers = HttpApiBuilder.group(InstanceHttpApi, "workflow"
       return yield* workflow.resume(directoryFromRef(instance), ctx.params.workflowID)
     })
 
+    const recover = Effect.fn("WorkflowHttpApi.recover")(function* (ctx: {
+      readonly params: { readonly workflowID: string }
+    }) {
+      const instance = yield* InstanceRef
+      if (!instance) return yield* new HttpApiError.BadRequest({})
+      return yield* workflow.recover(directoryFromRef(instance), ctx.params.workflowID)
+    })
+
     const sessions = Effect.fn("WorkflowHttpApi.sessions")(function* (ctx: {
       readonly params: { readonly workflowID: string }
     }) {
@@ -204,6 +212,7 @@ export const workflowHandlers = HttpApiBuilder.group(InstanceHttpApi, "workflow"
       .handle("submitCode", submitCode as any)
       .handle("pause", pause as any)
       .handle("resume", resume as any)
+      .handle("recover", recover as any)
       .handle("sessions", sessions as any)
       .handle("getSession", getSession as any)
       .handle("steer", steer as any)

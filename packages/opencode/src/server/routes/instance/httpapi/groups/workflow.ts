@@ -113,6 +113,7 @@ export const WorkflowPaths = {
   submitCode: `${root}/:workflowID/submit-code`,
   pause: `${root}/:workflowID/pause`,
   resume: `${root}/:workflowID/resume`,
+  recover: `${root}/:workflowID/recover`,
   sessions: `${root}/:workflowID/sessions`,
   getSession: `${root}/:workflowID/sessions/:sessionID`,
   steer: `${root}/:workflowID/sessions/:sessionID/steer`,
@@ -240,6 +241,18 @@ export const WorkflowApiGroup = HttpApiGroup.make("workflow")
             identifier: "workflow.resume",
             summary: "Resume workflow",
             description: "Resume a paused workflow.",
+          }),
+        ),
+        HttpApiEndpoint.post("recover", WorkflowPaths.recover, {
+          params: { workflowID: Schema.String },
+          query: WorkspaceRoutingQuery,
+          success: described(WorkflowResponse, "Workflow recovered"),
+          error: HttpApiError.BadRequest,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "workflow.recover",
+            summary: "Recover workflow",
+            description: "Attempt to recover a workflow from a failed, paused, or interrupted state.",
           }),
         ),
         HttpApiEndpoint.get("sessions", WorkflowPaths.sessions, {

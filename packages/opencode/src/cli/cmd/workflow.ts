@@ -252,6 +252,7 @@ export const WorkflowCommand = cmd({
       .command(WorkflowSessionCommand)
       .command(WorkflowSteerCommand)
       .command(WorkflowAmendmentCommand)
+      .command(WorkflowRecoverCommand)
       .demandCommand(),
   async handler() {},
 })
@@ -910,6 +911,34 @@ export const WorkflowAmendmentRejectCommand = effectCmd({
           }),
           args.format,
         )
+      }),
+    )
+  }),
+})
+
+export const WorkflowRecoverCommand = effectCmd({
+  command: "recover <workflowID>",
+  describe: "recover a workflow from failed, paused, or interrupted state",
+  builder: (yargs) =>
+    yargs
+      .positional("workflowID", {
+        describe: "workflow ID",
+        type: "string",
+        demandOption: true,
+      })
+      .option("format", {
+        describe: "output format",
+        type: "string",
+        choices: ["table", "json"],
+        default: "table",
+      }),
+  handler: Effect.fn("Cli.workflow.recover")(function* (args) {
+    return yield* withWorkflowEff(
+      Effect.gen(function* () {
+        const svc = yield* Workflow.Service
+        const ctx = yield* InstanceRef
+        const directory = (ctx as InstanceContext).worktree || (ctx as InstanceContext).directory
+        printState(yield* svc.recover(directory, args.workflowID), args.format)
       }),
     )
   }),

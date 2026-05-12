@@ -52,6 +52,17 @@ export interface Interface {
     workflowID: string,
     sessionID: string,
   ) => Effect.Effect<SessionContext, Error>
+
+  readonly completeSession: (
+    directory: string,
+    workflowID: string,
+    sessionID: string,
+  ) => Effect.Effect<void, Error>
+
+  readonly createRecoverySession: (
+    directory: string,
+    workflowID: string,
+  ) => Effect.Effect<WorkflowSession, Error>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/WorkflowSession") {}
@@ -174,6 +185,56 @@ export const layer = Layer.effect(
       },
     )
 
+    const completeSession = Effect.fn("WorkflowSession.completeSession")(
+      function* (directory: string, workflowID: string, sessionID: string) {
+        const state = yield* workflow.get(directory, workflowID)
+        const session = yield* workflow.getSession(directory, workflowID, sessionID)
+        const completed: WorkflowSession = {
+          ...session,
+          status: "completed",
+          updated_at: WorkflowState.now(),
+        }
+        const next = WorkflowState.upsertSession(state, completed)
+        yield* artifact.writeState(directory, next)
+        yield* artifact.writeGithubSummary(directory, next)
+
+        yield* bus.publish(WorkflowEvents.SessionUpdated, {
+          workflow_id: workflowID,
+          session_id: sessionID,
+          role: completed.role,
+          status: completed.status,
+        })
+      },
+    )
+
+    const createRecoverySession = Effect.fn("WorkflowSession.createRecoverySession")(
+      function* (directory: string, workflowID: string) {
+        const state = yield* workflow.get(directory, workflowID)
+        const task = `Recover workflow from ${state.state}`
+        const created = WorkflowState.now()
+        const session: WorkflowSession = {
+          id: WorkflowState.createSessionID(),
+          role: "recovery",
+          status: "active",
+          task,
+          created_at: created,
+          updated_at: created,
+        }
+        const next = WorkflowState.upsertSession(
+          { ...state, current_task: task, updated_at: created },
+          session,
+        )
+        yield* artifact.writeState(directory, next)
+        yield* artifact.writeGithubSummary(directory, next)
+        yield* bus.publish(WorkflowEvents.SessionCreated, {
+          workflow_id: workflowID,
+          session_id: session.id,
+          role: "recovery",
+        })
+        return session
+      },
+    )
+
     return Service.of({
       createSession,
       listSessions,
@@ -181,6 +242,8 @@ export const layer = Layer.effect(
       updateSession,
       setActiveSession,
       getSessionContext,
+      completeSession,
+      createRecoverySession,
     })
   }),
 )

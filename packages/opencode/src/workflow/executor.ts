@@ -1,5 +1,9 @@
-import { Context, Effect, Layer } from "effect"
+import { Context, Effect, Layer, Option } from "effect"
+import { Config } from "@/config/config"
+import { Session } from "@/session/session"
+import { SessionPrompt } from "@/session/prompt"
 import { WorkflowArtifact } from "./artifact"
+import { WorkflowScope } from "./scope"
 import { WorkflowState, type WorkflowStateFile } from "./state"
 
 export type StopReason =
@@ -173,11 +177,13 @@ export class Service extends Context.Service<Service, Interface>()("@opencode/Wo
 export const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
+    const configOpt = yield* Effect.serviceOption(Config.Service)
+    const wfMaxSteps = Option.isSome(configOpt) ? (yield* configOpt.value.get()).workflow?.max_steps ?? 10 : 10
     const activeStops = new Map<string, boolean>()
 
     const run = Effect.fn("WorkflowExecutor.run")(
       function* (projectDir: string, workflowID: string, config?: Partial<ExecutorConfig>) {
-        const maxSteps = config?.max_steps ?? 100
+        const maxSteps = config?.max_steps ?? wfMaxSteps
 
         yield* assertApprovedPlan(projectDir, workflowID)
 
@@ -258,6 +264,154 @@ export const layer = Layer.effect(
           }
 
           stepCount++
+
+          const spec = yield* Effect.promise(() => WorkflowArtifact.readArtifact(projectDir, workflowID, "SPEC.md"))
+          const impact = yield* Effect.promise(() => WorkflowArtifact.readArtifact(projectDir, workflowID, "IMPACT.md"))
+          const tasksMd = yield* Effect.promise(() => WorkflowArtifact.readArtifact(projectDir, workflowID, "TASKS.md"))
+
+          const sessionsOpt = yield* Effect.serviceOption(Session.Service)
+          const promptOpt = yield* Effect.serviceOption(SessionPrompt.Service)
+
+          if (Option.isNone(sessionsOpt) || Option.isNone(promptOpt)) {
+            state = withCompletedTask(state, task)
+            tasksCompleted = countChecked(state, tasks)
+            yield* saveState(projectDir, state)
+            yield* Effect.promise(() =>
+              WorkflowArtifact.appendDecision(projectDir, workflowID, {
+                action: "workflow.executor.task_completed",
+                previous_state: state.state,
+                new_state: state.state,
+                summary: `Completed task ${task.id}: ${task.description}`,
+              }),
+            )
+            continue
+          }
+
+          const sessions = sessionsOpt.value
+          const sessionPrompt = promptOpt.value
+
+          const taskPrompt = [
+            "You are an autonomous workflow executor. Implement the following task from an approved workflow plan.",
+            "",
+            "## Task",
+            `**ID**: ${task.id}`,
+            `**Description**: ${task.description}`,
+            "",
+            "## Approved Specification (SPEC.md)",
+            spec,
+            "",
+            "## Impact Boundary (IMPACT.md)",
+            impact,
+            "",
+            "## Task List (TASKS.md)",
+            tasksMd,
+            "",
+            "## Instructions",
+            "- Implement ONLY this specific task — do NOT implement other tasks in the list",
+            "- Stay strictly within the allowed paths defined in IMPACT.md",
+            "- Do NOT modify files outside the approved impact boundary",
+            "- After implementation, verify your changes work by running tests or typecheck",
+            "- Use tools like read, write, edit, and bash to explore and modify the codebase",
+            "- Record what files you changed and why",
+          ].join("\n")
+
+          const result = yield* Effect.gen(function* () {
+            const session = yield* sessions.create({ agent: "build" })
+
+            yield* sessionPrompt.prompt({
+              sessionID: session.id,
+              agent: "build",
+              parts: [{ type: "text", text: taskPrompt }],
+            })
+
+            const filesChanged = yield* Effect.promise(async () => {
+              const proc = Bun.spawn(["git", "diff", "--name-only", "HEAD"], {
+                cwd: projectDir,
+                stdout: "pipe",
+                stderr: "pipe",
+              })
+              const out = await new Response(proc.stdout).text()
+              return out.trim().split(/\r?\n/).filter(Boolean)
+            }).pipe(Effect.catch(() => Effect.succeed([] as string[])))
+
+            const validation = yield* Effect.promise(async () => {
+              const proc = Bun.spawn(["bun", "typecheck"], {
+                cwd: projectDir,
+                stdout: "pipe",
+                stderr: "pipe",
+              })
+              const [stdout, stderr] = await Promise.all([
+                new Response(proc.stdout).text(),
+                new Response(proc.stderr).text(),
+              ])
+              const exitCode = await proc.exited
+              return { ok: exitCode === 0, output: (stdout + stderr).trim() }
+            }).pipe(Effect.catch(() => Effect.succeed({ ok: false, output: "Failed to run typecheck" })))
+
+            return { filesChanged, validationOk: validation.ok, validationOutput: validation.output }
+          }).pipe(
+            Effect.catch(() =>
+              Effect.succeed({
+                filesChanged: [] as string[],
+                validationOk: false,
+                validationOutput: "Agent invocation failed",
+              }),
+            ),
+          )
+
+          let scopeOk = true
+          let scopeReason = ""
+          if (result.filesChanged.length > 0) {
+            const maybeScope = yield* Effect.serviceOption(WorkflowScope.Service)
+            if (Option.isSome(maybeScope)) {
+              const driftResult = yield* maybeScope.value.checkEdit(projectDir, workflowID, [...result.filesChanged])
+              scopeOk = driftResult.allowed
+              scopeReason = driftResult.reason
+            }
+          }
+
+          if (!result.validationOk) {
+            const next = WorkflowState.withState(state, "validating")
+            yield* saveState(projectDir, next)
+            yield* Effect.promise(() =>
+              WorkflowArtifact.appendDecision(projectDir, workflowID, {
+                action: "workflow.executor.validation_failed",
+                previous_state: state.state,
+                new_state: next.state,
+                summary: `Validation failed for task ${task.id}: ${task.description}. ${result.validationOutput}`,
+              }),
+            )
+            return {
+              workflow_id: workflowID,
+              state: next.state,
+              tasks_completed: tasksCompleted,
+              tasks_total: tasksTotal,
+              stop_reason: "validation_failure" as const,
+              summary: `Validation failed after task "${task.description}": ${result.validationOutput}`,
+            }
+          }
+
+          if (!scopeOk) {
+            const next = WorkflowState.withState(state, "validating")
+            yield* saveState(projectDir, next)
+            yield* Effect.promise(() =>
+              WorkflowArtifact.appendDecision(projectDir, workflowID, {
+                action: "workflow.executor.scope_drift",
+                previous_state: state.state,
+                new_state: next.state,
+                summary: `Scope drift detected for task ${task.id}: ${scopeReason}`,
+              }),
+            )
+            return {
+              workflow_id: workflowID,
+              state: next.state,
+              tasks_completed: tasksCompleted,
+              tasks_total: tasksTotal,
+              stop_reason: "scope_drift" as const,
+              summary: `Scope drift after task "${task.description}": ${scopeReason}`,
+            }
+          }
+
           state = withCompletedTask(state, task)
           tasksCompleted = countChecked(state, tasks)
           yield* saveState(projectDir, state)
@@ -267,7 +421,8 @@ export const layer = Layer.effect(
               action: "workflow.executor.task_completed",
               previous_state: state.state,
               new_state: state.state,
-              summary: `Completed task ${task.id}: ${task.description}`,
+              summary: `Completed task ${task.id}: ${task.description}. Files changed: ${result.filesChanged.join(", ") || "none"}`,
+              evidence: result.filesChanged.join(", "),
             }),
           )
         }

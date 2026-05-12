@@ -142,4 +142,14 @@ export const SessionCompleted = BusEvent.define(
   }),
 )
 
+export const WorkflowRecovered = BusEvent.define(
+  "workflow.recovered",
+  Schema.Struct({
+    workflow_id: Schema.String,
+    previous_state: Schema.String,
+    new_state: Schema.String,
+    recovery_summary: Schema.String,
+  }),
+)
+
 export * as WorkflowEvents from "./events"

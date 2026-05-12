@@ -34,6 +34,7 @@ export type WorkflowSession = {
   readonly role: SessionRole
   readonly status: "active" | "waiting" | "completed" | "failed"
   readonly task: string
+  readonly agent?: string
   readonly created_at: string
   readonly updated_at: string
   readonly github_comment_url?: string

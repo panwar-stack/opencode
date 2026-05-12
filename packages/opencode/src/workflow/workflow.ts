@@ -1,5 +1,5 @@
 import path from "path"
-import { Context, Effect, Layer, Stream } from "effect"
+import { Context, Effect, Layer, Option, Stream } from "effect"
 import { Bus } from "@/bus"
 import { WorkflowArtifact, type ValidationResult } from "./artifact"
 import { WorkflowGithub } from "./github"
@@ -7,6 +7,8 @@ import { WorkflowApproval } from "./approval"
 import { WorkflowScope } from "./scope"
 import {
   WorkflowState,
+  WorkflowStates,
+  type StateName,
   type CommentState,
   type PullRequestKind,
   type ReviewComment,
@@ -14,6 +16,7 @@ import {
   type WorkflowStateFile,
 } from "./state"
 import { WorkflowEvents } from "./events"
+import { Config } from "@/config/config"
 
 type CommandResult = {
   readonly exitCode: number
@@ -239,8 +242,9 @@ const persist = (artifact: WorkflowArtifact.Interface, directory: string, state:
     { concurrency: 2 },
   )
 
-const assertApprovedPlan = (artifact: WorkflowArtifact.Interface, directory: string, state: WorkflowStateFile) =>
+const assertApprovedPlan = (artifact: WorkflowArtifact.Interface, directory: string, state: WorkflowStateFile, requirePlanApproval: boolean) =>
   Effect.gen(function* () {
+    if (!requirePlanApproval) return yield* artifact.hashApprovedArtifacts(directory, state.workflow_id)
     if (!state.plan_pull_request.number) {
       return yield* Effect.fail(new Error("Workflow plan approval is missing plan pull request metadata."))
     }
@@ -320,10 +324,10 @@ const withPlanReviewState = (state: WorkflowStateFile): WorkflowStateFile => {
   return state
 }
 
-const withCodeReviewState = (state: WorkflowStateFile): WorkflowStateFile => {
+const withCodeReviewState = (state: WorkflowStateFile, requireCodeApproval: boolean): WorkflowStateFile => {
   if (!state.code_pull_request.number && state.code_pull_request.review_state === "none") return state
   const started = state.state === "plan_approved" ? WorkflowState.withState(state, "executing") : state
-  if (WorkflowState.isApprovedReview(started.code_pull_request.review_state)) {
+  if (!requireCodeApproval || WorkflowState.isApprovedReview(started.code_pull_request.review_state)) {
     if (started.last_validation?.ok) return WorkflowState.transitionOrCurrent(started, "completed")
     return {
       ...WorkflowState.transitionOrCurrent(started, "awaiting_code_review"),
@@ -341,7 +345,7 @@ const withCodeReviewState = (state: WorkflowStateFile): WorkflowStateFile => {
   return review
 }
 
-const withCommentBookkeepingState = (state: WorkflowStateFile, pullRequest: PullRequestKind): WorkflowStateFile => {
+const withCommentBookkeepingState = (state: WorkflowStateFile, pullRequest: PullRequestKind, requireCodeApproval: boolean): WorkflowStateFile => {
   if (
     pullRequest === "plan" &&
     state.state === "addressing_plan_comments" &&
@@ -357,16 +361,17 @@ const withCommentBookkeepingState = (state: WorkflowStateFile, pullRequest: Pull
     return WorkflowState.transitionOrCurrent(state, "awaiting_code_review")
   }
   if (pullRequest === "plan") return withPlanReviewState(state)
-  return withCodeReviewState(state)
+  return withCodeReviewState(state, requireCodeApproval)
 }
 
-const nextSession = (role: WorkflowSession["role"], task: string, githubCommentUrl?: string): WorkflowSession => {
+const nextSession = (role: WorkflowSession["role"], task: string, githubCommentUrl?: string, agent?: string): WorkflowSession => {
   const created = WorkflowState.now()
   return {
     id: WorkflowState.createSessionID(),
     role,
     status: "active",
     task,
+    agent,
     created_at: created,
     updated_at: created,
     github_comment_url: githubCommentUrl,
@@ -441,6 +446,7 @@ export interface Interface {
   readonly syncGithub: (input: SyncInput) => Effect.Effect<WorkflowStateFile, Error>
   readonly pause: (directory: string, workflowID: string) => Effect.Effect<WorkflowStateFile, Error>
   readonly resume: (directory: string, workflowID: string) => Effect.Effect<WorkflowStateFile, Error>
+  readonly recover: (directory: string, workflowID: string) => Effect.Effect<WorkflowStateFile, Error>
   readonly findSession: (state: WorkflowStateFile, sessionID: string) => WorkflowSession | undefined
   readonly getSession: (directory: string, workflowID: string, sessionID: string) => Effect.Effect<WorkflowSession, Error>
   readonly sessionContext: (
@@ -487,6 +493,13 @@ export const layer = Layer.effect(
     const github = yield* WorkflowGithub.Service
     const approval = yield* WorkflowApproval.Service
     const scope = yield* WorkflowScope.Service
+    const configOpt = yield* Effect.serviceOption(Config.Service)
+    const wf = Option.isSome(configOpt) ? (yield* configOpt.value.get()).workflow ?? {} : {}
+    const prBaseBranch = wf.pull_request_base ?? "dev"
+    const requirePlanApproval = wf.require_plan_pull_request_approval ?? true
+    const requireCodeApproval = wf.require_code_pull_request_approval ?? true
+    const planReviewerAgent = wf.plan_reviewer_agent
+    const codeReviewerAgent = wf.code_reviewer_agent
 
     const guardPostApprovalInput = Effect.fn("Workflow.guardPostApprovalInput")(function* (
       directory: string,
@@ -548,6 +561,7 @@ export const layer = Layer.effect(
             role: "planner",
             status: "active",
             task: "Draft workflow plan artifacts",
+            agent: planReviewerAgent,
             created_at: created,
             updated_at: created,
           },
@@ -581,7 +595,7 @@ export const layer = Layer.effect(
     const validatePlan = Effect.fn("Workflow.validatePlan")(function* (
       directory: string,
       workflowID: string,
-      base = "origin/dev",
+      base = `origin/${prBaseBranch}`,
     ) {
       const required = yield* artifact.validateRequired(directory, workflowID)
       if (!required.ok) return required
@@ -603,7 +617,7 @@ export const layer = Layer.effect(
       const specHash = yield* artifact.hashApprovedArtifacts(input.directory, input.workflowID)
       yield* runRequired("git", ["push", "-u", "origin", branch], input.directory)
 
-      const baseBranch = input.base ?? "dev"
+      const baseBranch = input.base ?? prBaseBranch
       const existing = yield* ghPullRequestStateForBranch(input.directory, branch).pipe(
         Effect.catch(() => Effect.succeed(undefined)),
       )
@@ -698,10 +712,10 @@ export const layer = Layer.effect(
     const validateCode = Effect.fn("Workflow.validateCode")(function* (
       directory: string,
       workflowID: string,
-      base = "origin/dev",
+      base = `origin/${prBaseBranch}`,
     ) {
       const state = yield* get(directory, workflowID)
-      yield* assertApprovedPlan(artifact, directory, state)
+      yield* assertApprovedPlan(artifact, directory, state, requirePlanApproval)
       const result = yield* scope.checkEdit(directory, workflowID, yield* changedFiles(directory, base))
       return {
         ok: result.allowed,
@@ -755,7 +769,7 @@ export const layer = Layer.effect(
 
     const runApprovedPlan = Effect.fn("Workflow.runApprovedPlan")(function* (input: RunInput) {
       const state = yield* get(input.directory, input.workflowID)
-      const approvedHash = yield* assertApprovedPlan(artifact, input.directory, state)
+      const approvedHash = yield* assertApprovedPlan(artifact, input.directory, state, requirePlanApproval)
       if (input.dryRun) return state
 
       const branch = state.code_branch ?? codeBranch(state.workflow_id, state.title)
@@ -768,7 +782,7 @@ export const layer = Layer.effect(
           state.state === "plan_approved" ? state : WorkflowState.transitionOrCurrent(state, "plan_approved"),
           "executing",
         ),
-        nextSession("executor", "Implement approved workflow plan"),
+        nextSession("executor", "Implement approved workflow plan", undefined, codeReviewerAgent),
       )
       const withBranch = {
         ...next,
@@ -799,11 +813,11 @@ export const layer = Layer.effect(
 
     const submitCode = Effect.fn("Workflow.submitCode")(function* (input: SubmitInput) {
       const state = yield* get(input.directory, input.workflowID)
-      yield* assertApprovedPlan(artifact, input.directory, state)
+      yield* assertApprovedPlan(artifact, input.directory, state, requirePlanApproval)
       const validation = yield* validateCode(
         input.directory,
         input.workflowID,
-        input.base ?? state.approved_plan_commit ?? "origin/dev",
+        input.base ?? state.approved_plan_commit ?? `origin/${prBaseBranch}`,
       )
       yield* persist(artifact, input.directory, {
         ...WorkflowState.transitionOrCurrent(state, "submitting_code_pull_request"),
@@ -827,7 +841,7 @@ export const layer = Layer.effect(
         Effect.catch(() => Effect.succeed(undefined)),
       )
 
-      const baseBranch = input.base ?? "dev"
+      const baseBranch = input.base ?? prBaseBranch
       if (existing?.number && existing.number === state.plan_pull_request.number) {
         return yield* Effect.fail(new Error("Code pull request must be separate from the plan pull request."))
       }
@@ -894,7 +908,7 @@ export const layer = Layer.effect(
           review_state: prState.review_state,
           comments: prState.comments,
         },
-      })
+      }, requireCodeApproval)
       yield* persist(artifact, input.directory, next)
       yield* artifact.appendDecision(input.directory, input.workflowID, {
         action: "workflow.code_pull_request.submitted",
@@ -955,6 +969,7 @@ export const layer = Layer.effect(
             ? (state.approved_plan_commit ?? plan.head_commit)
             : state.approved_plan_commit,
         }),
+        requireCodeApproval,
       )
       const next = planDrift
         ? WorkflowState.transitionOrCurrent(
@@ -1041,6 +1056,130 @@ export const layer = Layer.effect(
         summary: "Workflow resumed by user.",
       })
       return next
+    })
+
+    const recover = Effect.fn("Workflow.recover")(function* (directory: string, workflowID: string) {
+      const state = yield* get(directory, workflowID)
+      const currentState = state.state
+
+      const recoverySession = nextSession("recovery", `Recover workflow from ${currentState}`)
+      const withSession = WorkflowState.upsertSession(state, recoverySession)
+
+      const decisions = yield* artifact.readArtifact(directory, workflowID, "DECISIONS.md").pipe(
+        Effect.catch(() => Effect.succeed("")),
+      )
+
+      const lastPreviousState = decisions
+        .split(/\n##\s+/)
+        .filter(Boolean)
+        .reverse()
+        .map((block) => {
+          const match = block.match(/^Previous state:\s*(\S+)/m)
+          return match?.[1]
+        })
+        .find((s): s is string => s !== undefined)
+
+      let recovered: WorkflowStateFile
+      let summary: string
+
+      if (currentState === "failed") {
+        const target = lastPreviousState ? WorkflowStates.includes(lastPreviousState as StateName) ? lastPreviousState as StateName : undefined : undefined
+        if (target && target !== "failed" && target !== "cancelled" && target !== "completed") {
+          recovered = {
+            ...withSession,
+            state: target,
+            user_input_needed: "Workflow recovered from failed state. Review artifacts before resuming.",
+            updated_at: WorkflowState.now(),
+          }
+          summary = `Recovered from failed state. Reset to previous state: ${target}. User review recommended.`
+        } else {
+          recovered = {
+            ...withSession,
+            user_input_needed: "Workflow recovery could not determine a safe previous state. Manual intervention required.",
+            updated_at: WorkflowState.now(),
+          }
+          summary = "Recovery attempted but no safe previous state was found. Manual intervention required."
+        }
+      } else if (currentState === "paused") {
+        const target = lastPreviousState
+          ? WorkflowStates.includes(lastPreviousState as StateName) && lastPreviousState !== "paused" && lastPreviousState !== "failed" && lastPreviousState !== "cancelled" && lastPreviousState !== "completed"
+            ? lastPreviousState as StateName
+            : undefined
+          : undefined
+        if (target && WorkflowState.isApprovedReview(state.plan_pull_request.review_state)) {
+          recovered = WorkflowState.withState({ ...withSession, user_input_needed: undefined }, "plan_approved")
+          summary = `Recovered from paused. Resumed to plan_approved (plan was approved). Pre-pause state was: ${target}.`
+        } else if (target) {
+          recovered = WorkflowState.withState({ ...withSession, user_input_needed: undefined }, target)
+          summary = `Recovered from paused. Resumed to pre-pause state: ${target}.`
+        } else {
+          recovered = WorkflowState.withState({ ...withSession, user_input_needed: undefined }, "awaiting_plan_review")
+          summary = "Recovered from paused. Resumed to awaiting_plan_review (default)."
+        }
+      } else if (currentState === "plan_approved" && withSession.state !== "executing") {
+        recovered = WorkflowState.upsertSession(
+          WorkflowState.withState({ ...withSession, user_input_needed: undefined }, "executing"),
+          nextSession("executor", "Implement approved workflow plan (recovery)"),
+        )
+        summary = "Recovered from plan_approved: transitioned to executing. Created executor session."
+      } else if (currentState === "awaiting_code_review") {
+        if (WorkflowState.isApprovedReview(state.code_pull_request.review_state) && state.last_validation?.ok) {
+          recovered = WorkflowState.withState({ ...withSession, user_input_needed: undefined }, "completed")
+          summary = "Recovered from awaiting_code_review: code PR is approved and validation passed. Marked completed."
+        } else if (WorkflowState.isApprovedReview(state.code_pull_request.review_state)) {
+          recovered = {
+            ...WorkflowState.withState(withSession, "awaiting_code_review"),
+            user_input_needed: "Code PR is approved but validation evidence is missing. Run validation before completing.",
+          }
+          summary = "Recovered from awaiting_code_review: code PR approved but validation missing."
+        } else {
+          recovered = {
+            ...withSession,
+            user_input_needed: undefined,
+            updated_at: WorkflowState.now(),
+          }
+          summary = `Recovered from awaiting_code_review: no changes needed. PR review state is ${state.code_pull_request.review_state}. Sync GitHub for updates.`
+        }
+      } else if (currentState === "needs_amendment") {
+        const amendmentContent = "# Recovery Amendment\n\nRecovery session identified this workflow in needs_amendment state.\n\nReview the amendment request and approve or reject it to continue."
+        yield* artifact.writeArtifact(directory, workflowID, "AMENDMENT.md", amendmentContent)
+        recovered = {
+          ...withSession,
+          user_input_needed: "Workflow is in needs_amendment state. Review AMENDMENT.md and approve or reject.",
+          updated_at: WorkflowState.now(),
+        }
+        summary = "Recovery attempted but workflow is in needs_amendment. Created AMENDMENT.md for user review."
+      } else {
+        recovered = {
+          ...withSession,
+          user_input_needed: undefined,
+          updated_at: WorkflowState.now(),
+        }
+        summary = `Recovery checked state ${currentState}. No recovery action needed - state is already in a valid active state.`
+      }
+
+      const finalState = WorkflowState.upsertSession(recovered, {
+        ...recoverySession,
+        status: "completed",
+        updated_at: WorkflowState.now(),
+      })
+
+      yield* persist(artifact, directory, finalState)
+      yield* artifact.appendDecision(directory, workflowID, {
+        action: "workflow.recovered",
+        previous_state: currentState,
+        new_state: finalState.state,
+        summary,
+      })
+
+      yield* bus.publish(WorkflowEvents.WorkflowRecovered, {
+        workflow_id: workflowID,
+        previous_state: currentState,
+        new_state: finalState.state,
+        recovery_summary: summary,
+      })
+
+      return finalState
     })
 
     const findSession = (state: WorkflowStateFile, sessionID: string) =>
@@ -1149,6 +1288,7 @@ export const layer = Layer.effect(
       const next = withCommentBookkeepingState(
         WorkflowState.markComment(state, input.pullRequest, input.commentID, input.state),
         input.pullRequest,
+        requireCodeApproval,
       )
       yield* persist(artifact, input.directory, next)
       yield* artifact.appendDecision(input.directory, input.workflowID, {
@@ -1194,7 +1334,7 @@ export const layer = Layer.effect(
           },
           guarded.reason,
         )
-        : withCommentBookkeepingState(recorded, input.pullRequest)
+        : withCommentBookkeepingState(recorded, input.pullRequest, requireCodeApproval)
       yield* persist(artifact, input.directory, next)
       yield* artifact.appendDecision(input.directory, input.workflowID, {
         action: guarded ? "workflow.comment.requires_amendment" : "workflow.comment.recorded",
@@ -1247,7 +1387,7 @@ export const layer = Layer.effect(
       return yield* headCommit(input.directory)
     })
 
-    const diff = Effect.fn("Workflow.diff")(function* (directory: string, workflowID: string, base = "origin/dev") {
+    const diff = Effect.fn("Workflow.diff")(function* (directory: string, workflowID: string, base = `origin/${prBaseBranch}`) {
       yield* get(directory, workflowID)
       const mergeBase = yield* execCommand("git", ["merge-base", base, "HEAD"], directory)
       return yield* runRequired(
@@ -1279,6 +1419,7 @@ export const layer = Layer.effect(
       syncGithub,
       pause,
       resume,
+      recover,
       findSession,
       getSession,
       sessionContext,
@@ -1339,7 +1480,7 @@ export async function all(directory: string) {
   return runPromise((svc) => svc.all(directory))
 }
 
-export async function validatePlan(directory: string, workflowID: string, base = "origin/dev") {
+export async function validatePlan(directory: string, workflowID: string, base?: string) {
   return runPromise((svc) => svc.validatePlan(directory, workflowID, base))
 }
 
@@ -1347,7 +1488,7 @@ export async function submitPlan(input: SubmitInput) {
   return runPromise((svc) => svc.submitPlan(input))
 }
 
-export async function validateCode(directory: string, workflowID: string, base = "origin/dev") {
+export async function validateCode(directory: string, workflowID: string, base?: string) {
   return runPromise((svc) => svc.validateCode(directory, workflowID, base))
 }
 
@@ -1381,6 +1522,10 @@ export async function pause(directory: string, workflowID: string) {
 
 export async function resume(directory: string, workflowID: string) {
   return runPromise((svc) => svc.resume(directory, workflowID))
+}
+
+export async function recover(directory: string, workflowID: string) {
+  return runPromise((svc) => svc.recover(directory, workflowID))
 }
 
 export function findSession(state: WorkflowStateFile, sessionID: string) {
@@ -1419,7 +1564,7 @@ export async function commitPlan(input: CommitInput) {
   return runPromise((svc) => svc.commitPlan(input))
 }
 
-export async function diff(directory: string, workflowID: string, base = "origin/dev") {
+export async function diff(directory: string, workflowID: string, base?: string) {
   return runPromise((svc) => svc.diff(directory, workflowID, base))
 }
 

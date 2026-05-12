@@ -74,6 +74,7 @@ describe("workflow CLI and HTTP API surface", () => {
       submitCode: "/workflow/:workflowID/submit-code",
       pause: "/workflow/:workflowID/pause",
       resume: "/workflow/:workflowID/resume",
+      recover: "/workflow/:workflowID/recover",
       sessions: "/workflow/:workflowID/sessions",
       getSession: "/workflow/:workflowID/sessions/:sessionID",
       steer: "/workflow/:workflowID/sessions/:sessionID/steer",
