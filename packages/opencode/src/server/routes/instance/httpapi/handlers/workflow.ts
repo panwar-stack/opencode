@@ -11,6 +11,10 @@ function directoryFromRef(ctx: InstanceContext) {
   return ctx.worktree || ctx.directory
 }
 
+function asBadRequest<A, E, R>(effect: Effect.Effect<A, E, R>) {
+  return effect.pipe(Effect.mapError(() => new HttpApiError.BadRequest({})))
+}
+
 export const workflowHandlers = HttpApiBuilder.group(InstanceHttpApi, "workflow", (handlers) =>
   Effect.gen(function* () {
     const workflow = yield* Workflow.Service
@@ -27,17 +31,17 @@ export const workflowHandlers = HttpApiBuilder.group(InstanceHttpApi, "workflow"
     }) {
       const instance = yield* InstanceRef
       if (!instance) return yield* new HttpApiError.BadRequest({})
-      const state = yield* workflow.start({
+      const state = yield* asBadRequest(workflow.start({
         directory: directoryFromRef(instance),
         title: ctx.payload.title,
         localDraft: ctx.payload.local_draft,
-      })
+      }))
       if (ctx.payload.local_draft) return state
-      return yield* workflow.submitPlan({
+      return yield* asBadRequest(workflow.submitPlan({
         directory: directoryFromRef(instance),
         workflowID: state.workflow_id,
         base: ctx.payload.base,
-      })
+      }))
     })
 
     const get = Effect.fn("WorkflowHttpApi.get")(function* (ctx: {
@@ -62,12 +66,12 @@ export const workflowHandlers = HttpApiBuilder.group(InstanceHttpApi, "workflow"
     }) {
       const instance = yield* InstanceRef
       if (!instance) return yield* new HttpApiError.BadRequest({})
-      return yield* workflow.submitPlan({
+      return yield* asBadRequest(workflow.submitPlan({
         directory: directoryFromRef(instance),
         workflowID: ctx.params.workflowID,
         base: ctx.payload.base,
         dryRun: ctx.payload.dry_run,
-      })
+      }))
     })
 
     const syncGithub = Effect.fn("WorkflowHttpApi.syncGithub")(function* (ctx: {
@@ -75,10 +79,10 @@ export const workflowHandlers = HttpApiBuilder.group(InstanceHttpApi, "workflow"
     }) {
       const instance = yield* InstanceRef
       if (!instance) return yield* new HttpApiError.BadRequest({})
-      return yield* workflow.syncGithub({
+      return yield* asBadRequest(workflow.syncGithub({
         directory: directoryFromRef(instance),
         workflowID: ctx.params.workflowID,
-      })
+      }))
     })
 
     const revisePlan = Effect.fn("WorkflowHttpApi.revisePlan")(function* (ctx: {
@@ -87,12 +91,12 @@ export const workflowHandlers = HttpApiBuilder.group(InstanceHttpApi, "workflow"
     }) {
       const instance = yield* InstanceRef
       if (!instance) return yield* new HttpApiError.BadRequest({})
-      return yield* workflow.revisePlan({
+      return yield* asBadRequest(workflow.revisePlan({
         directory: directoryFromRef(instance),
         workflowID: ctx.params.workflowID,
         instruction: ctx.payload.instruction,
         githubCommentUrl: ctx.payload.github_comment_url,
-      })
+      }))
     })
 
     const run = Effect.fn("WorkflowHttpApi.run")(function* (ctx: {
@@ -100,10 +104,10 @@ export const workflowHandlers = HttpApiBuilder.group(InstanceHttpApi, "workflow"
     }) {
       const instance = yield* InstanceRef
       if (!instance) return yield* new HttpApiError.BadRequest({})
-      return yield* workflow.run({
+      return yield* asBadRequest(workflow.run({
         directory: directoryFromRef(instance),
         workflowID: ctx.params.workflowID,
-      })
+      }))
     })
 
     const submitCode = Effect.fn("WorkflowHttpApi.submitCode")(function* (ctx: {
@@ -112,12 +116,12 @@ export const workflowHandlers = HttpApiBuilder.group(InstanceHttpApi, "workflow"
     }) {
       const instance = yield* InstanceRef
       if (!instance) return yield* new HttpApiError.BadRequest({})
-      return yield* workflow.submitCode({
+      return yield* asBadRequest(workflow.submitCode({
         directory: directoryFromRef(instance),
         workflowID: ctx.params.workflowID,
         base: ctx.payload.base,
         dryRun: ctx.payload.dry_run,
-      })
+      }))
     })
 
     const pause = Effect.fn("WorkflowHttpApi.pause")(function* (ctx: {
@@ -125,7 +129,7 @@ export const workflowHandlers = HttpApiBuilder.group(InstanceHttpApi, "workflow"
     }) {
       const instance = yield* InstanceRef
       if (!instance) return yield* new HttpApiError.BadRequest({})
-      return yield* workflow.pause(directoryFromRef(instance), ctx.params.workflowID)
+      return yield* asBadRequest(workflow.pause(directoryFromRef(instance), ctx.params.workflowID))
     })
 
     const resume = Effect.fn("WorkflowHttpApi.resume")(function* (ctx: {
@@ -133,7 +137,7 @@ export const workflowHandlers = HttpApiBuilder.group(InstanceHttpApi, "workflow"
     }) {
       const instance = yield* InstanceRef
       if (!instance) return yield* new HttpApiError.BadRequest({})
-      return yield* workflow.resume(directoryFromRef(instance), ctx.params.workflowID)
+      return yield* asBadRequest(workflow.resume(directoryFromRef(instance), ctx.params.workflowID))
     })
 
     const recover = Effect.fn("WorkflowHttpApi.recover")(function* (ctx: {
@@ -141,7 +145,7 @@ export const workflowHandlers = HttpApiBuilder.group(InstanceHttpApi, "workflow"
     }) {
       const instance = yield* InstanceRef
       if (!instance) return yield* new HttpApiError.BadRequest({})
-      return yield* workflow.recover(directoryFromRef(instance), ctx.params.workflowID)
+      return yield* asBadRequest(workflow.recover(directoryFromRef(instance), ctx.params.workflowID))
     })
 
     const sessions = Effect.fn("WorkflowHttpApi.sessions")(function* (ctx: {
@@ -178,13 +182,13 @@ export const workflowHandlers = HttpApiBuilder.group(InstanceHttpApi, "workflow"
     }) {
       const instance = yield* InstanceRef
       if (!instance) return yield* new HttpApiError.BadRequest({})
-      return yield* workflow.steer({
+      return yield* asBadRequest(workflow.steer({
         directory: directoryFromRef(instance),
         workflowID: ctx.params.workflowID,
         sessionID: ctx.params.sessionID,
         instruction: ctx.payload.instruction,
         githubCommentUrl: ctx.payload.github_comment_url,
-      })
+      }))
     })
 
     const amendmentApprove = Effect.fn("WorkflowHttpApi.amendmentApprove")(function* (ctx: {
@@ -193,12 +197,12 @@ export const workflowHandlers = HttpApiBuilder.group(InstanceHttpApi, "workflow"
     }) {
       const instance = yield* InstanceRef
       if (!instance) return yield* new HttpApiError.BadRequest({})
-      return yield* workflow.processAmendment({
+      return yield* asBadRequest(workflow.processAmendment({
         directory: directoryFromRef(instance),
         workflowID: ctx.params.workflowID,
         approve: ctx.payload.approve,
         reason: ctx.payload.reason,
-      })
+      }))
     })
 
     return handlers

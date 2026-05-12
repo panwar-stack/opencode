@@ -1,6 +1,7 @@
 import { Context, Effect, Layer } from "effect"
 import { Bus } from "@/bus"
 import { Workflow } from "./workflow"
+import { WorkflowGithub } from "./github"
 import { WorkflowState, type PullRequestKind, type ReviewComment, type CommentState } from "./state"
 import { WorkflowEvents } from "./events"
 
@@ -66,6 +67,12 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const bus = yield* Bus.Service
     const workflow = yield* Workflow.Service
+    const github = yield* WorkflowGithub.Service
+
+    const repoFromUrl = (url?: string) => {
+      const match = url?.match(/^https:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/\d+/)
+      return match?.[1]
+    }
 
     const syncReviews = Effect.fn("WorkflowReview.syncReviews")(function* (
       directory: string,
@@ -227,6 +234,16 @@ export const layer = Layer.effect(
         const pr = prType === "plan" ? state.plan_pull_request : state.code_pull_request
         if (!pr.number) {
           return yield* Effect.fail(new Error(`No ${prType} pull request exists for workflow ${workflowID}`))
+        }
+        const repo = repoFromUrl(pr.url)
+        if (!repo) return yield* Effect.fail(new Error(`No GitHub repository URL is recorded for ${prType} PR.`))
+
+        if (prType === "code") {
+          yield* github.addReplyToComment(repo, pr.number, String(commentId), body).pipe(
+            Effect.catch(() => github.addComment(repo, pr.number!, body)),
+          )
+        } else {
+          yield* github.addComment(repo, pr.number, body)
         }
 
         yield* workflow.addComment({

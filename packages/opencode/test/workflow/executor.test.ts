@@ -168,21 +168,17 @@ describe("WorkflowExecutor", () => {
     expect(decisions).toContain("workflow.approved_plan.invalidated")
   })
 
-  test("runs a single task by id", async () => {
+  test("refuses direct single-task shortcut without execution evidence", async () => {
     await using tmp = await tmpdir({ git: true })
     const workflowID = "wf_test_single"
     await setupApprovedWorkflow(tmp.path, workflowID)
 
-    const result = await runExecutor(
+    const error = await runExecutor(
       WorkflowExecutor.Service.use((svc) => svc.runTask(tmp.path, workflowID, "task_0")),
-    )
+    ).catch((e) => e)
 
-    expect(result.task_id).toBe("task_0")
-    expect(result.success).toBe(true)
-    expect(result.task_description).toBe("First task")
-
-    const state = await WorkflowArtifact.readState(tmp.path, workflowID)
-    expect(state.completed_tasks).toContain("task_0")
+    expect(error).toBeInstanceOf(Error)
+    expect(error.message).toContain("Direct task execution is disabled")
   })
 
   test("returns already-completed result for checked task", async () => {

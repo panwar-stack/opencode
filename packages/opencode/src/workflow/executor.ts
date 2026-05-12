@@ -171,6 +171,7 @@ function assertApprovedPlan(projectDir: string, workflowID: string): Effect.Effe
           ...state,
           approved_spec_hash: undefined,
           approved_plan_commit: undefined,
+          plan_approval: undefined,
           user_input_needed: "Approved workflow artifacts changed after plan approval.",
           plan_pull_request: {
             ...state.plan_pull_request,
@@ -634,26 +635,9 @@ export const layer = Layer.effect(
           }
         }
 
-        const state = yield* loadState(projectDir, workflowID)
-        const next = withCompletedTask(state, task)
-        yield* saveState(projectDir, next)
-
-        yield* Effect.promise(() =>
-          WorkflowArtifact.appendDecision(projectDir, workflowID, {
-            action: "workflow.executor.task_ran",
-            previous_state: state.state,
-            new_state: next.state,
-            summary: `Ran task ${task.id}: ${task.description}`,
-          }),
+        return yield* Effect.fail(
+          new Error("Direct task execution is disabled because it cannot provide implementation, scope, and validation evidence. Use the workflow executor loop instead."),
         )
-
-        return {
-          task_id: task.id,
-          task_description: task.description,
-          success: true,
-          files_changed: [],
-          summary: `Task "${task.description}" marked complete.`,
-        }
       },
     )
 

@@ -127,6 +127,53 @@ export function validateAllowedFiles(allowedPaths: readonly string[], files: rea
   }
 }
 
+function hasHeading(content: string, heading: string) {
+  return new RegExp(`^##\\s+${heading}\\s*$`, "im").test(content)
+}
+
+function validateArtifactStructure(contents: Record<Exclude<ArtifactFile, "AMENDMENT.md">, string>) {
+  const missing = [
+    ...[
+      "Summary",
+      "Goals",
+      "Non-Goals",
+      "Current Behavior",
+      "Proposed Behavior",
+      "Architecture",
+      "Expected Files",
+      "Data Model Changes",
+      "CLI/TUI Changes",
+      "GitHub PR Flow",
+      "Test Plan",
+      "Rollback Plan",
+      "Open Questions",
+    ].filter((heading) => !hasHeading(contents["SPEC.md"], heading)).map((heading) => `SPEC.md#${heading}`),
+    ...[
+      "Allowed Paths",
+      "Expected New Files",
+      "Forbidden Paths",
+      "Dependency Changes",
+      "Data Model Changes",
+      "Security Considerations",
+      "Migration Risk",
+      "User-Visible Changes",
+      "Review Response Boundaries",
+      "Rollback Notes",
+    ].filter((heading) => !hasHeading(contents["IMPACT.md"], heading)).map((heading) => `IMPACT.md#${heading}`),
+  ]
+
+  const taskLines = contents["TASKS.md"]
+    .split(/\r?\n/)
+    .filter((line) => /^-\s+\[[ x]\]\s+/.test(line.trim()))
+  const malformedTasks = taskLines.filter((line) =>
+    !/\|\s*files:\s*.+\|\s*validation:\s*.+\|\s*status:\s*.+\|\s*evidence:\s*.+\|\s*github:\s*.+/i.test(line),
+  )
+  if (taskLines.length === 0) missing.push("TASKS.md#tasks")
+  if (malformedTasks.length > 0) missing.push("TASKS.md#task-metadata")
+  if (!/^#\s+GitHub\s*$/im.test(contents["GITHUB.md"])) missing.push("GITHUB.md#GitHub")
+  return missing
+}
+
 export interface Interface {
   readonly readState: (directory: string, workflowID: string) => Effect.Effect<WorkflowStateFile>
   readonly readArtifact: (directory: string, workflowID: string, file: ArtifactFile) => Effect.Effect<string>
@@ -219,7 +266,24 @@ export const layer = Layer.effect(
       )
       const missing = results.filter((r) => !r.present).map((r) => r.file)
 
-      if (missing.length === 0) {
+      if (missing.length > 0) {
+        return {
+          ok: false,
+          checked_at: WorkflowState.now(),
+          summary: `Missing required workflow artifacts: ${missing.join(", ")}`,
+          files: missing,
+        }
+      }
+
+      const contentEntries = yield* Effect.all(
+        RequiredArtifactFiles.map((file) =>
+          readArtifact(directory, workflowID, file).pipe(Effect.map((content) => [file, content] as const)),
+        ),
+        { concurrency: "unbounded" },
+      )
+      const structureMissing = validateArtifactStructure(Object.fromEntries(contentEntries) as Record<Exclude<ArtifactFile, "AMENDMENT.md">, string>)
+
+      if (structureMissing.length === 0) {
         return {
           ok: true,
           checked_at: WorkflowState.now(),
@@ -230,8 +294,8 @@ export const layer = Layer.effect(
       return {
         ok: false,
         checked_at: WorkflowState.now(),
-        summary: `Missing required workflow artifacts: ${missing.join(", ")}`,
-        files: missing,
+        summary: `Invalid workflow artifact structure: ${structureMissing.join(", ")}`,
+        files: structureMissing,
       }
     })
 
@@ -448,6 +512,8 @@ Revert the implementation PR and leave workflow artifacts in place.
             : undefined,
           state.plan_pull_request.approved_by ? `Plan approved by: ${state.plan_pull_request.approved_by}` : undefined,
           state.plan_pull_request.approved_at ? `Plan approved at: ${state.plan_pull_request.approved_at}` : undefined,
+          state.plan_approval ? `Plan approval evidence: ${state.plan_approval.github_review_evidence ?? state.plan_approval.approved_spec_hash}` : undefined,
+          state.plan_approval?.approved_scope_summary ? `Approved scope: ${state.plan_approval.approved_scope_summary}` : undefined,
           "",
           `Code branch: ${state.code_branch ?? "none"}`,
           `Code review state: ${state.code_pull_request.review_state}`,
@@ -464,6 +530,8 @@ Revert the implementation PR and leave workflow artifacts in place.
             : undefined,
           state.code_pull_request.approved_by ? `Code approved by: ${state.code_pull_request.approved_by}` : undefined,
           state.code_pull_request.approved_at ? `Code approved at: ${state.code_pull_request.approved_at}` : undefined,
+          state.code_approval ? `Code approval evidence: ${state.code_approval.github_review_evidence ?? state.code_approval.code_head_commit}` : undefined,
+          state.code_approval?.validation_evidence ? `Validation evidence: ${state.code_approval.validation_evidence}` : undefined,
           "",
           `Open comments: ${WorkflowState.openComments(state).length}`,
         ]

@@ -99,6 +99,29 @@ describe("workflow", () => {
     })
   })
 
+  test("rejects structurally incomplete plan artifacts", async () => {
+    await using tmp = await tmpdir({ git: true })
+
+    const state = await Workflow.start({
+      directory: tmp.path,
+      title: "Reject incomplete plan",
+      localDraft: true,
+    })
+    await Bun.write(
+      WorkflowArtifact.artifactPath(tmp.path, state.workflow_id, "SPEC.md"),
+      "# Missing required workflow sections\n",
+    )
+
+    await expect(
+      Workflow.submitPlan({
+        directory: tmp.path,
+        workflowID: state.workflow_id,
+        base: "HEAD",
+        dryRun: true,
+      }),
+    ).rejects.toThrow("Invalid workflow artifact structure")
+  })
+
   test("enforces state transitions", () => {
     expect(WorkflowState.canTransition("drafting_spec", "awaiting_plan_review")).toBe(true)
     expect(WorkflowState.canTransition("drafting_spec", "executing")).toBe(false)
@@ -361,11 +384,12 @@ describe("workflow", () => {
     })
 
     expect((await Workflow.pause(tmp.path, draft.workflow_id)).state).toBe("paused")
-    expect((await Workflow.resume(tmp.path, draft.workflow_id)).state).toBe("awaiting_plan_review")
+    expect((await Workflow.resume(tmp.path, draft.workflow_id)).state).toBe("drafting_spec")
 
     const awaitingReview = await Workflow.get(tmp.path, draft.workflow_id)
     await WorkflowArtifact.writeState(tmp.path, {
       ...awaitingReview,
+      state: "plan_approved",
       plan_pull_request: {
         number: 7,
         url: "https://github.com/acme/repo/pull/7",
@@ -611,6 +635,59 @@ pending
     expect(decisions).toContain("workflow.comment.requires_amendment")
     expect(await Bun.file(WorkflowArtifact.artifactPath(tmp.path, state.workflow_id, "AMENDMENT.md")).text()).toContain(
       "Path docs/feature.md matches forbidden path docs/**",
+    )
+  })
+
+  test("post-approval plan comments also pass through the scope guard", async () => {
+    await using tmp = await tmpdir({ git: true })
+
+    const state = await Workflow.start({
+      directory: tmp.path,
+      title: "Guard approved plan comments",
+      localDraft: true,
+    })
+    await Bun.write(
+      WorkflowArtifact.artifactPath(tmp.path, state.workflow_id, "SPEC.md"),
+      "# Guard approved plan comments\n\n## Summary\n\nUpdate API implementation.\n\n## Requirements\n\n- Update API implementation\n\n## Out of Scope\n\n- Documentation site\n",
+    )
+    await Bun.write(
+      WorkflowArtifact.artifactPath(tmp.path, state.workflow_id, "IMPACT.md"),
+      "# Impact\n\n## Allowed Paths\n\n- src/**\n\n## Forbidden Paths\n\n- docs/**\n",
+    )
+    const approvedHash = await WorkflowArtifact.hashApprovedArtifacts(tmp.path, state.workflow_id)
+    await WorkflowArtifact.writeState(tmp.path, {
+      ...state,
+      state: "plan_approved",
+      approved_spec_hash: approvedHash,
+      approved_plan_commit: "abc123",
+      plan_pull_request: {
+        number: 7,
+        url: "https://github.com/acme/repo/pull/7",
+        branch: state.plan_branch,
+        head_commit: "abc123",
+        review_state: "approved",
+        comments: [],
+      },
+    })
+
+    const next = await Workflow.recordComment({
+      directory: tmp.path,
+      workflowID: state.workflow_id,
+      pullRequest: "plan",
+      comment: {
+        id: "plan_scope",
+        url: "https://github.com/acme/repo/pull/7#discussion_r1",
+        body: "Please add a documentation site page for this feature.",
+        path: "docs/feature.md",
+      },
+    })
+
+    expect(next.state).toBe("needs_amendment")
+    expect(next.plan_pull_request.comments).toContainEqual(
+      expect.objectContaining({
+        id: "plan_scope",
+        state: "out_of_scope",
+      }),
     )
   })
 

@@ -41,6 +41,15 @@ export const PlanReviewCommentReceived = BusEvent.define(
   }),
 )
 
+export const PlanReviewCommentAddressed = BusEvent.define(
+  "workflow.plan_review.comment_addressed",
+  Schema.Struct({
+    workflow_id: Schema.String,
+    pull_request: Schema.Number,
+    comment_id: Schema.String,
+  }),
+)
+
 export const PlanReviewApproved = BusEvent.define(
   "workflow.plan_review.approved",
   Schema.Struct({
@@ -48,6 +57,14 @@ export const PlanReviewApproved = BusEvent.define(
     pull_request: Schema.Number,
     approved_commit: Schema.String,
     approved_spec_hash: Schema.String,
+  }),
+)
+
+export const ExecutionPaused = BusEvent.define(
+  "workflow.execution.paused",
+  Schema.Struct({
+    workflow_id: Schema.String,
+    reason: Schema.String,
   }),
 )
 
@@ -80,11 +97,28 @@ export const CodeReviewCommentReceived = BusEvent.define(
   }),
 )
 
+export const CodeReviewCommentAddressed = BusEvent.define(
+  "workflow.code_review.comment_addressed",
+  Schema.Struct({
+    workflow_id: Schema.String,
+    pull_request: Schema.Number,
+    comment_id: Schema.String,
+  }),
+)
+
 export const CodeReviewApproved = BusEvent.define(
   "workflow.code_review.approved",
   Schema.Struct({
     workflow_id: Schema.String,
     pull_request: Schema.Number,
+  }),
+)
+
+export const AmendmentRequired = BusEvent.define(
+  "workflow.amendment.required",
+  Schema.Struct({
+    workflow_id: Schema.String,
+    reason: Schema.String,
   }),
 )
 
@@ -123,6 +157,24 @@ export const SessionUpdated = BusEvent.define(
   }),
 )
 
+export const SessionPaused = BusEvent.define(
+  "workflow.session.paused",
+  Schema.Struct({
+    workflow_id: Schema.String,
+    session_id: Schema.String,
+    role: Schema.String,
+  }),
+)
+
+export const SessionResumed = BusEvent.define(
+  "workflow.session.resumed",
+  Schema.Struct({
+    workflow_id: Schema.String,
+    session_id: Schema.String,
+    role: Schema.String,
+  }),
+)
+
 export const SessionSteered = BusEvent.define(
   "workflow.session.steered",
   Schema.Struct({
@@ -130,6 +182,16 @@ export const SessionSteered = BusEvent.define(
     session_id: Schema.String,
     instruction: Schema.String,
     github_comment_url: Schema.optional(Schema.String),
+  }),
+)
+
+export const SessionFailed = BusEvent.define(
+  "workflow.session.failed",
+  Schema.Struct({
+    workflow_id: Schema.String,
+    session_id: Schema.String,
+    role: Schema.String,
+    reason: Schema.optional(Schema.String),
   }),
 )
 

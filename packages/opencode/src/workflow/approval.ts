@@ -148,9 +148,21 @@ export const layer = Layer.effect(
       function* (projectDir: string, workflowID: string, evidence: PlanApprovalEvidence) {
         const state = yield* loadState(projectDir, workflowID)
         const next = {
-          ...state,
+          ...WorkflowState.transitionOrCurrent(state, "plan_approved"),
           approved_spec_hash: evidence.approved_spec_hash,
           approved_plan_commit: evidence.approved_plan_commit,
+          plan_approval: {
+            workflow_id: workflowID,
+            pull_request_number: evidence.pull_request_number,
+            pull_request_url: evidence.pull_request_url,
+            spec_version: state.spec_version ?? 1,
+            approved_spec_hash: evidence.approved_spec_hash,
+            approved_plan_commit: evidence.approved_plan_commit,
+            approved_scope_summary: evidence.approved_scope_summary,
+            approved_by: evidence.approved_by,
+            approved_at: evidence.approved_at,
+            github_review_evidence: evidence.github_review_evidence,
+          },
           updated_at: WorkflowState.now(),
         }
         yield* saveState(projectDir, next)
@@ -203,6 +215,18 @@ export const layer = Layer.effect(
         const state = yield* loadState(projectDir, workflowID)
         const next = {
           ...state,
+          code_approval: {
+            workflow_id: workflowID,
+            pull_request_number: evidence.pull_request_number,
+            pull_request_url: evidence.pull_request_url,
+            approved_plan_pull_request_number: evidence.approved_plan_pull_request_number,
+            approved_spec_hash: evidence.approved_spec_hash,
+            code_head_commit: evidence.code_head_commit,
+            validation_evidence: evidence.validation_evidence,
+            approved_by: evidence.approved_by,
+            approved_at: evidence.approved_at,
+            github_review_evidence: evidence.github_review_evidence,
+          },
           updated_at: WorkflowState.now(),
         }
         yield* saveState(projectDir, next)

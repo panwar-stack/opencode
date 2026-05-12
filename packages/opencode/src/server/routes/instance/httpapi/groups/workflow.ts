@@ -8,6 +8,7 @@ import {
 } from "../middleware/workspace-routing"
 import { ApiNotFoundError } from "../errors"
 import { described } from "./metadata"
+import { CommentStates, ReviewStates, SessionRoles, WorkflowStates } from "@/workflow/state"
 
 const root = "/workflow"
 
@@ -55,8 +56,8 @@ const CommentInfo = Schema.Struct({
   url: Schema.optional(Schema.String),
   author: Schema.optional(Schema.String),
   body: Schema.String,
-  state: Schema.String,
-  source: Schema.String,
+  state: Schema.Literals(CommentStates),
+  source: Schema.Literals(["issue_comment", "review_comment", "review"]),
   path: Schema.optional(Schema.String),
   line: Schema.optional(Schema.Number),
   created_at: Schema.optional(Schema.String),
@@ -68,7 +69,7 @@ const PullRequestInfo = Schema.Struct({
   url: Schema.optional(Schema.String),
   branch: Schema.optional(Schema.String),
   head_commit: Schema.optional(Schema.String),
-  review_state: Schema.String,
+  review_state: Schema.Literals(ReviewStates),
   reviewers: Schema.optional(Schema.Array(Schema.String)),
   latest_review_at: Schema.optional(Schema.String),
   latest_review_url: Schema.optional(Schema.String),
@@ -79,28 +80,63 @@ const PullRequestInfo = Schema.Struct({
 
 const SessionInfo = Schema.Struct({
   id: Schema.String,
-  role: Schema.String,
-  status: Schema.String,
+  role: Schema.Literals(SessionRoles),
+  status: Schema.Literals(["active", "waiting", "completed", "failed"]),
   task: Schema.String,
+  agent: Schema.optional(Schema.String),
+  files_touched: Schema.optional(Schema.Array(Schema.String)),
+  input_needed: Schema.optional(Schema.String),
   created_at: Schema.String,
   updated_at: Schema.String,
   github_comment_url: Schema.optional(Schema.String),
 })
 
+const PlanApprovalInfo = Schema.Struct({
+  workflow_id: Schema.String,
+  pull_request_number: Schema.Number,
+  pull_request_url: Schema.optional(Schema.String),
+  spec_version: Schema.optional(Schema.Number),
+  approved_spec_hash: Schema.String,
+  approved_plan_commit: Schema.String,
+  approved_scope_summary: Schema.optional(Schema.String),
+  approved_by: Schema.optional(Schema.String),
+  approved_at: Schema.String,
+  github_review_evidence: Schema.optional(Schema.String),
+})
+
+const CodeApprovalInfo = Schema.Struct({
+  workflow_id: Schema.String,
+  pull_request_number: Schema.Number,
+  pull_request_url: Schema.optional(Schema.String),
+  approved_plan_pull_request_number: Schema.optional(Schema.Number),
+  approved_spec_hash: Schema.optional(Schema.String),
+  code_head_commit: Schema.optional(Schema.String),
+  validation_evidence: Schema.optional(Schema.String),
+  approved_by: Schema.optional(Schema.String),
+  approved_at: Schema.String,
+  github_review_evidence: Schema.optional(Schema.String),
+})
+
 export const WorkflowResponse = Schema.Struct({
   workflow_id: Schema.String,
   title: Schema.String,
-  state: Schema.String,
+  state: Schema.Literals(WorkflowStates),
   artifact_dir: Schema.String,
   created_at: Schema.String,
   updated_at: Schema.String,
+  spec_version: Schema.optional(Schema.Number),
   plan_branch: Schema.String,
   code_branch: Schema.optional(Schema.String),
   approved_spec_hash: Schema.optional(Schema.String),
   approved_plan_commit: Schema.optional(Schema.String),
+  plan_approval: Schema.optional(PlanApprovalInfo),
+  code_approval: Schema.optional(CodeApprovalInfo),
+  paused_from_state: Schema.optional(Schema.Literals(WorkflowStates)),
+  completed_tasks: Schema.optional(Schema.Array(Schema.String)),
   current_task: Schema.optional(Schema.String),
   active_session_id: Schema.optional(Schema.String),
   user_input_needed: Schema.optional(Schema.String),
+  last_synced_at: Schema.optional(Schema.String),
   last_validation: Schema.optional(ValidationInfo),
   plan_pull_request: PullRequestInfo,
   code_pull_request: PullRequestInfo,

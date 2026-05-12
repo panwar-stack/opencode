@@ -75,7 +75,7 @@ export const layer = Layer.effect(
     const artifact = yield* WorkflowArtifact.Service
 
     const createSession = Effect.fn("WorkflowSession.createSession")(
-      function* (directory: string, workflowID: string, role: SessionRole, _agent?: string) {
+      function* (directory: string, workflowID: string, role: SessionRole, agent?: string) {
         const state = yield* workflow.get(directory, workflowID)
         const taskMap: Record<SessionRole, string> = {
           planner: "Draft workflow plan artifacts",
@@ -94,6 +94,7 @@ export const layer = Layer.effect(
           role,
           status: "active",
           task,
+          agent,
           created_at: created,
           updated_at: created,
         }

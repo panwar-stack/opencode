@@ -35,6 +35,8 @@ export type WorkflowSession = {
   readonly status: "active" | "waiting" | "completed" | "failed"
   readonly task: string
   readonly agent?: string
+  readonly files_touched?: readonly string[]
+  readonly input_needed?: string
   readonly created_at: string
   readonly updated_at: string
   readonly github_comment_url?: string
@@ -73,6 +75,32 @@ export type PullRequestState = {
 
 export type PullRequestKind = "plan" | "code"
 
+export type PlanApprovalRecord = {
+  readonly workflow_id: string
+  readonly pull_request_number: number
+  readonly pull_request_url?: string
+  readonly spec_version?: number
+  readonly approved_spec_hash: string
+  readonly approved_plan_commit: string
+  readonly approved_scope_summary?: string
+  readonly approved_by?: string
+  readonly approved_at: string
+  readonly github_review_evidence?: string
+}
+
+export type CodeApprovalRecord = {
+  readonly workflow_id: string
+  readonly pull_request_number: number
+  readonly pull_request_url?: string
+  readonly approved_plan_pull_request_number?: number
+  readonly approved_spec_hash?: string
+  readonly code_head_commit?: string
+  readonly validation_evidence?: string
+  readonly approved_by?: string
+  readonly approved_at: string
+  readonly github_review_evidence?: string
+}
+
 export type WorkflowStateFile = {
   readonly workflow_id: string
   readonly title: string
@@ -80,10 +108,14 @@ export type WorkflowStateFile = {
   readonly artifact_dir: string
   readonly created_at: string
   readonly updated_at: string
+  readonly spec_version?: number
   readonly plan_branch: string
   readonly code_branch?: string
   readonly approved_spec_hash?: string
   readonly approved_plan_commit?: string
+  readonly plan_approval?: PlanApprovalRecord
+  readonly code_approval?: CodeApprovalRecord
+  readonly paused_from_state?: StateName
   readonly completed_tasks?: readonly string[]
   readonly current_task?: string
   readonly active_session_id?: string
@@ -134,11 +166,13 @@ const transitions: Record<StateName, readonly StateName[]> = {
     "drafting_spec",
     "submitting_plan_pull_request",
     "awaiting_plan_review",
+    "addressing_plan_comments",
     "plan_approved",
     "executing",
     "validating",
     "submitting_code_pull_request",
     "awaiting_code_review",
+    "addressing_code_comments",
     "needs_amendment",
     "failed",
     "cancelled",

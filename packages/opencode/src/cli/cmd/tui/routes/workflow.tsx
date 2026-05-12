@@ -247,7 +247,7 @@ function WorkflowListView() {
   const [loading, setLoading] = createSignal(true)
 
   const refresh = async () => {
-    const dir = project.instance.directory()
+    const dir = project.instance.worktree()
     if (!dir) return
     const list = await loadWorkflowList(dir)
     setWorkflows(list)
@@ -821,7 +821,7 @@ function WorkflowDetailView(props: { workflowID: string; initialTab?: string }) 
   const [loading, setLoading] = createSignal(true)
   const [tab, setTab] = createSignal<WorkflowTab>((props.initialTab as WorkflowTab) || "spec")
 
-  const dir = () => project.instance.directory()
+  const dir = () => project.instance.worktree()
 
   const refresh = async () => {
     const d = dir()

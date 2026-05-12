@@ -292,6 +292,7 @@ const assertApprovedPlan = (artifact: WorkflowArtifact.Interface, directory: str
         ...state,
         approved_spec_hash: undefined,
         approved_plan_commit: undefined,
+        plan_approval: undefined,
         user_input_needed: "Approved workflow artifacts changed after plan approval.",
         plan_pull_request: {
           ...state.plan_pull_request,
@@ -523,8 +524,8 @@ export const layer = Layer.effect(
     const configOpt = yield* Effect.serviceOption(Config.Service)
     const wf = Option.isSome(configOpt) ? (yield* configOpt.value.get()).workflow ?? {} : {}
     const prBaseBranch = wf.pull_request_base ?? "dev"
-    const requirePlanApproval = wf.require_plan_pull_request_approval ?? true
-    const requireCodeApproval = wf.require_code_pull_request_approval ?? true
+    const requirePlanApproval = true
+    const requireCodeApproval = true
     const planReviewerAgent = wf.plan_reviewer_agent
     const codeReviewerAgent = wf.code_reviewer_agent
     const permissionConfig = Option.isSome(configOpt) ? (yield* configOpt.value.get()).permission : undefined
@@ -540,8 +541,42 @@ export const layer = Layer.effect(
     const codeBranchPrefix = ghConfig.code_branch_prefix ?? "opencode/code"
     const planPRBase = ghConfig.plan_pull_request_base ?? prBaseBranch
     const codePRBase = ghConfig.code_pull_request_base ?? prBaseBranch
-    const commentSyncInterval = ghConfig.comment_sync_interval_seconds ?? 60
     const checks = wf.checks ?? ["typecheck"]
+
+    const planApprovalRecord = (state: WorkflowStateFile, hash: string): WorkflowState.PlanApprovalRecord | undefined => {
+      if (!state.plan_pull_request.number || !state.plan_pull_request.head_commit) return undefined
+      if (!WorkflowState.isApprovedReview(state.plan_pull_request.review_state)) return undefined
+      return {
+        workflow_id: state.workflow_id,
+        pull_request_number: state.plan_pull_request.number,
+        pull_request_url: state.plan_pull_request.url,
+        spec_version: state.spec_version ?? 1,
+        approved_spec_hash: hash,
+        approved_plan_commit: state.plan_pull_request.head_commit,
+        approved_scope_summary: `Approved scope is defined by ${WorkflowArtifact.relativeArtifactDir(state.workflow_id)}/SPEC.md, TASKS.md, and IMPACT.md.`,
+        approved_by: state.plan_pull_request.approved_by,
+        approved_at: state.plan_pull_request.approved_at ?? state.plan_pull_request.latest_review_at ?? WorkflowState.now(),
+        github_review_evidence: state.plan_pull_request.latest_review_url ?? state.plan_pull_request.url,
+      }
+    }
+
+    const codeApprovalRecord = (state: WorkflowStateFile): WorkflowState.CodeApprovalRecord | undefined => {
+      if (!state.code_pull_request.number || !state.code_pull_request.head_commit) return undefined
+      if (!WorkflowState.isApprovedReview(state.code_pull_request.review_state)) return undefined
+      if (!state.last_validation?.ok) return undefined
+      return {
+        workflow_id: state.workflow_id,
+        pull_request_number: state.code_pull_request.number,
+        pull_request_url: state.code_pull_request.url,
+        approved_plan_pull_request_number: state.plan_pull_request.number,
+        approved_spec_hash: state.approved_spec_hash,
+        code_head_commit: state.code_pull_request.head_commit,
+        validation_evidence: state.last_validation.summary,
+        approved_by: state.code_pull_request.approved_by,
+        approved_at: state.code_pull_request.approved_at ?? state.code_pull_request.latest_review_at ?? WorkflowState.now(),
+        github_review_evidence: state.code_pull_request.latest_review_url ?? state.code_pull_request.url,
+      }
+    }
 
     const guardPostApprovalInput = Effect.fn("Workflow.guardPostApprovalInput")(function* (
       directory: string,
@@ -652,10 +687,11 @@ export const layer = Layer.effect(
       const state: WorkflowStateFile = {
         workflow_id: workflowID,
         title: input.title,
-        state: input.localDraft ? "drafting_spec" : "awaiting_plan_review",
+        state: "drafting_spec",
         artifact_dir: WorkflowArtifact.relativeArtifactDir(workflowID),
         created_at: created,
         updated_at: created,
+        spec_version: 1,
         plan_branch: planBranch(workflowID, input.title, planBranchPrefix),
         code_branch: codeBranch(workflowID, input.title, codeBranchPrefix),
         current_task: "Draft plan artifacts",
@@ -797,7 +833,7 @@ export const layer = Layer.effect(
           )
         : localPrState
 
-      const next = withPlanReviewState({
+      const reviewed = withPlanReviewState({
         ...(yield* get(input.directory, input.workflowID)),
         plan_branch: branch,
         plan_pull_request: {
@@ -811,6 +847,10 @@ export const layer = Layer.effect(
         approved_spec_hash: WorkflowState.isApprovedReview(prState.review_state) && prState.head_commit ? specHash : state.approved_spec_hash,
         approved_plan_commit: WorkflowState.isApprovedReview(prState.review_state) && prState.head_commit ? prState.head_commit : state.approved_plan_commit,
       })
+      const next = {
+        ...reviewed,
+        plan_approval: planApprovalRecord(reviewed, specHash) ?? reviewed.plan_approval,
+      }
       yield* persist(artifact, input.directory, next)
       yield* artifact.appendDecision(input.directory, input.workflowID, {
         action: "workflow.plan_pull_request.submitted",
@@ -820,6 +860,16 @@ export const layer = Layer.effect(
         evidence: prState.head_commit,
         pull_request: prState.number,
       })
+      if (next.plan_approval && !state.plan_approval) {
+        yield* artifact.appendDecision(input.directory, input.workflowID, {
+          action: "workflow.plan_review.approved",
+          previous_state: state.state,
+          new_state: next.state,
+          summary: `Plan approved by ${next.plan_approval.approved_by ?? "reviewer"} on PR #${next.plan_approval.pull_request_number}.`,
+          evidence: next.plan_approval.github_review_evidence ?? next.plan_approval.approved_spec_hash,
+          pull_request: next.plan_approval.pull_request_number,
+        })
+      }
 
       yield* bus.publish(WorkflowEvents.PlanPullRequestSubmitted, {
         workflow_id: input.workflowID,
@@ -1105,7 +1155,7 @@ export const layer = Layer.effect(
           )
         : localPrState
 
-      const next = withCodeReviewState({
+      const reviewed = withCodeReviewState({
         ...(yield* get(input.directory, input.workflowID)),
         code_branch: branch,
         code_pull_request: {
@@ -1117,6 +1167,10 @@ export const layer = Layer.effect(
           comments: prState.comments,
         },
       }, requireCodeApproval)
+      const next = {
+        ...reviewed,
+        code_approval: codeApprovalRecord(reviewed) ?? reviewed.code_approval,
+      }
       yield* persist(artifact, input.directory, next)
       yield* artifact.appendDecision(input.directory, input.workflowID, {
         action: "workflow.code_pull_request.submitted",
@@ -1126,6 +1180,16 @@ export const layer = Layer.effect(
         evidence: prState.head_commit,
         pull_request: prState.number,
       })
+      if (next.code_approval && !state.code_approval) {
+        yield* artifact.appendDecision(input.directory, input.workflowID, {
+          action: "workflow.code_review.approved",
+          previous_state: state.state,
+          new_state: next.state,
+          summary: `Code approved by ${next.code_approval.approved_by ?? "reviewer"} on PR #${next.code_approval.pull_request_number}.`,
+          evidence: next.code_approval.validation_evidence,
+          pull_request: next.code_approval.pull_request_number,
+        })
+      }
 
       yield* bus.publish(WorkflowEvents.CodePullRequestSubmitted, {
         workflow_id: input.workflowID,
@@ -1139,10 +1203,6 @@ export const layer = Layer.effect(
 
     const syncGithub = Effect.fn("Workflow.syncGithub")(function* (input: SyncInput) {
       const state = yield* get(input.directory, input.workflowID)
-      if (state.last_synced_at) {
-        const elapsed = (Date.now() - new Date(state.last_synced_at).getTime()) / 1000
-        if (elapsed < commentSyncInterval) return state
-      }
       if (!state.plan_pull_request.number && !state.code_pull_request.number) {
         return yield* Effect.fail(new Error("No GitHub pull request is recorded for this workflow."))
       }
@@ -1163,7 +1223,7 @@ export const layer = Layer.effect(
 
       const currentHash = yield* artifact.hashApprovedArtifacts(input.directory, input.workflowID)
       const planDrift = state.approved_spec_hash !== undefined && currentHash !== state.approved_spec_hash
-      const reviewedState = withCodeReviewState(
+      const reviewedWithoutEvidence = withCodeReviewState(
         withPlanReviewState({
           ...state,
           plan_pull_request: {
@@ -1175,20 +1235,26 @@ export const layer = Layer.effect(
             comments: WorkflowGithub.mergeCommentState(state.code_pull_request.comments, code.comments),
           },
           approved_spec_hash: WorkflowState.isApprovedReview(plan.review_state) && !planDrift && plan.head_commit
-            ? (state.approved_spec_hash ?? currentHash)
+            ? currentHash
             : state.approved_spec_hash,
           approved_plan_commit: WorkflowState.isApprovedReview(plan.review_state) && !planDrift && plan.head_commit
-            ? (state.approved_plan_commit ?? plan.head_commit)
+            ? plan.head_commit
             : state.approved_plan_commit,
         }),
         requireCodeApproval,
       )
+      const reviewedState = {
+        ...reviewedWithoutEvidence,
+        plan_approval: planApprovalRecord(reviewedWithoutEvidence, currentHash) ?? reviewedWithoutEvidence.plan_approval,
+        code_approval: codeApprovalRecord(reviewedWithoutEvidence) ?? reviewedWithoutEvidence.code_approval,
+      }
       const next = planDrift
         ? WorkflowState.transitionOrCurrent(
             {
               ...reviewedState,
               approved_spec_hash: undefined,
               approved_plan_commit: undefined,
+              plan_approval: undefined,
               user_input_needed: "Approved workflow artifacts changed after plan approval.",
               plan_pull_request: {
                 ...reviewedState.plan_pull_request,
@@ -1221,6 +1287,26 @@ export const layer = Layer.effect(
         evidence: planDrift ? state.approved_spec_hash : plan.url,
         pull_request: plan.number,
       })
+      if (next.plan_approval && !state.plan_approval) {
+        yield* artifact.appendDecision(input.directory, input.workflowID, {
+          action: "workflow.plan_review.approved",
+          previous_state: state.state,
+          new_state: next.state,
+          summary: `Plan approved by ${next.plan_approval.approved_by ?? "reviewer"} on PR #${next.plan_approval.pull_request_number}.`,
+          evidence: next.plan_approval.github_review_evidence ?? next.plan_approval.approved_spec_hash,
+          pull_request: next.plan_approval.pull_request_number,
+        })
+      }
+      if (next.code_approval && !state.code_approval) {
+        yield* artifact.appendDecision(input.directory, input.workflowID, {
+          action: "workflow.code_review.approved",
+          previous_state: state.state,
+          new_state: next.state,
+          summary: `Code approved by ${next.code_approval.approved_by ?? "reviewer"} on PR #${next.code_approval.pull_request_number}.`,
+          evidence: next.code_approval.validation_evidence,
+          pull_request: next.code_approval.pull_request_number,
+        })
+      }
 
       if (WorkflowState.isApprovedReview(plan.review_state) && !WorkflowState.isApprovedReview(state.plan_pull_request.review_state)) {
         yield* bus.publish(WorkflowEvents.PlanReviewApproved, {
@@ -1243,7 +1329,10 @@ export const layer = Layer.effect(
 
     const pause = Effect.fn("Workflow.pause")(function* (directory: string, workflowID: string) {
       const state = yield* get(directory, workflowID)
-      const next = WorkflowState.withState(state, "paused")
+      const next = {
+        ...WorkflowState.withState(state, "paused"),
+        paused_from_state: state.state,
+      }
       yield* persist(artifact, directory, next)
       yield* artifact.appendDecision(directory, workflowID, {
         action: "workflow.paused",
@@ -1251,13 +1340,21 @@ export const layer = Layer.effect(
         new_state: next.state,
         summary: "Workflow paused by user.",
       })
+      yield* bus.publish(WorkflowEvents.ExecutionPaused, {
+        workflow_id: workflowID,
+        reason: "Workflow paused by user.",
+      })
       return next
     })
 
     const resume = Effect.fn("Workflow.resume")(function* (directory: string, workflowID: string) {
       const state = yield* get(directory, workflowID)
-      const target = WorkflowState.isApprovedReview(state.plan_pull_request.review_state) ? "plan_approved" as const : "awaiting_plan_review" as const
-      const next = WorkflowState.transitionOrCurrent(state, target)
+      const target = state.paused_from_state ?? (WorkflowState.isApprovedReview(state.plan_pull_request.review_state) ? "plan_approved" as const : "awaiting_plan_review" as const)
+      const resumed = WorkflowState.transitionOrCurrent(state, target)
+      const next = {
+        ...resumed,
+        paused_from_state: undefined,
+      }
       const sameState = state.state === next.state
       yield* persist(artifact, directory, next)
       yield* artifact.appendDecision(directory, workflowID, {
@@ -1510,6 +1607,20 @@ export const layer = Layer.effect(
         summary: input.summary ?? `Marked ${input.pullRequest} comment ${input.commentID} as ${input.state}.`,
         pull_request: input.pullRequest === "plan" ? next.plan_pull_request.number : next.code_pull_request.number,
       })
+      if (input.state === "addressed") {
+        yield* bus.publish(
+          input.pullRequest === "plan"
+            ? WorkflowEvents.PlanReviewCommentAddressed
+            : WorkflowEvents.CodeReviewCommentAddressed,
+          {
+            workflow_id: input.workflowID,
+            pull_request: input.pullRequest === "plan"
+              ? next.plan_pull_request.number ?? 0
+              : next.code_pull_request.number ?? 0,
+            comment_id: input.commentID,
+          },
+        )
+      }
       return next
     })
 
@@ -1518,22 +1629,21 @@ export const layer = Layer.effect(
     const recordComment = Effect.fn("Workflow.recordComment")(function* (input: RecordCommentInput) {
       const state = yield* get(input.directory, input.workflowID)
       const recorded = WorkflowState.appendComment(state, input.pullRequest, input.comment)
-      const guarded = input.pullRequest === "code"
-        ? yield* guardPostApprovalInput(
-            input.directory,
-            recorded,
-            input.comment.body,
-            input.comment.url,
-            input.comment.path,
-          )
-        : undefined
+      const guarded = yield* guardPostApprovalInput(
+        input.directory,
+        recorded,
+        input.comment.body,
+        input.comment.url,
+        input.comment.path,
+      )
+      const key = input.pullRequest === "plan" ? "plan_pull_request" : "code_pull_request"
       const next = guarded
         ? amendmentState(
           {
             ...guarded.state,
-            code_pull_request: {
-              ...recorded.code_pull_request,
-              comments: recorded.code_pull_request.comments.map((comment) =>
+            [key]: {
+              ...recorded[key],
+              comments: recorded[key].comments.map((comment) =>
                 comment.id === input.comment.id
                   ? {
                       ...comment,
