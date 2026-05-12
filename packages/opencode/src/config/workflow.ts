@@ -32,6 +32,46 @@ export const Info = Schema.Struct({
   pull_request_base: Schema.optional(Schema.String).annotate({
     description: "Default base branch for pull requests. Defaults to 'dev'.",
   }),
+  allow_auto_amendment: Schema.optional(Schema.Boolean).annotate({
+    description: "Allow automatic amendment of workflow artifacts. Defaults to false.",
+  }),
+  checks: Schema.optional(Schema.Array(Schema.String)).annotate({
+    description: "Validation commands to run per task. Defaults to ['typecheck'].",
+  }),
+  allowed_paths: Schema.optional(Schema.Array(Schema.String)).annotate({
+    description: "Default allowed file paths for scope.",
+  }),
+  forbidden_paths: Schema.optional(Schema.Array(Schema.String)).annotate({
+    description: "Paths that are always forbidden.",
+  }),
+  github: Schema.optional(Schema.Struct({
+    enabled: Schema.optional(Schema.Boolean).annotate({
+      description: "Enable GitHub integration. Defaults to true.",
+    }),
+    remote: Schema.optional(Schema.String).annotate({
+      description: "Git remote name. Defaults to 'origin'.",
+    }),
+    plan_branch_prefix: Schema.optional(Schema.String).annotate({
+      description: "Prefix for plan branches. Defaults to 'opencode/plan'.",
+    }),
+    code_branch_prefix: Schema.optional(Schema.String).annotate({
+      description: "Prefix for code branches. Defaults to 'opencode/code'.",
+    }),
+    plan_pull_request_base: Schema.optional(Schema.String).annotate({
+      description: "Base branch for plan pull requests. Defaults to 'main'.",
+    }),
+    code_pull_request_base: Schema.optional(Schema.String).annotate({
+      description: "Base branch for code pull requests. Defaults to 'main'.",
+    }),
+    approval_source: Schema.optional(Schema.String).annotate({
+      description: "Source for pull request approval. Defaults to 'review_approval'.",
+    }),
+    comment_sync_interval_seconds: Schema.optional(Schema.Number).annotate({
+      description: "Interval in seconds for syncing GitHub comments. Defaults to 60.",
+    }),
+  })).annotate({
+    description: "GitHub integration configuration.",
+  }),
 })
   .annotate({ identifier: "WorkflowConfig" })
   .pipe(withStatics((s) => ({ zod: zod(s) })))

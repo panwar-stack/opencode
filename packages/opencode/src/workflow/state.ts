@@ -83,6 +83,7 @@ export type WorkflowStateFile = {
   readonly current_task?: string
   readonly active_session_id?: string
   readonly user_input_needed?: string
+  readonly last_synced_at?: string
   readonly last_validation?: {
     readonly ok: boolean
     readonly summary: string

@@ -16,6 +16,7 @@ export type StopReason =
   | "unrecoverable_error"
   | "unresolved_comments"
   | "user_stopped"
+  | "required_user_input"
 
 export type ExecutionResult = {
   readonly workflow_id: string
@@ -101,6 +102,21 @@ function hasOpenComments(state: WorkflowStateFile): boolean {
   return WorkflowState.openComments(state).length > 0
 }
 
+function extractFileReferences(description: string): string[] {
+  const backtick = /`([^`]+)`/g
+  const refs: string[] = []
+  let m: RegExpExecArray | null
+  while ((m = backtick.exec(description)) !== null) {
+    const inner = m[1].trim()
+    if (/\.[a-zA-Z]{1,6}$/.test(inner) || inner.includes("/")) refs.push(inner)
+  }
+  const plain = /(?<!`)\b([\w./-]+\.[a-zA-Z]{1,6})\b/g
+  while ((m = plain.exec(description)) !== null) {
+    refs.push(m[1])
+  }
+  return refs
+}
+
 function assertApprovedPlan(projectDir: string, workflowID: string): Effect.Effect<string, Error> {
   return Effect.gen(function* () {
     const state = yield* loadState(projectDir, workflowID)
@@ -179,6 +195,7 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const configOpt = yield* Effect.serviceOption(Config.Service)
     const wfMaxSteps = Option.isSome(configOpt) ? (yield* configOpt.value.get()).workflow?.max_steps ?? 10 : 10
+    const wfChecks = Option.isSome(configOpt) ? (yield* configOpt.value.get()).workflow?.checks ?? ["bun typecheck"] : ["bun typecheck"]
     const activeStops = new Map<string, boolean>()
 
     const run = Effect.fn("WorkflowExecutor.run")(
@@ -208,6 +225,29 @@ export const layer = Layer.effect(
         )
 
         while (stepCount < maxSteps) {
+          state = yield* loadState(projectDir, workflowID)
+
+          if (state.user_input_needed) {
+            const next = WorkflowState.withState(state, "paused")
+            yield* saveState(projectDir, next)
+            yield* Effect.promise(() =>
+              WorkflowArtifact.appendDecision(projectDir, workflowID, {
+                action: "workflow.executor.user_input_needed",
+                previous_state: state.state,
+                new_state: next.state,
+                summary: `Execution paused: ${state.user_input_needed}`,
+              }),
+            )
+            return {
+              workflow_id: workflowID,
+              state: next.state,
+              tasks_completed: tasksCompleted,
+              tasks_total: tasksTotal,
+              stop_reason: "required_user_input" as const,
+              summary: `User input needed: ${state.user_input_needed}`,
+            }
+          }
+
           if (activeStops.get(workflowID)) {
             activeStops.delete(workflowID)
             return {
@@ -269,6 +309,31 @@ export const layer = Layer.effect(
           const impact = yield* Effect.promise(() => WorkflowArtifact.readArtifact(projectDir, workflowID, "IMPACT.md"))
           const tasksMd = yield* Effect.promise(() => WorkflowArtifact.readArtifact(projectDir, workflowID, "TASKS.md"))
 
+          const allowedPaths = WorkflowArtifact.parseAllowedPaths(impact)
+
+          const fileRefs = extractFileReferences(task.description)
+          const outOfScopeRef = fileRefs.find((ref) => !allowedPaths.some((allow) => WorkflowArtifact.matchesAllowedPath(ref, allow)))
+          if (outOfScopeRef) {
+            const next = WorkflowState.withState(state, "validating")
+            yield* saveState(projectDir, next)
+            yield* Effect.promise(() =>
+              WorkflowArtifact.appendDecision(projectDir, workflowID, {
+                action: "workflow.executor.scope_drift_task",
+                previous_state: state.state,
+                new_state: next.state,
+                summary: `Task description references file outside allowed paths: "${outOfScopeRef}" in task "${task.description}"`,
+              }),
+            )
+            return {
+              workflow_id: workflowID,
+              state: next.state,
+              tasks_completed: tasksCompleted,
+              tasks_total: tasksTotal,
+              stop_reason: "scope_drift" as const,
+              summary: `Task "${task.description}" references "${outOfScopeRef}" which is outside the allowed paths.`,
+            }
+          }
+
           const sessionsOpt = yield* Effect.serviceOption(Session.Service)
           const promptOpt = yield* Effect.serviceOption(SessionPrompt.Service)
 
@@ -303,12 +368,15 @@ export const layer = Layer.effect(
             "## Impact Boundary (IMPACT.md)",
             impact,
             "",
+            "## Allowed Paths",
+            allowedPaths.length > 0 ? allowedPaths.map((p) => `- \`${p}\``).join("\n") : "(none defined — all paths restricted)",
+            "",
             "## Task List (TASKS.md)",
             tasksMd,
             "",
             "## Instructions",
             "- Implement ONLY this specific task — do NOT implement other tasks in the list",
-            "- Stay strictly within the allowed paths defined in IMPACT.md",
+            "- Stay strictly within the allowed paths listed above",
             "- Do NOT modify files outside the approved impact boundary",
             "- After implementation, verify your changes work by running tests or typecheck",
             "- Use tools like read, write, edit, and bash to explore and modify the codebase",
@@ -334,29 +402,44 @@ export const layer = Layer.effect(
               return out.trim().split(/\r?\n/).filter(Boolean)
             }).pipe(Effect.catch(() => Effect.succeed([] as string[])))
 
-            const validation = yield* Effect.promise(async () => {
-              const proc = Bun.spawn(["bun", "typecheck"], {
-                cwd: projectDir,
-                stdout: "pipe",
-                stderr: "pipe",
-              })
-              const [stdout, stderr] = await Promise.all([
-                new Response(proc.stdout).text(),
-                new Response(proc.stderr).text(),
-              ])
-              const exitCode = await proc.exited
-              return { ok: exitCode === 0, output: (stdout + stderr).trim() }
-            }).pipe(Effect.catch(() => Effect.succeed({ ok: false, output: "Failed to run typecheck" })))
+            const checks = wfChecks
+            let validationOk = true
+            let validationOutput = ""
+            for (const checkCmd of checks) {
+              const checkResult = yield* Effect.promise(async () => {
+                const parts = checkCmd.split(/\s+/)
+                const proc = Bun.spawn(parts, {
+                  cwd: projectDir,
+                  stdout: "pipe",
+                  stderr: "pipe",
+                })
+                const [stdout, stderr] = await Promise.all([
+                  new Response(proc.stdout).text(),
+                  new Response(proc.stderr).text(),
+                ])
+                const exitCode = await proc.exited
+                return { ok: exitCode === 0, output: (stdout + stderr).trim() }
+              }).pipe(Effect.catch(() => Effect.succeed({ ok: false, output: `Failed to run check: ${checkCmd}` })))
+              if (!checkResult.ok) {
+                validationOk = false
+                validationOutput = `${checkCmd}: ${checkResult.output}`
+                break
+              }
+            }
 
-            return { filesChanged, validationOk: validation.ok, validationOutput: validation.output }
+            return { filesChanged, validationOk, validationOutput, unrecoverable: false, permissionDenied: false }
           }).pipe(
-            Effect.catch(() =>
-              Effect.succeed({
+            Effect.catch((cause) => {
+              const msg = String(cause).toLowerCase()
+              const denied = msg.includes("permission") || msg.includes("denied") || msg.includes("eacces")
+              return Effect.succeed({
                 filesChanged: [] as string[],
                 validationOk: false,
-                validationOutput: "Agent invocation failed",
-              }),
-            ),
+                validationOutput: String(cause),
+                unrecoverable: !denied,
+                permissionDenied: denied,
+              })
+            }),
           )
 
           let scopeOk = true
@@ -367,6 +450,48 @@ export const layer = Layer.effect(
               const driftResult = yield* maybeScope.value.checkEdit(projectDir, workflowID, [...result.filesChanged])
               scopeOk = driftResult.allowed
               scopeReason = driftResult.reason
+            }
+          }
+
+          if (result.permissionDenied) {
+            const next = WorkflowState.withState(state, "paused")
+            yield* saveState(projectDir, next)
+            yield* Effect.promise(() =>
+              WorkflowArtifact.appendDecision(projectDir, workflowID, {
+                action: "workflow.executor.permission_denied",
+                previous_state: state.state,
+                new_state: next.state,
+                summary: `Permission denied for task ${task.id}: ${result.validationOutput}`,
+              }),
+            )
+            return {
+              workflow_id: workflowID,
+              state: next.state,
+              tasks_completed: tasksCompleted,
+              tasks_total: tasksTotal,
+              stop_reason: "permission_denied" as const,
+              summary: `Permission denied during task "${task.description}": ${result.validationOutput}`,
+            }
+          }
+
+          if (result.unrecoverable) {
+            const next = WorkflowState.withState(state, "failed")
+            yield* saveState(projectDir, next)
+            yield* Effect.promise(() =>
+              WorkflowArtifact.appendDecision(projectDir, workflowID, {
+                action: "workflow.executor.unrecoverable_error",
+                previous_state: state.state,
+                new_state: next.state,
+                summary: `Unrecoverable error for task ${task.id}: ${result.validationOutput}`,
+              }),
+            )
+            return {
+              workflow_id: workflowID,
+              state: next.state,
+              tasks_completed: tasksCompleted,
+              tasks_total: tasksTotal,
+              stop_reason: "unrecoverable_error" as const,
+              summary: `Unrecoverable error during task "${task.description}": ${result.validationOutput}`,
             }
           }
 
