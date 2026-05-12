@@ -5,6 +5,7 @@ import { WorkflowArtifact, type ValidationResult } from "./artifact"
 import { WorkflowGithub } from "./github"
 import { WorkflowApproval } from "./approval"
 import { WorkflowScope } from "./scope"
+import { WorkflowExecutor } from "./executor"
 import {
   WorkflowState,
   WorkflowStates,
@@ -169,6 +170,17 @@ const ghPullRequestStateForBranch = (directory: string, branch: string) =>
       comments: [],
       reviews: [],
     })
+  })
+
+const githubRepo = (directory: string) =>
+  Effect.gen(function* () {
+    const result = yield* execCommand(
+      "gh",
+      ["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"],
+      directory,
+    ).pipe(Effect.catch(() => Effect.succeed({ exitCode: 1, stdout: "", stderr: "" })))
+    if (result.exitCode === 0 && result.stdout.trim().length > 0) return result.stdout.trim()
+    return undefined
   })
 
 const changedFiles = (directory: string, base: string) =>
@@ -494,6 +506,7 @@ export const layer = Layer.effect(
     const github = yield* WorkflowGithub.Service
     const approval = yield* WorkflowApproval.Service
     const scope = yield* WorkflowScope.Service
+    const executorOpt = yield* Effect.serviceOption(WorkflowExecutor.Service)
     const configOpt = yield* Effect.serviceOption(Config.Service)
     const wf = Option.isSome(configOpt) ? (yield* configOpt.value.get()).workflow ?? {} : {}
     const prBaseBranch = wf.pull_request_base ?? "dev"
@@ -552,6 +565,55 @@ export const layer = Layer.effect(
         reason: classification.reason,
         state: amendmentState(yield* get(directory, state.workflow_id), classification.reason),
       }
+    })
+
+    const guardSyncedComments = Effect.fn("Workflow.guardSyncedComments")(function* (
+      directory: string,
+      state: WorkflowStateFile,
+    ) {
+      if (!postApprovalState(state)) return state
+      const spec = yield* artifact.readArtifact(directory, state.workflow_id, "SPEC.md")
+      const parsed = yield* scope.parseSpecContent(spec)
+      for (const comment of [...state.plan_pull_request.comments, ...state.code_pull_request.comments]) {
+        if (comment.state !== "open") continue
+        const pathResult = comment.path
+          ? yield* scope.checkEdit(directory, state.workflow_id, [comment.path])
+          : undefined
+        const classification = pathResult
+          ? pathResult.allowed
+            ? { tag: "in_scope" as const }
+            : { tag: "out_of_scope" as const, reason: pathResult.reason }
+          : yield* scope.checkComment(comment, parsed)
+        if (classification.tag !== "out_of_scope") continue
+        yield* approval.createAmendment(
+          directory,
+          state.workflow_id,
+          classification.reason,
+          /^\d+$/.test(comment.id) ? Number(comment.id) : undefined,
+        )
+        const pullRequest = state.plan_pull_request.comments.some((item) => item.id === comment.id) ? "plan" : "code"
+        const key = pullRequest === "plan" ? "plan_pull_request" : "code_pull_request"
+        return amendmentState(
+          {
+            ...state,
+            [key]: {
+              ...state[key],
+              comments: state[key].comments.map((item) =>
+                item.id === comment.id
+                  ? {
+                      ...item,
+                      state: "out_of_scope" as const,
+                      updated_at: WorkflowState.now(),
+                    }
+                  : item,
+              ),
+            },
+          },
+          classification.reason,
+          comment,
+        )
+      }
+      return state
     })
 
     const start = Effect.fn("Workflow.start")(function* (input: StartInput) {
@@ -701,32 +763,26 @@ export const layer = Layer.effect(
         )
       }
 
-      const repo = input.repo ?? ""
-      const prState = repo
-        ? yield* github.getPullRequestState(repo, existing?.number ?? 0).pipe(
+      const localPrState = yield* ghPullRequestStateForBranch(input.directory, branch).pipe(
+        Effect.catch(() =>
+          Effect.succeed({
+            number: existing?.number ?? 0,
+            url: undefined,
+            branch,
+            head_commit: undefined,
+            review_state: "pending" as const,
+            comments: [] as readonly ReviewComment[],
+          }),
+        ),
+      )
+      const repo = input.repo ?? (yield* githubRepo(input.directory))
+      const prState = repo && localPrState.number
+        ? yield* github.getPullRequestState(repo, localPrState.number).pipe(
             Effect.catch(() =>
-              Effect.succeed({
-                number: existing?.number ?? 0,
-                url: undefined,
-                branch,
-                head_commit: undefined,
-                review_state: "pending" as const,
-                comments: [] as readonly ReviewComment[],
-              }),
+              Effect.succeed(localPrState),
             ),
           )
-        : yield* ghPullRequestStateForBranch(input.directory, branch).pipe(
-            Effect.catch(() =>
-              Effect.succeed({
-                number: existing?.number ?? 0,
-                url: undefined,
-                branch,
-                head_commit: undefined,
-                review_state: "pending" as const,
-                comments: [] as readonly ReviewComment[],
-              }),
-            ),
-          )
+        : localPrState
 
       const next = withPlanReviewState({
         ...(yield* get(input.directory, input.workflowID)),
@@ -872,7 +928,13 @@ export const layer = Layer.effect(
       return withBranch
     })
 
-    const run = runApprovedPlan
+    const run = Effect.fn("Workflow.run")(function* (input: RunInput) {
+      const prepared = yield* runApprovedPlan(input)
+      if (input.dryRun) return prepared
+      if (Option.isNone(executorOpt)) return prepared
+      yield* executorOpt.value.run(input.directory, input.workflowID)
+      return yield* get(input.directory, input.workflowID)
+    })
 
     const submitCode = Effect.fn("Workflow.submitCode")(function* (input: SubmitInput) {
       yield* guardPermission("workflow_submit_code_pull_request")
@@ -883,12 +945,29 @@ export const layer = Layer.effect(
         input.workflowID,
         input.base ?? state.approved_plan_commit ?? `origin/${codePRBase}`,
       )
+      if (!validation.ok) {
+        yield* approval.createAmendment(input.directory, input.workflowID, validation.summary)
+        const next = amendmentState(
+          {
+            ...(yield* get(input.directory, input.workflowID)),
+            last_validation: validation,
+          },
+          validation.summary,
+        )
+        yield* persist(artifact, input.directory, next)
+        yield* artifact.appendDecision(input.directory, input.workflowID, {
+          action: "workflow.code_scope.requires_amendment",
+          previous_state: state.state,
+          new_state: next.state,
+          summary: validation.summary,
+        })
+        return yield* Effect.fail(new Error(validation.summary))
+      }
       yield* persist(artifact, input.directory, {
         ...WorkflowState.transitionOrCurrent(state, "submitting_code_pull_request"),
         last_validation: validation,
         updated_at: WorkflowState.now(),
       })
-      if (!validation.ok) return yield* Effect.fail(new Error(validation.summary))
       if (input.dryRun) return yield* get(input.directory, input.workflowID)
 
       const branch = yield* currentBranch(input.directory)
@@ -934,32 +1013,26 @@ export const layer = Layer.effect(
         )
       }
 
-      const repo = input.repo ?? ""
-      const prState = repo && existing?.number
-        ? yield* github.getPullRequestState(repo, existing.number).pipe(
+      const localPrState = yield* ghPullRequestStateForBranch(input.directory, branch).pipe(
+        Effect.catch(() =>
+          Effect.succeed({
+            number: existing?.number ?? 0,
+            url: undefined,
+            branch,
+            head_commit: undefined,
+            review_state: "pending" as const,
+            comments: [] as readonly ReviewComment[],
+          }),
+        ),
+      )
+      const repo = input.repo ?? (yield* githubRepo(input.directory))
+      const prState = repo && localPrState.number
+        ? yield* github.getPullRequestState(repo, localPrState.number).pipe(
             Effect.catch(() =>
-              Effect.succeed({
-                number: existing?.number ?? 0,
-                url: undefined,
-                branch,
-                head_commit: undefined,
-                review_state: "pending" as const,
-                comments: [] as readonly ReviewComment[],
-              }),
+              Effect.succeed(localPrState),
             ),
           )
-        : yield* ghPullRequestStateForBranch(input.directory, branch).pipe(
-            Effect.catch(() =>
-              Effect.succeed({
-                number: existing?.number ?? 0,
-                url: undefined,
-                branch,
-                head_commit: undefined,
-                review_state: "pending" as const,
-                comments: [] as readonly ReviewComment[],
-              }),
-            ),
-          )
+        : localPrState
 
       const next = withCodeReviewState({
         ...(yield* get(input.directory, input.workflowID)),
@@ -1003,7 +1076,7 @@ export const layer = Layer.effect(
         return yield* Effect.fail(new Error("No GitHub pull request is recorded for this workflow."))
       }
 
-      const repo = input.repo ?? ""
+      const repo = input.repo ?? (yield* githubRepo(input.directory))
 
       const plan = state.plan_pull_request.number && repo
         ? yield* github.getPullRequestState(repo, state.plan_pull_request.number).pipe(
@@ -1064,7 +1137,7 @@ export const layer = Layer.effect(
             },
             postApprovalState(state) ? "needs_amendment" : "addressing_plan_comments",
           )
-        : reviewedState
+        : yield* guardSyncedComments(input.directory, reviewedState)
 
       yield* persist(artifact, input.directory, { ...next, last_synced_at: WorkflowState.now() })
       yield* artifact.appendDecision(input.directory, input.workflowID, {
@@ -1508,6 +1581,7 @@ export const layer = Layer.effect(
 )
 
 export const defaultLayer = layer.pipe(
+  Layer.provide(WorkflowExecutor.defaultLayer),
   Layer.provide(WorkflowGithub.defaultLayer),
   Layer.provide(WorkflowApproval.defaultLayer),
   Layer.provide(WorkflowScope.defaultLayer),
@@ -1523,6 +1597,7 @@ import { makeRuntime } from "@/effect/run-service"
 const { runPromise } = makeRuntime(
   Service,
   layer.pipe(
+    Layer.provide(WorkflowExecutor.defaultLayer),
     Layer.provide(WorkflowGithub.defaultLayer),
     Layer.provide(WorkflowApproval.defaultLayer),
     Layer.provide(WorkflowScope.defaultLayer),

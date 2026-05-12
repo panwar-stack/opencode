@@ -1,12 +1,59 @@
 import { $ } from "bun"
 import { describe, expect, test } from "bun:test"
+import { Effect, Layer } from "effect"
 import { mkdir } from "fs/promises"
 import path from "path"
+import { Bus } from "../../src/bus"
+import { WorkflowApproval } from "../../src/workflow/approval"
 import { tmpdir } from "../fixture/fixture"
 import { WorkflowArtifact } from "../../src/workflow/artifact"
 import { WorkflowGithub } from "../../src/workflow/github"
+import { WorkflowScope } from "../../src/workflow/scope"
 import { WorkflowState } from "../../src/workflow/state"
 import { Workflow } from "../../src/workflow/workflow"
+
+const mockGithub = (state: WorkflowState.PullRequestState): WorkflowGithub.Interface => ({
+  createPullRequest: () =>
+    Effect.succeed({
+      number: state.number ?? 1,
+      url: state.url ?? "https://github.com/acme/repo/pull/1",
+      head_branch: state.branch ?? "branch",
+      head_commit: state.head_commit ?? "head",
+      review_state: state.review_state,
+    }),
+  getPullRequest: () =>
+    Effect.succeed({
+      number: state.number ?? 1,
+      url: state.url ?? "https://github.com/acme/repo/pull/1",
+      head_branch: state.branch ?? "branch",
+      head_commit: state.head_commit ?? "head",
+      review_state: state.review_state,
+    }),
+  listIssueComments: () => Effect.succeed([]),
+  listReviewComments: () => Effect.succeed([]),
+  getReviews: () => Effect.succeed(state.review_state),
+  addComment: () => Effect.void,
+  addReplyToComment: () => Effect.void,
+  getPullRequestState: () => Effect.succeed(state),
+})
+
+const runWorkflowWithGithub = <A, E>(
+  effect: Effect.Effect<A, E, Workflow.Service>,
+  github: WorkflowGithub.Interface,
+) =>
+  Effect.runPromise(
+    effect.pipe(
+      Effect.provide(
+        Workflow.layer.pipe(
+          Layer.provide(Layer.succeed(WorkflowGithub.Service, WorkflowGithub.Service.of(github))),
+          Layer.provide(WorkflowApproval.defaultLayer),
+          Layer.provide(WorkflowScope.defaultLayer),
+          Layer.provide(WorkflowArtifact.defaultLayer),
+          Layer.provide(Bus.layer),
+        ),
+      ),
+    ),
+  )
 
 describe("workflow", () => {
   test("creates durable workflow artifacts", async () => {
@@ -553,6 +600,129 @@ pending
     expect(decisions).toContain("workflow.comment.requires_amendment")
     expect(await Bun.file(WorkflowArtifact.artifactPath(tmp.path, state.workflow_id, "AMENDMENT.md")).text()).toContain(
       "Path docs/feature.md matches forbidden path docs/**",
+    )
+  })
+
+  test("synced GitHub code comments pass through the scope guard", async () => {
+    await using tmp = await tmpdir({ git: true })
+
+    const state = await Workflow.start({
+      directory: tmp.path,
+      title: "Guard synced review scope",
+      localDraft: true,
+    })
+    await Bun.write(
+      WorkflowArtifact.artifactPath(tmp.path, state.workflow_id, "SPEC.md"),
+      "# Guard synced review scope\n\n## Summary\n\nUpdate API implementation.\n\n## Requirements\n\n- Update API implementation\n\n## Out of Scope\n\n- Documentation site\n",
+    )
+    await Bun.write(
+      WorkflowArtifact.artifactPath(tmp.path, state.workflow_id, "IMPACT.md"),
+      "# Impact\n\n## Allowed Paths\n\n- src/**\n\n## Forbidden Paths\n\n- docs/**\n",
+    )
+    const approvedHash = await WorkflowArtifact.hashApprovedArtifacts(tmp.path, state.workflow_id)
+    await WorkflowArtifact.writeState(tmp.path, {
+      ...state,
+      state: "awaiting_code_review",
+      approved_spec_hash: approvedHash,
+      approved_plan_commit: "abc123",
+      plan_pull_request: {
+        number: 7,
+        url: "https://github.com/acme/repo/pull/7",
+        branch: state.plan_branch,
+        head_commit: "abc123",
+        review_state: "approved",
+        comments: [],
+      },
+      code_pull_request: {
+        number: 8,
+        url: "https://github.com/acme/repo/pull/8",
+        branch: state.code_branch,
+        head_commit: "def456",
+        review_state: "changes_requested",
+        comments: [],
+      },
+    })
+
+    const next = await runWorkflowWithGithub(
+      Workflow.Service.use((svc) =>
+        svc.syncGithub({
+          directory: tmp.path,
+          workflowID: state.workflow_id,
+          repo: "acme/repo",
+        }),
+      ),
+      mockGithub({
+        number: 8,
+        url: "https://github.com/acme/repo/pull/8",
+        branch: state.code_branch,
+        head_commit: "def456",
+        review_state: "changes_requested",
+        comments: [
+          {
+            id: "99",
+            url: "https://github.com/acme/repo/pull/8#discussion_r99",
+            body: "Please add a documentation site page for this feature.",
+            path: "docs/feature.md",
+            state: "open",
+            source: "review_comment",
+          },
+        ],
+      }),
+    )
+
+    expect(next.state).toBe("needs_amendment")
+    expect(next.code_pull_request.comments).toContainEqual(
+      expect.objectContaining({
+        id: "99",
+        source: "review_comment",
+        path: "docs/feature.md",
+        state: "out_of_scope",
+      }),
+    )
+    expect(await Bun.file(WorkflowArtifact.artifactPath(tmp.path, state.workflow_id, "AMENDMENT.md")).text()).toContain(
+      "Path docs/feature.md matches forbidden path docs/**",
+    )
+  })
+
+  test("workflow run invokes the executor loop after preparing the code branch", async () => {
+    await using tmp = await tmpdir({ git: true })
+
+    const state = await Workflow.start({
+      directory: tmp.path,
+      title: "Run approved workflow",
+      localDraft: true,
+    })
+    await Bun.write(
+      WorkflowArtifact.artifactPath(tmp.path, state.workflow_id, "TASKS.md"),
+      "# Tasks\n\n- [ ] Complete approved implementation work\n",
+    )
+    const approvedHash = await WorkflowArtifact.hashApprovedArtifacts(tmp.path, state.workflow_id)
+    await WorkflowArtifact.writeState(tmp.path, {
+      ...state,
+      state: "plan_approved",
+      approved_spec_hash: approvedHash,
+      approved_plan_commit: "abc123",
+      plan_pull_request: {
+        number: 7,
+        url: "https://github.com/acme/repo/pull/7",
+        branch: state.plan_branch,
+        head_commit: "abc123",
+        review_state: "approved",
+        comments: [],
+      },
+    })
+
+    const next = await Workflow.run({
+      directory: tmp.path,
+      workflowID: state.workflow_id,
+    })
+
+    expect(next.state).toBe("awaiting_code_review")
+    expect(next.completed_tasks).toEqual(["task_0"])
+    expect(next.sessions).toContainEqual(
+      expect.objectContaining({
+        role: "executor",
+      }),
     )
   })
 })

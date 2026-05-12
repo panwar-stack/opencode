@@ -287,40 +287,33 @@ export const layer = Layer.effect(
           ),
         )
 
-      return pullRequestStateFromGh({
+      return {
         number: pr.data.number,
         url: pr.data.html_url,
-        headRefName: pr.data.head.ref,
-        headRefOid: pr.data.head.sha,
-        state: pr.data.state,
-        reviewDecision: reviewDecision ?? pr.data.mergeable_state,
-        comments: issueComments.data.map((c) => ({
-          id: String(c.id),
-          url: c.html_url,
-          author: c.user ? { login: c.user.login } : undefined,
-          body: c.body ?? "",
-          createdAt: c.created_at,
-          updatedAt: c.updated_at,
-        })),
-        reviews: [
-          ...reviewCommentsNormalized.map((c) => ({
-            id: c.id,
-            url: c.url,
-            author: c.author ? { login: c.author } : undefined,
-            body: c.body,
-            createdAt: c.created_at,
-            updatedAt: c.updated_at,
-          })),
-          ...reviewBodies.map((r) => ({
-            id: r.id,
-            url: r.url,
-            author: r.author ? { login: r.author } : undefined,
-            body: r.body,
-            submittedAt: r.created_at,
-            updatedAt: r.updated_at,
-          })),
+        branch: pr.data.head.ref,
+        head_commit: pr.data.head.sha,
+        review_state: reviewStateFromPullRequest({
+          state: pr.data.state,
+          reviewDecision: reviewDecision ?? pr.data.mergeable_state,
+        }),
+        comments: [
+          ...issueComments.data.map((c) =>
+            intoReviewComment(
+              {
+                id: c.id,
+                html_url: c.html_url,
+                user: c.user,
+                body: c.body ?? "",
+                created_at: c.created_at,
+                updated_at: c.updated_at,
+              },
+              "issue_comment",
+            ),
+          ),
+          ...reviewCommentsNormalized,
+          ...reviewBodies,
         ],
-      })
+      }
     })
 
     const createPullRequest = Effect.fn("WorkflowGithub.createPullRequest")(function* (

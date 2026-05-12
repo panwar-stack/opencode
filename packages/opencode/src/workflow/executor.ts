@@ -98,6 +98,33 @@ function withCompletedTask(state: WorkflowStateFile, task: ParsedTask): Workflow
   }
 }
 
+function amendmentContent(reason: string, files: readonly string[]) {
+  return [
+    "# Amendment",
+    "",
+    "## Reason",
+    "",
+    reason,
+    "",
+    "## Scope Change",
+    "",
+    "Expand approved workflow impact boundary or revise the task to stay within the existing boundary.",
+    "",
+    "## Affected Files",
+    "",
+    ...files.map((file) => `- ${file}`),
+    "",
+    "## Approval Status",
+    "",
+    "pending",
+    "",
+    "## Created",
+    "",
+    WorkflowState.now(),
+    "",
+  ].join("\n")
+}
+
 function hasOpenComments(state: WorkflowStateFile): boolean {
   return WorkflowState.openComments(state).length > 0
 }
@@ -314,14 +341,21 @@ export const layer = Layer.effect(
           const fileRefs = extractFileReferences(task.description)
           const outOfScopeRef = fileRefs.find((ref) => !allowedPaths.some((allow) => WorkflowArtifact.matchesAllowedPath(ref, allow)))
           if (outOfScopeRef) {
-            const next = WorkflowState.withState(state, "validating")
+            const reason = `Task description references file outside allowed paths: "${outOfScopeRef}" in task "${task.description}"`
+            const next = {
+              ...WorkflowState.withState(state, "needs_amendment"),
+              user_input_needed: reason,
+            }
+            yield* Effect.promise(() =>
+              WorkflowArtifact.writeArtifact(projectDir, workflowID, "AMENDMENT.md", amendmentContent(reason, [outOfScopeRef])),
+            )
             yield* saveState(projectDir, next)
             yield* Effect.promise(() =>
               WorkflowArtifact.appendDecision(projectDir, workflowID, {
                 action: "workflow.executor.scope_drift_task",
                 previous_state: state.state,
                 new_state: next.state,
-                summary: `Task description references file outside allowed paths: "${outOfScopeRef}" in task "${task.description}"`,
+                summary: reason,
               }),
             )
             return {
@@ -517,7 +551,13 @@ export const layer = Layer.effect(
           }
 
           if (!scopeOk) {
-            const next = WorkflowState.withState(state, "validating")
+            const next = {
+              ...WorkflowState.withState(state, "needs_amendment"),
+              user_input_needed: scopeReason,
+            }
+            yield* Effect.promise(() =>
+              WorkflowArtifact.writeArtifact(projectDir, workflowID, "AMENDMENT.md", amendmentContent(scopeReason, result.filesChanged)),
+            )
             yield* saveState(projectDir, next)
             yield* Effect.promise(() =>
               WorkflowArtifact.appendDecision(projectDir, workflowID, {
