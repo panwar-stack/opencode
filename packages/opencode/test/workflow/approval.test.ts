@@ -89,6 +89,13 @@ describe("WorkflowApproval", () => {
         code_branch: `opencode/workflow/${workflowID}-code`,
         approved_spec_hash: approvedHash,
         approved_plan_commit: "abc123",
+        plan_approval: {
+          workflow_id: workflowID,
+          pull_request_number: 99,
+          approved_spec_hash: approvedHash,
+          approved_plan_commit: "abc123",
+          approved_at: WorkflowState.now(),
+        },
         plan_pull_request: {
           number: 99,
           url: "https://github.com/test/repo/pull/99",
@@ -229,7 +236,12 @@ describe("WorkflowApproval", () => {
     )
 
     const stateAfterApprove = await WorkflowArtifact.readState(tmp.path, workflowID)
-    expect(stateAfterApprove.state).toBe("executing")
+    expect(stateAfterApprove.state).toBe("awaiting_plan_review")
+    expect(stateAfterApprove.approved_spec_hash).toBeUndefined()
+    expect(stateAfterApprove.approved_plan_commit).toBeUndefined()
+    expect(stateAfterApprove.plan_reapproval_required_at).toBeTruthy()
+    expect(stateAfterApprove.plan_approval).toBeUndefined()
+    expect(stateAfterApprove.plan_pull_request.review_state).toBe("pending")
 
     const decisions2 = await Bun.file(
       path.join(workflowDir, "DECISIONS.md"),

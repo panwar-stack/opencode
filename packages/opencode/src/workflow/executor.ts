@@ -1,5 +1,6 @@
 import { Context, Effect, Layer, Option } from "effect"
 import { Config } from "@/config/config"
+import { Permission } from "@/permission"
 import { Session } from "@/session/session"
 import { SessionPrompt } from "@/session/prompt"
 import { WorkflowArtifact } from "./artifact"
@@ -141,8 +142,9 @@ function extractFileReferences(description: string): string[] {
     const inner = m[1].trim()
     if (/\.[a-zA-Z]{1,6}$/.test(inner) || inner.includes("/")) refs.push(inner)
   }
-  const plain = /(?<!`)\b([\w./-]+\.[a-zA-Z]{1,6})\b/g
-  while ((m = plain.exec(description)) !== null) {
+  const plain = /\b([\w./-]+\.[a-zA-Z]{1,6})\b/g
+  const withoutBackticks = description.replace(/`[^`]+`/g, " ")
+  while ((m = plain.exec(withoutBackticks)) !== null) {
     refs.push(m[1])
   }
   return refs
@@ -151,15 +153,39 @@ function extractFileReferences(description: string): string[] {
 function assertApprovedPlan(projectDir: string, workflowID: string): Effect.Effect<string, Error> {
   return Effect.gen(function* () {
     const state = yield* loadState(projectDir, workflowID)
+    if (!state.plan_pull_request.number) {
+      return yield* Effect.fail(new Error("Workflow plan approval is missing plan pull request metadata."))
+    }
+    if (!WorkflowState.isApprovedReview(state.plan_pull_request.review_state)) {
+      return yield* Effect.fail(new Error("Workflow plan pull request must be approved before execution."))
+    }
     if (!state.approved_spec_hash) {
       return yield* Effect.fail(new Error("Workflow plan approval is missing an approved artifact hash."))
     }
-    if (!state.plan_pull_request.number) {
-      return yield* Effect.fail(new Error("Workflow plan approval is missing plan pull request metadata."))
+    if (!state.approved_plan_commit || !state.plan_pull_request.head_commit) {
+      return yield* Effect.fail(new Error("Workflow plan approval is missing approved head commit evidence."))
+    }
+    if (state.approved_plan_commit !== state.plan_pull_request.head_commit) {
+      return yield* Effect.fail(new Error("Workflow plan approval head commit does not match the current plan pull request."))
+    }
+    const hash = yield* Effect.promise(() => WorkflowArtifact.hashApprovedArtifacts(projectDir, workflowID))
+    if (hash !== state.approved_spec_hash) {
+      return yield* Effect.fail(
+        new Error("Approved workflow artifacts changed after approval. Revise and re-approve the plan before execution."),
+      )
     }
     return state.approved_spec_hash
   })
 }
+
+const executorPermissions = (allowedPaths: readonly string[]): Permission.Ruleset => [
+  { permission: "edit", pattern: "**", action: "deny" },
+  { permission: "write", pattern: "**", action: "deny" },
+  ...allowedPaths.flatMap((p) => [
+    { permission: "edit" as const, pattern: WorkflowArtifact.permissionPatternForAllowedPath(p), action: "allow" as const },
+    { permission: "write" as const, pattern: WorkflowArtifact.permissionPatternForAllowedPath(p), action: "allow" as const },
+  ]),
+]
 
 export interface Interface {
   run: (projectDir: string, workflowID: string, config?: Partial<ExecutorConfig>) => Effect.Effect<ExecutionResult, Error>
@@ -288,7 +314,7 @@ export const layer = Layer.effect(
           const impact = yield* Effect.promise(() => WorkflowArtifact.readArtifact(projectDir, workflowID, "IMPACT.md"))
           const tasksMd = yield* Effect.promise(() => WorkflowArtifact.readArtifact(projectDir, workflowID, "TASKS.md"))
 
-          const allowedPaths = WorkflowArtifact.parseAllowedPaths(impact)
+          const allowedPaths = WorkflowArtifact.parseImpactAllowedPaths(impact)
 
           const fileRefs = extractFileReferences(task.description)
           const outOfScopeRef = fileRefs.find((ref) => !allowedPaths.some((allow) => WorkflowArtifact.matchesAllowedPath(ref, allow)))
@@ -376,7 +402,7 @@ export const layer = Layer.effect(
           ].join("\n")
 
           const result = yield* Effect.gen(function* () {
-            const session = yield* sessions.create({ agent: "build" })
+            const session = yield* sessions.create({ agent: "build", permission: executorPermissions(allowedPaths) })
 
             state = WorkflowState.upsertSession(state, {
               id: session.id,
@@ -626,7 +652,7 @@ export const layer = Layer.effect(
 
         const spec = yield* Effect.promise(() => WorkflowArtifact.readArtifact(projectDir, workflowID, "SPEC.md"))
         const impact = yield* Effect.promise(() => WorkflowArtifact.readArtifact(projectDir, workflowID, "IMPACT.md"))
-        const allowedPaths = WorkflowArtifact.parseAllowedPaths(impact)
+        const allowedPaths = WorkflowArtifact.parseImpactAllowedPaths(impact)
 
         const fileRefs = extractFileReferences(task.description)
         const outOfScopeRef = fileRefs.find((ref) => !allowedPaths.some((allow) => WorkflowArtifact.matchesAllowedPath(ref, allow)))
@@ -677,7 +703,7 @@ export const layer = Layer.effect(
         ].join("\n")
 
         const result = yield* Effect.gen(function* () {
-          const session = yield* sessions.create({ agent: "build" })
+          const session = yield* sessions.create({ agent: "build", permission: executorPermissions(allowedPaths) })
 
           const withSession = WorkflowState.upsertSession(state, {
             id: session.id,

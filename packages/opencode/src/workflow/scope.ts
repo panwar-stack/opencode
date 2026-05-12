@@ -31,7 +31,7 @@ function parseSection(lines: string[], header: string): readonly string[] {
 }
 
 function parseForbiddenPaths(impact: string): readonly string[] {
-  return parseSection(impact.split(/\r?\n/), "Forbidden Paths")
+  return parseSection(impact.split(/\r?\n/), "Forbidden Paths").map((line) => line.replace(/^`|`$/g, ""))
 }
 
 function parseNewFilesAllowed(impact: string): boolean {
@@ -48,8 +48,8 @@ function parseSpecContent(spec: string): SpecContent {
   const lines = spec.split(/\r?\n/)
   return {
     summary: parseSection(lines, "Summary").join(" ") || spec.slice(0, 200),
-    requirements: parseSection(lines, "Requirements"),
-    out_of_scope: parseSection(lines, "Out of Scope"),
+    requirements: [...parseSection(lines, "Requirements"), ...parseSection(lines, "Goals")],
+    out_of_scope: [...parseSection(lines, "Out of Scope"), ...parseSection(lines, "Non-Goals")],
   }
 }
 
@@ -67,7 +67,7 @@ export const layer = Layer.effect(
     const checkEdit = Effect.fn("WorkflowScope.checkEdit")(
       function* (projectDir: string, workflowID: string, paths: string[], existingFiles?: readonly string[]) {
         const impact = yield* Effect.promise(() => WorkflowArtifact.readArtifact(projectDir, workflowID, "IMPACT.md"))
-        const allowedPaths = WorkflowArtifact.parseAllowedPaths(impact)
+        const allowedPaths = WorkflowArtifact.parseImpactAllowedPaths(impact)
         const forbidden = parseForbiddenPaths(impact)
         const newFilesAllowed = parseNewFilesAllowed(impact)
 
@@ -92,10 +92,7 @@ export const layer = Layer.effect(
         for (const filePath of paths) {
           const isNew = !knownFiles.includes(filePath)
           if (isNew && !newFilesAllowed) {
-            const underAllowed = allowedPaths.some((allowed) =>
-              WorkflowArtifact.matchesAllowedPath(filePath, allowed),
-            )
-            if (!underAllowed) {
+            if (!allowedPaths.some((allowed) => WorkflowArtifact.matchesAllowedPath(filePath, allowed))) {
               return {
                 allowed: false,
                 reason: `New file ${filePath} is not in an allowed directory and new files are not allowed`,

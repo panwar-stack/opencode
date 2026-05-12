@@ -59,6 +59,22 @@ describe("WorkflowScope", () => {
     expect(result.needs_amendment).toBe(false)
   })
 
+  test("detects backticked forbidden path edits", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Bun.write(
+      path.join(tmp.path, ".opencode", "workflows", "wf_test", "IMPACT.md"),
+      "# Impact\n\n## Allowed Paths\n\n- src/**\n\n## Forbidden Paths\n\n- `secrets/`\n",
+      { createPath: true },
+    )
+
+    const result = await runScope(
+      WorkflowScope.Service.use((svc) => svc.checkEdit(tmp.path, "wf_test", ["secrets/token.txt"])),
+    )
+
+    expect(result.allowed).toBe(false)
+    expect(result.offending_files).toContain("secrets/token.txt")
+  })
+
   test("blocks new files when new_files_allowed is false", async () => {
     await using tmp = await tmpdir({ git: true })
     await Bun.write(
@@ -89,6 +105,40 @@ describe("WorkflowScope", () => {
     const result = await runScope(
       WorkflowScope.Service.use((svc) =>
         svc.checkEdit(tmp.path, "wf_test", ["src/novel.ts"], ["src/old.ts"]),
+      ),
+    )
+
+    expect(result.allowed).toBe(true)
+  })
+
+  test("allows expected new files without scope rules", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Bun.write(
+      path.join(tmp.path, ".opencode", "workflows", "wf_test", "IMPACT.md"),
+      "# Impact\n\n## Allowed Paths\n\n- src/**\n\n## Expected New Files\n\n- test/helpers/new-helper.ts\n",
+      { createPath: true },
+    )
+
+    const result = await runScope(
+      WorkflowScope.Service.use((svc) =>
+        svc.checkEdit(tmp.path, "wf_test", ["test/helpers/new-helper.ts"], ["src/old.ts"]),
+      ),
+    )
+
+    expect(result.allowed).toBe(true)
+  })
+
+  test("allows new files under allowed directories without scope rules", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Bun.write(
+      path.join(tmp.path, ".opencode", "workflows", "wf_test", "IMPACT.md"),
+      "# Impact\n\n## Allowed Directories\n\n- generated\n\n## Expected New Files\n\n- generated/schema.ts\n",
+      { createPath: true },
+    )
+
+    const result = await runScope(
+      WorkflowScope.Service.use((svc) =>
+        svc.checkEdit(tmp.path, "wf_test", ["generated/extra.ts"], ["src/old.ts"]),
       ),
     )
 
@@ -194,5 +244,33 @@ Add password reset functionality to the authentication system.
     expect(result.requirements).toHaveLength(3)
     expect(result.requirements).toContain("Implement password reset email flow")
     expect(result.out_of_scope).toContain("UI changes to login page")
+  })
+
+  test("parses canonical spec goals and non-goals", async () => {
+    const spec = `# Password Reset
+
+## Summary
+
+Add password reset functionality to the authentication system.
+
+## Goals
+
+- Implement password reset email flow
+- Add rate limiting to reset endpoint
+
+## Non-Goals
+
+- UI changes to login page
+- Multi-factor authentication
+`
+
+    const result = await runScope(
+      WorkflowScope.Service.use((svc) => svc.parseSpecContent(spec)),
+    )
+
+    expect(result.requirements).toContain("Implement password reset email flow")
+    expect(result.requirements).toContain("Add rate limiting to reset endpoint")
+    expect(result.out_of_scope).toContain("UI changes to login page")
+    expect(result.out_of_scope).toContain("Multi-factor authentication")
   })
 })

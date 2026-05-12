@@ -63,8 +63,8 @@ function globToRegExp(pattern: string) {
   return new RegExp(`^${source}$`)
 }
 
-export function parseAllowedPaths(impact: string): readonly string[] {
-  const start = impact.split(/\r?\n/).findIndex((line) => /^##\s+Allowed Paths\s*$/i.test(line.trim()))
+function parseSection(impact: string, header: string): readonly string[] {
+  const start = impact.split(/\r?\n/).findIndex((line) => new RegExp(`^##\\s+${header}\\s*$`, "i").test(line.trim()))
   if (start === -1) return []
   return impact
     .split(/\r?\n/)
@@ -75,6 +75,25 @@ export function parseAllowedPaths(impact: string): readonly string[] {
     .map((line) => line.replace(/^`|`$/g, ""))
 }
 
+export function parseAllowedPaths(impact: string): readonly string[] {
+  return parseSection(impact, "Allowed Paths")
+}
+
+function normalizeAllowedDirectory(directory: string) {
+  const normalized = normalizeRepoPath(directory)
+  if (normalized.endsWith("/**")) return normalized
+  if (normalized.endsWith("/")) return `${normalized}**`
+  return `${normalized}/**`
+}
+
+export function parseImpactAllowedPaths(impact: string): readonly string[] {
+  return [
+    ...parseAllowedPaths(impact),
+    ...parseSection(impact, "Allowed Directories").map(normalizeAllowedDirectory),
+    ...parseSection(impact, "Expected New Files"),
+  ]
+}
+
 export function matchesAllowedPath(file: string, allowedPath: string) {
   const normalized = normalizeRepoPath(file)
   const allowed = normalizeRepoPath(allowedPath)
@@ -82,6 +101,13 @@ export function matchesAllowedPath(file: string, allowedPath: string) {
   if (allowed.endsWith("/")) return normalized.startsWith(allowed)
   if (!allowed.includes("*")) return normalized === allowed || normalized.startsWith(`${allowed}/`)
   return globToRegExp(allowed).test(normalized)
+}
+
+export function permissionPatternForAllowedPath(allowedPath: string) {
+  const allowed = normalizeRepoPath(allowedPath)
+  if (allowed.endsWith("/**")) return allowed
+  if (allowed.endsWith("/")) return `${allowed}**`
+  return allowed
 }
 
 export function validatePlanOnlyFiles(workflowID: string, files: readonly string[]): ValidationResult {
@@ -544,7 +570,7 @@ Revert the implementation PR and leave workflow artifacts in place.
       directory: string,
       workflowID: string,
     ) {
-      return parseAllowedPaths(yield* readArtifact(directory, workflowID, "IMPACT.md"))
+      return parseImpactAllowedPaths(yield* readArtifact(directory, workflowID, "IMPACT.md"))
     })
 
     const validateScopeDrift = Effect.fn("WorkflowArtifact.validateScopeDrift")(function* (

@@ -95,9 +95,10 @@ export const layer = Layer.effect(
         { permission: "write", pattern: "**", action: "deny" },
       ]
       for (const p of allowedPaths) {
+        const pattern = WorkflowArtifact.permissionPatternForAllowedPath(p)
         rules.push(
-          { permission: "edit", pattern: p, action: "allow" },
-          { permission: "write", pattern: p, action: "allow" },
+          { permission: "edit", pattern, action: "allow" },
+          { permission: "write", pattern, action: "allow" },
         )
       }
       return rules
@@ -137,7 +138,7 @@ export const layer = Layer.effect(
         let permission = rolePermissions(role)
         if (role === "executor" || role === "amendment") {
           const impact = yield* artifact.readArtifact(directory, workflowID, "IMPACT.md")
-          const allowedPaths = WorkflowArtifact.parseAllowedPaths(impact)
+          const allowedPaths = WorkflowArtifact.parseImpactAllowedPaths(impact)
           permission = executorPermissions(allowedPaths)
         }
 

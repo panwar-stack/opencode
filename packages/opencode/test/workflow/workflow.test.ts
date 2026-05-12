@@ -112,12 +112,24 @@ const mockGithub = (state: WorkflowState.PullRequestState): WorkflowGithub.Inter
   getPullRequestState: () => Effect.succeed(state),
 })
 
+const disabledGithub: WorkflowGithub.Interface = {
+  createPullRequest: () => Effect.die("unexpected GitHub createPullRequest call"),
+  getPullRequest: () => Effect.die("unexpected GitHub getPullRequest call"),
+  listIssueComments: () => Effect.die("unexpected GitHub listIssueComments call"),
+  listReviewComments: () => Effect.die("unexpected GitHub listReviewComments call"),
+  getReviews: () => Effect.die("unexpected GitHub getReviews call"),
+  addComment: () => Effect.die("unexpected GitHub addComment call"),
+  addReplyToComment: () => Effect.die("unexpected GitHub addReplyToComment call"),
+  getPullRequestState: () => Effect.die("unexpected GitHub getPullRequestState call"),
+}
+
 const runWorkflowWithGithub = <A, E>(
   effect: Effect.Effect<A, E, Workflow.Service>,
   github: WorkflowGithub.Interface,
+  directory?: string,
 ) =>
   Effect.runPromise(
-    effect.pipe(
+    (directory ? effect.pipe(provideInstance(directory)) : effect).pipe(
       Effect.provide(
         Workflow.layer.pipe(
           Layer.provide(Layer.succeed(WorkflowGithub.Service, WorkflowGithub.Service.of(github))),
@@ -127,6 +139,25 @@ const runWorkflowWithGithub = <A, E>(
           Layer.provide(Bus.layer),
         ),
       ),
+    ),
+  )
+
+const runWorkflowWithGithubDisabled = <A, E>(effect: Effect.Effect<A, E, Workflow.Service>) =>
+  Effect.runPromise(
+    effect.pipe(
+      Effect.provide(
+        Workflow.layer.pipe(
+          Layer.provide(Layer.succeed(WorkflowGithub.Service, WorkflowGithub.Service.of(disabledGithub))),
+          Layer.provide(WorkflowApproval.defaultLayer),
+          Layer.provide(WorkflowScope.defaultLayer),
+          Layer.provide(WorkflowArtifact.defaultLayer),
+          Layer.provide(Bus.layer),
+        ),
+      ),
+      Effect.provideService(Config.Service, {
+        ...mockWfConfig,
+        get: () => Effect.succeed({ workflow: { checks: [], github: { enabled: false } } } as Config.Info),
+      }),
     ),
   )
 
@@ -227,6 +258,80 @@ describe("workflow", () => {
         dryRun: true,
       }),
     ).rejects.toThrow(/approv|plan|execut/i)
+  })
+
+  test("submit plan stops before GitHub operations when GitHub is disabled", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const state = await Workflow.start({
+      directory: tmp.path,
+      title: "Local plan only",
+      localDraft: true,
+    })
+
+    await expect(
+      runWorkflowWithGithubDisabled(
+        Workflow.Service.use((svc) =>
+          svc.submitPlan({
+            directory: tmp.path,
+            workflowID: state.workflow_id,
+            base: "HEAD",
+          }),
+        ),
+      ),
+    ).rejects.toThrow("Workflow GitHub integration is disabled in config.")
+
+    expect(await Workflow.get(tmp.path, state.workflow_id)).toEqual(state)
+  })
+
+  test("submit code and sync stop before GitHub operations when GitHub is disabled", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const state = await Workflow.start({
+      directory: tmp.path,
+      title: "Local code only",
+      localDraft: true,
+    })
+    const approvedHash = await WorkflowArtifact.hashApprovedArtifacts(tmp.path, state.workflow_id)
+    const headCommit = (await $`git rev-parse HEAD`.cwd(tmp.path).quiet().text()).trim()
+    const approvedState = {
+      ...state,
+      state: "plan_approved",
+      approved_spec_hash: approvedHash,
+      approved_plan_commit: headCommit,
+      plan_pull_request: {
+        number: 7,
+        url: "https://github.com/acme/repo/pull/7",
+        branch: state.plan_branch,
+        head_commit: headCommit,
+        review_state: "approved",
+        comments: [],
+      },
+    } satisfies WorkflowState.WorkflowStateFile
+    await WorkflowArtifact.writeState(tmp.path, approvedState)
+
+    await expect(
+      runWorkflowWithGithubDisabled(
+        Workflow.Service.use((svc) =>
+          svc.submitCode({
+            directory: tmp.path,
+            workflowID: state.workflow_id,
+            base: "HEAD",
+          }),
+        ),
+      ),
+    ).rejects.toThrow("Workflow GitHub integration is disabled in config.")
+    expect(await Workflow.get(tmp.path, state.workflow_id)).toEqual(approvedState)
+
+    await expect(
+      runWorkflowWithGithubDisabled(
+        Workflow.Service.use((svc) =>
+          svc.syncGithub({
+            directory: tmp.path,
+            workflowID: state.workflow_id,
+            repo: "acme/repo",
+          }),
+        ),
+      ),
+    ).rejects.toThrow("Workflow GitHub integration is disabled in config.")
   })
 
   test("normalizes GitHub pull request state and comments", () => {
@@ -513,7 +618,7 @@ pending
     const amendment = await Bun.file(WorkflowArtifact.artifactPath(tmp.path, state.workflow_id, "AMENDMENT.md")).text()
     const decisions = await Bun.file(WorkflowArtifact.artifactPath(tmp.path, state.workflow_id, "DECISIONS.md")).text()
 
-    expect(next.state).toBe("executing")
+    expect(next.state).toBe("awaiting_plan_review")
     expect(amendment).toContain("approved")
     expect(amendment).toContain("## Resolved")
     expect(decisions).toContain("workflow.amendment.approved")
@@ -599,6 +704,107 @@ pending
       }),
     )
     expect(decisions).toContain("workflow.approved_plan.invalidated")
+  })
+
+  test("sync does not recreate plan approval from stale review after amendment approval", async () => {
+    await using tmp = await tmpdir({ git: true })
+
+    const state = await Workflow.start({
+      directory: tmp.path,
+      title: "Require reapproval after amendment",
+      localDraft: true,
+    })
+    await Bun.write(
+      WorkflowArtifact.artifactPath(tmp.path, state.workflow_id, "IMPACT.md"),
+      "# Impact\n\n## Allowed Paths\n\n- src/**\n",
+    )
+    const approvedHash = await WorkflowArtifact.hashApprovedArtifacts(tmp.path, state.workflow_id)
+    await Bun.write(
+      WorkflowArtifact.artifactPath(tmp.path, state.workflow_id, "AMENDMENT.md"),
+      `# Amendment
+
+## Reason
+
+Scope drift: src/new.ts
+
+## Approval Status
+
+pending
+`,
+    )
+    await WorkflowArtifact.writeState(tmp.path, {
+      ...state,
+      state: "needs_amendment",
+      approved_spec_hash: approvedHash,
+      approved_plan_commit: "abc123",
+      plan_pull_request: {
+        number: 7,
+        url: "https://github.com/acme/repo/pull/7",
+        branch: state.plan_branch,
+        head_commit: "abc123",
+        review_state: "approved",
+        approved_at: "1970-01-01T00:00:00.000Z",
+        comments: [],
+      },
+    })
+
+    await Effect.runPromise(
+      WorkflowApproval.Service.use((svc) => svc.approveAmendment(tmp.path, state.workflow_id)).pipe(
+        Effect.provide(WorkflowApproval.defaultLayer),
+      ),
+    )
+    const amended = await WorkflowArtifact.readState(tmp.path, state.workflow_id)
+    const stale = await runWorkflowWithGithub(
+      Workflow.Service.use((svc) =>
+        svc.syncGithub({
+          directory: tmp.path,
+          workflowID: state.workflow_id,
+          repo: "acme/repo",
+        }),
+      ),
+      mockGithub({
+        number: 7,
+        url: "https://github.com/acme/repo/pull/7",
+        branch: state.plan_branch,
+        head_commit: "abc123",
+        review_state: "approved",
+        approved_at: "1970-01-01T00:00:00.000Z",
+        comments: [],
+      }),
+      tmp.path,
+    )
+
+    expect(amended.plan_reapproval_required_at).toBeTruthy()
+    expect(stale.state).toBe("awaiting_plan_review")
+    expect(stale.approved_spec_hash).toBeUndefined()
+    expect(stale.approved_plan_commit).toBeUndefined()
+    expect(stale.plan_approval).toBeUndefined()
+
+    const reapproved = await runWorkflowWithGithub(
+      Workflow.Service.use((svc) =>
+        svc.syncGithub({
+          directory: tmp.path,
+          workflowID: state.workflow_id,
+          repo: "acme/repo",
+        }),
+      ),
+      mockGithub({
+        number: 7,
+        url: "https://github.com/acme/repo/pull/7",
+        branch: state.plan_branch,
+        head_commit: "def456",
+        review_state: "approved",
+        approved_at: new Date(new Date(amended.plan_reapproval_required_at ?? "").getTime() + 1000).toISOString(),
+        comments: [],
+      }),
+      tmp.path,
+    )
+
+    expect(reapproved.state).toBe("plan_approved")
+    expect(reapproved.approved_spec_hash).toBe(await WorkflowArtifact.hashApprovedArtifacts(tmp.path, state.workflow_id))
+    expect(reapproved.approved_plan_commit).toBe("def456")
+    expect(reapproved.plan_approval?.approved_plan_commit).toBe("def456")
+    expect(reapproved.plan_reapproval_required_at).toBeUndefined()
   })
 
   test("code approval does not complete workflow without validation evidence", async () => {

@@ -168,6 +168,7 @@ export const layer = Layer.effect(
           ...WorkflowState.transitionOrCurrent(state, "plan_approved"),
           approved_spec_hash: evidence.approved_spec_hash,
           approved_plan_commit: evidence.approved_plan_commit,
+          plan_reapproval_required_at: undefined,
           plan_approval: {
             workflow_id: workflowID,
             pull_request_number: evidence.pull_request_number,
@@ -336,10 +337,11 @@ export const layer = Layer.effect(
         ).pipe(Effect.catch(() => Effect.succeed("")))
 
         const parsed = parseAmendment(amendmentText)
+        const resolvedAt = WorkflowState.now()
         const info: AmendmentInfo = {
           ...parsed,
           state: "approved",
-          resolved_at: WorkflowState.now(),
+          resolved_at: resolvedAt,
         }
         yield* Effect.promise(() =>
           WorkflowArtifact.writeArtifact(projectDir, workflowID, "AMENDMENT.md", formatAmendment(info)),
@@ -359,13 +361,20 @@ export const layer = Layer.effect(
           )
         }
 
-        const newHash = yield* Effect.promise(() =>
-          WorkflowArtifact.hashApprovedArtifacts(projectDir, workflowID),
-        )
-
         const next = {
-          ...WorkflowState.withState(state, "executing"),
-          approved_spec_hash: newHash,
+          ...WorkflowState.withState(state, "awaiting_plan_review"),
+          approved_spec_hash: undefined,
+          approved_plan_commit: undefined,
+          plan_reapproval_required_at: resolvedAt,
+          plan_approval: undefined,
+          plan_pull_request: {
+            ...state.plan_pull_request,
+            review_state: "pending" as const,
+            latest_review_at: undefined,
+            latest_review_url: undefined,
+            approved_by: undefined,
+            approved_at: undefined,
+          },
           user_input_needed: undefined,
           updated_at: WorkflowState.now(),
         }
@@ -375,8 +384,8 @@ export const layer = Layer.effect(
             action: "workflow.amendment.approved",
             previous_state: state.state,
             new_state: next.state,
-            summary: `Amendment approved (source: ${approvalSource}). Reason: ${parsed.reason}. Scope expanded: ${info.scope_change}. Affected files: ${parsed.affected_files.join(", ") || "none"}.`,
-            evidence: newHash,
+            summary: `Amendment approved (source: ${approvalSource}). Prior plan approval was invalidated and re-review is required. Reason: ${parsed.reason}. Scope expanded: ${info.scope_change}. Affected files: ${parsed.affected_files.join(", ") || "none"}.`,
+            evidence: state.approved_spec_hash,
           }),
         )
         yield* publishSafe(WorkflowEvents.WorkflowUpdated, {

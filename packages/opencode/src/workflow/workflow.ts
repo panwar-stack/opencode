@@ -27,6 +27,22 @@ type CommandResult = {
   readonly stderr: string
 }
 
+const plannerSessionPermission: Permission.Ruleset = [
+  { permission: "edit", pattern: "**", action: "deny" },
+  { permission: "write", pattern: "**", action: "deny" },
+  { permission: "edit", pattern: ".opencode/workflows/**", action: "allow" },
+  { permission: "write", pattern: ".opencode/workflows/**", action: "allow" },
+]
+
+const executorSessionPermission = (allowedPaths: readonly string[]): Permission.Ruleset => [
+  { permission: "edit", pattern: "**", action: "deny" },
+  { permission: "write", pattern: "**", action: "deny" },
+  ...allowedPaths.flatMap((p) => [
+    { permission: "edit" as const, pattern: WorkflowArtifact.permissionPatternForAllowedPath(p), action: "allow" as const },
+    { permission: "write" as const, pattern: WorkflowArtifact.permissionPatternForAllowedPath(p), action: "allow" as const },
+  ]),
+]
+
 type GhPullRequestView = {
   readonly number?: number
   readonly url?: string
@@ -336,9 +352,18 @@ const assertApprovedPlan = (artifact: WorkflowArtifact.Interface, directory: str
 const openCommentCount = (comments: readonly ReviewComment[]) =>
   comments.filter((comment) => comment.state === "open").length
 
+const planReviewSatisfiesReapproval = (state: WorkflowStateFile) => {
+  if (!state.plan_reapproval_required_at) return true
+  if (!state.plan_pull_request.approved_at) return false
+  return new Date(state.plan_pull_request.approved_at).getTime() > new Date(state.plan_reapproval_required_at).getTime()
+}
+
 const withPlanReviewState = (state: WorkflowStateFile): WorkflowStateFile => {
-  if (WorkflowState.isApprovedReview(state.plan_pull_request.review_state)) {
+  if (WorkflowState.isApprovedReview(state.plan_pull_request.review_state) && planReviewSatisfiesReapproval(state)) {
     return WorkflowState.transitionOrCurrent(state, "plan_approved")
+  }
+  if (WorkflowState.isApprovedReview(state.plan_pull_request.review_state)) {
+    return WorkflowState.transitionOrCurrent(state, "awaiting_plan_review")
   }
   if (
     state.plan_pull_request.review_state === "changes_requested" &&
@@ -552,6 +577,11 @@ export const layer = Layer.effect(
     const allowAutoAmendment = wf.allow_auto_amendment ?? false
     const githubRemote = ghConfig.remote ?? "origin"
     const enabled = wf.enabled ?? true
+    const githubEnabled = ghConfig.enabled ?? true
+    const guardGithubEnabled = () =>
+      Effect.gen(function* () {
+        if (!githubEnabled) return yield* Effect.fail(new Error("Workflow GitHub integration is disabled in config."))
+      })
     // TODO: autoSubmitPlan and autoSubmitCode are ready for use — wire them once planner/executor session completion events are implemented
     const autoSubmitPlan = wf.auto_submit_plan ?? false
     const autoSubmitCode = wf.auto_submit_code ?? false
@@ -570,6 +600,7 @@ export const layer = Layer.effect(
     const planApprovalRecord = (state: WorkflowStateFile, hash: string): WorkflowState.PlanApprovalRecord | undefined => {
       if (!state.plan_pull_request.number || !state.plan_pull_request.head_commit) return undefined
       if (!WorkflowState.isApprovedReview(state.plan_pull_request.review_state)) return undefined
+      if (!planReviewSatisfiesReapproval(state)) return undefined
       return {
         workflow_id: state.workflow_id,
         pull_request_number: state.plan_pull_request.number,
@@ -713,7 +744,7 @@ export const layer = Layer.effect(
         const realSession = yield* sessionsOpt.value.create({
           title: plannerTask,
           agent: planReviewerAgent,
-          permission: [],
+          permission: plannerSessionPermission,
         })
         plannerSessionID = realSession.id
       }
@@ -820,6 +851,7 @@ export const layer = Layer.effect(
     const submitPlan = Effect.fn("Workflow.submitPlan")(function* (input: SubmitInput) {
       yield* guardPermission("workflow_submit_plan_pull_request")
       yield* guardEnabled()
+      yield* guardGithubEnabled()
       const state = yield* get(input.directory, input.workflowID)
       const validation = yield* validatePlan(input.directory, input.workflowID, input.base)
       yield* persist(artifact, input.directory, {
@@ -881,6 +913,11 @@ export const layer = Layer.effect(
             branch,
             head_commit: undefined,
             review_state: "pending" as const,
+            reviewers: undefined,
+            latest_review_at: undefined,
+            latest_review_url: undefined,
+            approved_by: undefined,
+            approved_at: undefined,
             comments: [] as readonly ReviewComment[],
           }),
         ),
@@ -894,19 +931,29 @@ export const layer = Layer.effect(
           )
         : localPrState
 
+      const planPullRequest = {
+        number: prState.number,
+        url: prState.url,
+        branch: prState.branch,
+        head_commit: prState.head_commit,
+        review_state: prState.review_state,
+        comments: prState.comments,
+        reviewers: prState.reviewers,
+        latest_review_at: prState.latest_review_at,
+        latest_review_url: prState.latest_review_url,
+        approved_by: prState.approved_by,
+        approved_at: prState.approved_at,
+      }
+      const planReviewCurrent = WorkflowState.isApprovedReview(prState.review_state) &&
+        Boolean(prState.head_commit) &&
+        planReviewSatisfiesReapproval({ ...state, plan_pull_request: planPullRequest })
       const reviewed = withPlanReviewState({
         ...(yield* get(input.directory, input.workflowID)),
         plan_branch: branch,
-        plan_pull_request: {
-          number: prState.number,
-          url: prState.url,
-          branch: prState.branch,
-          head_commit: prState.head_commit,
-          review_state: prState.review_state,
-          comments: prState.comments,
-        },
-        approved_spec_hash: WorkflowState.isApprovedReview(prState.review_state) && prState.head_commit ? specHash : state.approved_spec_hash,
-        approved_plan_commit: WorkflowState.isApprovedReview(prState.review_state) && prState.head_commit ? prState.head_commit : state.approved_plan_commit,
+        plan_pull_request: planPullRequest,
+        approved_spec_hash: planReviewCurrent ? specHash : state.approved_spec_hash,
+        approved_plan_commit: planReviewCurrent ? prState.head_commit : state.approved_plan_commit,
+        plan_reapproval_required_at: planReviewCurrent ? undefined : state.plan_reapproval_required_at,
       })
       const next = {
         ...reviewed,
@@ -1139,10 +1186,11 @@ export const layer = Layer.effect(
       const sessionsOpt = yield* Effect.serviceOption(Session.Service)
       let executorSessionId: string | undefined
       if (Option.isSome(sessionsOpt)) {
+        const impact = yield* artifact.readArtifact(input.directory, input.workflowID, "IMPACT.md")
         const realSession = yield* sessionsOpt.value.create({
           title: "Implement approved workflow plan",
           agent: codeReviewerAgent,
-          permission: [],
+          permission: executorSessionPermission(WorkflowArtifact.parseImpactAllowedPaths(impact)),
         })
         executorSessionId = realSession.id
       }
@@ -1200,6 +1248,7 @@ export const layer = Layer.effect(
     const submitCode = Effect.fn("Workflow.submitCode")(function* (input: SubmitInput) {
       yield* guardPermission("workflow_submit_code_pull_request")
       yield* guardEnabled()
+      yield* guardGithubEnabled()
       const state = yield* get(input.directory, input.workflowID)
       yield* assertApprovedPlan(artifact, input.directory, state, requirePlanApproval)
       const validation = yield* validateCode(
@@ -1346,6 +1395,7 @@ export const layer = Layer.effect(
 
     const syncGithub = Effect.fn("Workflow.syncGithub")(function* (input: SyncInput) {
       yield* guardPermission("workflow_sync_github")
+      yield* guardGithubEnabled()
       const state = yield* get(input.directory, input.workflowID)
       if (!state.plan_pull_request.number && !state.code_pull_request.number) {
         return yield* Effect.fail(new Error("No GitHub pull request is recorded for this workflow."))
@@ -1367,23 +1417,25 @@ export const layer = Layer.effect(
 
       const currentHash = yield* artifact.hashApprovedArtifacts(input.directory, input.workflowID)
       const planDrift = state.approved_spec_hash !== undefined && currentHash !== state.approved_spec_hash
+      const planPullRequest = {
+        ...plan,
+        comments: WorkflowGithub.mergeCommentState(state.plan_pull_request.comments, plan.comments),
+      }
+      const planReviewCurrent = WorkflowState.isApprovedReview(plan.review_state) &&
+        !planDrift &&
+        Boolean(plan.head_commit) &&
+        planReviewSatisfiesReapproval({ ...state, plan_pull_request: planPullRequest })
       const reviewedWithoutEvidence = withCodeReviewState(
         withPlanReviewState({
           ...state,
-          plan_pull_request: {
-            ...plan,
-            comments: WorkflowGithub.mergeCommentState(state.plan_pull_request.comments, plan.comments),
-          },
+          plan_pull_request: planPullRequest,
           code_pull_request: {
             ...code,
             comments: WorkflowGithub.mergeCommentState(state.code_pull_request.comments, code.comments),
           },
-          approved_spec_hash: WorkflowState.isApprovedReview(plan.review_state) && !planDrift && plan.head_commit
-            ? currentHash
-            : state.approved_spec_hash,
-          approved_plan_commit: WorkflowState.isApprovedReview(plan.review_state) && !planDrift && plan.head_commit
-            ? plan.head_commit
-            : state.approved_plan_commit,
+          approved_spec_hash: planReviewCurrent ? currentHash : state.approved_spec_hash,
+          approved_plan_commit: planReviewCurrent ? plan.head_commit : state.approved_plan_commit,
+          plan_reapproval_required_at: planReviewCurrent ? undefined : state.plan_reapproval_required_at,
         }),
         requireCodeApproval,
       )
@@ -1721,7 +1773,7 @@ export const layer = Layer.effect(
           "DECISIONS.md": decisions,
         },
         open_comments: WorkflowState.openComments(state),
-        allowed_paths: WorkflowArtifact.parseAllowedPaths(impact),
+        allowed_paths: WorkflowArtifact.parseImpactAllowedPaths(impact),
       }
     })
 

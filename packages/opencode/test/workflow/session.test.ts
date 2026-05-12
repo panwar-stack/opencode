@@ -1,7 +1,71 @@
 import { describe, expect, test } from "bun:test"
+import { Effect, Layer } from "effect"
+import path from "path"
+import { Bus } from "../../src/bus"
+import { Permission } from "../../src/permission"
+import { Session } from "../../src/session/session"
+import { ProjectID } from "../../src/project/schema"
+import { SessionID } from "../../src/session/schema"
+import { WorkflowArtifact } from "../../src/workflow/artifact"
+import { WorkflowSession } from "../../src/workflow/session"
 import { WorkflowState } from "../../src/workflow/state"
+import { tmpdir } from "../fixture/fixture"
 
 describe("WorkflowSession", () => {
+  test("createSession expands allowed directories for executor permissions", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const workflowID = "wf_test_session_permissions"
+    const now = WorkflowState.now()
+    const permissions: Permission.Ruleset[] = []
+
+    await Bun.write(
+      path.join(tmp.path, ".opencode", "workflows", workflowID, "IMPACT.md"),
+      "# Impact\n\n## Allowed Paths\n\n- src/exact.ts\n\n## Allowed Directories\n\n- generated\n",
+      { createPath: true },
+    )
+    await WorkflowArtifact.writeState(tmp.path, {
+      workflow_id: workflowID,
+      title: "Session permissions",
+      state: "plan_approved",
+      artifact_dir: `.opencode/workflows/${workflowID}`,
+      created_at: now,
+      updated_at: now,
+      plan_branch: "plan",
+      plan_pull_request: WorkflowState.emptyPullRequest(),
+      code_pull_request: WorkflowState.emptyPullRequest(),
+      sessions: [],
+    })
+
+    await Effect.runPromise(
+      WorkflowSession.Service.use((svc) => svc.createSession(tmp.path, workflowID, "executor")).pipe(
+        Effect.provide(WorkflowSession.defaultLayer),
+        Effect.provide(WorkflowArtifact.defaultLayer),
+        Effect.provide(Layer.mock(Bus.Service, { publish: () => Effect.void })),
+        Effect.provide(
+          Layer.mock(Session.Service, {
+            create: (input) => {
+              permissions.push(input?.permission ?? [])
+              return Effect.succeed({
+                id: "ses_test_session_permissions" as SessionID,
+                slug: "session-permissions",
+                projectID: "p_test_session_permissions" as ProjectID,
+                directory: tmp.path,
+                title: "executor",
+                version: "0.0.0",
+                time: { created: 0, updated: 0 },
+              } satisfies Session.Info)
+            },
+          }),
+        ),
+      ),
+    )
+
+    expect(permissions[0]).toContainEqual({ permission: "write", pattern: "generated/**", action: "allow" })
+    expect(Permission.evaluate("write", "generated/schema.ts", permissions[0]).action).toBe("allow")
+    expect(Permission.evaluate("write", "src/exact.ts", permissions[0]).action).toBe("allow")
+    expect(Permission.evaluate("write", "src/exact.ts/nested.ts", permissions[0]).action).toBe("deny")
+  })
+
   test("createSession assigns role and task description", () => {
     const sessionID = WorkflowState.createSessionID()
     const created = WorkflowState.now()

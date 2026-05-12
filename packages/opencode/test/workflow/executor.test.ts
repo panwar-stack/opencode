@@ -7,6 +7,7 @@ import { WorkflowScope } from "../../src/workflow/scope"
 import { WorkflowApproval } from "../../src/workflow/approval"
 import { WorkflowArtifact } from "../../src/workflow/artifact"
 import { WorkflowState } from "../../src/workflow/state"
+import { Permission } from "../../src/permission"
 import { Session } from "../../src/session/session"
 import { SessionPrompt } from "../../src/session/prompt"
 import { MessageV2 } from "../../src/session/message-v2"
@@ -83,15 +84,17 @@ const mockConfig: Config.Interface = {
 }
 
 const executorLayer = WorkflowExecutor.defaultLayer
-const runExecutor = <A, E>(effect: Effect.Effect<A, E, WorkflowExecutor.Service>) =>
+const runExecutorWithSession = <A, E>(effect: Effect.Effect<A, E, WorkflowExecutor.Service>, session: Session.Interface) =>
   Effect.runPromise(
     effect.pipe(
       Effect.provide(executorLayer),
-      Effect.provideService(Session.Service, mockSession),
+      Effect.provideService(Session.Service, session),
       Effect.provideService(SessionPrompt.Service, mockSessionPrompt),
       Effect.provideService(Config.Service, mockConfig),
     ),
   )
+const runExecutor = <A, E>(effect: Effect.Effect<A, E, WorkflowExecutor.Service>) =>
+  runExecutorWithSession(effect, mockSession)
 
 async function setupApprovedWorkflow(dir: string, workflowID: string) {
   const workflowDir = path.join(dir, ".opencode", "workflows", workflowID)
@@ -226,7 +229,7 @@ describe("WorkflowExecutor", () => {
     expect(error.message).toMatch(/approv/i)
   })
 
-  test("executor proceeds if plan metadata exists (artifact drift checked by workflow layer)", async () => {
+  test("refuses execution when approved artifacts drift after approval", async () => {
     await using tmp = await tmpdir({ git: true })
     const workflowID = "wf_test_drift"
     await setupApprovedWorkflow(tmp.path, workflowID)
@@ -235,12 +238,70 @@ describe("WorkflowExecutor", () => {
       "# Tasks\n\n- [ ] Changed after approval\n",
     )
 
-    const result = await runExecutor(
+    const error = await runExecutor(
       WorkflowExecutor.Service.use((svc) => svc.run(tmp.path, workflowID)),
+    ).catch((e) => e)
+
+    expect(error).toBeInstanceOf(Error)
+    expect(error.message).toMatch(/changed after approval|re-approve/i)
+  })
+
+  test("creates executor sessions with impact-boundary permissions", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const workflowID = "wf_test_permissions"
+    await setupApprovedWorkflow(tmp.path, workflowID)
+
+    const permissions: Permission.Ruleset[] = []
+    const session: Session.Interface = {
+      ...mockSession,
+      create: (input) => {
+        permissions.push(input?.permission ?? [])
+        return Effect.succeed(mockSessionInfo)
+      },
+    }
+
+    await runExecutorWithSession(
+      WorkflowExecutor.Service.use((svc) => svc.runTask(tmp.path, workflowID, "task_0")),
+      session,
     )
 
-    expect(result.workflow_id).toBe(workflowID)
-    expect(result.stop_reason).toBe("all_tasks_complete")
+    expect(permissions[0]).toContainEqual({ permission: "edit", pattern: "**", action: "deny" })
+    expect(permissions[0]).toContainEqual({ permission: "write", pattern: "**", action: "deny" })
+    expect(permissions[0]).toContainEqual({ permission: "edit", pattern: "src/**", action: "allow" })
+    expect(permissions[0]).toContainEqual({ permission: "write", pattern: "src/**", action: "allow" })
+  })
+
+  test("creates executor permissions for expected new files and allowed directories", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const workflowID = "wf_test_expected_file_permissions"
+    await setupApprovedWorkflow(tmp.path, workflowID)
+    await Bun.write(
+      WorkflowArtifact.artifactPath(tmp.path, workflowID, "IMPACT.md"),
+      "# Impact\n\n## Allowed Paths\n\n- src/**\n\n## Expected New Files\n\n- test/helpers/new-helper.ts\n\n## Allowed Directories\n\n- generated\n",
+    )
+    await Bun.write(
+      WorkflowArtifact.artifactPath(tmp.path, workflowID, "TASKS.md"),
+      "# Tasks\n\n- [ ] task_001 | Create `test/helpers/new-helper.ts`\n",
+    )
+    const permissions: Permission.Ruleset[] = []
+
+    const result = await runExecutorWithSession(
+      WorkflowExecutor.Service.use((svc) => svc.runTask(tmp.path, workflowID, "task_001")),
+      {
+        ...mockSession,
+        create: (input) => {
+          permissions.push(input?.permission ?? [])
+          return Effect.succeed(mockSessionInfo)
+        },
+      },
+    )
+
+    expect(result.success).toBe(true)
+    expect(permissions[0]).toContainEqual({ permission: "edit", pattern: "test/helpers/new-helper.ts", action: "allow" })
+    expect(permissions[0]).toContainEqual({ permission: "write", pattern: "generated/**", action: "allow" })
+    expect(Permission.evaluate("write", "generated/schema.ts", permissions[0]).action).toBe("allow")
+    expect(Permission.evaluate("write", "test/helpers/new-helper.ts", permissions[0]).action).toBe("allow")
+    expect(Permission.evaluate("write", "test/helpers/new-helper.ts/nested.ts", permissions[0]).action).toBe("deny")
   })
 
   test("executes a single task via runTask", async () => {

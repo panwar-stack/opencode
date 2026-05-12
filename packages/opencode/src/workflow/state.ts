@@ -115,6 +115,7 @@ export type WorkflowStateFile = {
   readonly code_branch?: string
   readonly approved_spec_hash?: string
   readonly approved_plan_commit?: string
+  readonly plan_reapproval_required_at?: string
   readonly plan_approval?: PlanApprovalRecord
   readonly code_approval?: CodeApprovalRecord
   readonly paused_from_state?: StateName
@@ -162,7 +163,7 @@ const transitions: Record<StateName, readonly StateName[]> = {
   submitting_code_pull_request: ["awaiting_code_review", "addressing_code_comments", "needs_amendment", "paused", "failed", "cancelled"],
   awaiting_code_review: ["addressing_code_comments", "completed", "needs_amendment", "paused", "failed", "cancelled"],
   addressing_code_comments: ["validating", "awaiting_code_review", "completed", "needs_amendment", "paused", "failed", "cancelled"],
-  needs_amendment: ["plan_approved", "executing", "paused", "failed", "cancelled"],
+  needs_amendment: ["awaiting_plan_review", "plan_approved", "executing", "paused", "failed", "cancelled"],
   paused: [
     "created",
     "drafting_spec",
