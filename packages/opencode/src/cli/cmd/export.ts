@@ -159,7 +159,13 @@ function part(part: MessageV2.Part): MessageV2.Part {
 
 const partFn = part
 
-function sanitize(data: { info: Session.Info; messages: MessageV2.WithParts[] }) {
+export type ExportData = {
+  info: Session.Info
+  messages: MessageV2.WithParts[]
+  children: ExportData[]
+}
+
+function sanitize(data: ExportData): unknown {
   return {
     info: {
       ...data.info,
@@ -215,7 +221,30 @@ function sanitize(data: { info: Session.Info; messages: MessageV2.WithParts[] })
             },
       parts: msg.parts.map(partFn),
     })),
+    children: data.children.map(sanitize),
   }
+}
+
+/** @internal Exported for testing. */
+export function collect(svc: Session.Interface, sessionID: SessionID): Effect.Effect<ExportData, Session.NotFound> {
+  return Effect.gen(function* () {
+    const sessionInfo = yield* svc.get(sessionID)
+    const [messages, children] = yield* Effect.all(
+      [svc.messages({ sessionID: sessionInfo.id }), svc.children(sessionInfo.id)],
+      {
+        concurrency: "unbounded",
+      },
+    )
+    return {
+      info: sessionInfo,
+      messages,
+      children: yield* Effect.forEach(
+        children.toSorted((a, b) => a.time.created - b.time.created),
+        (child) => collect(svc, child.id),
+        { concurrency: "unbounded" },
+      ),
+    }
+  }).pipe(Effect.withSpan("Cli.export.collect"))
 }
 
 export const ExportCommand = effectCmd({
@@ -280,10 +309,7 @@ const run = Effect.fn("Cli.export.body")(function* (args: { sessionID?: string; 
   // Match legacy try/catch — catches both typed failures and defects
   // (Session.Service.get throws NotFoundError as a defect, not a typed E).
   return yield* Effect.gen(function* () {
-    const sessionInfo = yield* svc.get(sessionID!)
-    const messages = yield* svc.messages({ sessionID: sessionInfo.id })
-
-    const exportData = { info: sessionInfo, messages }
+    const exportData = yield* collect(svc, sessionID!)
 
     process.stdout.write(JSON.stringify(args.sanitize ? sanitize(exportData) : exportData, null, 2))
     process.stdout.write(EOL)
