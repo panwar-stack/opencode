@@ -1,16 +1,91 @@
 import { $ } from "bun"
 import { describe, expect, test } from "bun:test"
-import { Effect, Layer } from "effect"
+import { Effect, Layer, Option } from "effect"
 import { mkdir } from "fs/promises"
 import path from "path"
 import { Bus } from "../../src/bus"
 import { WorkflowApproval } from "../../src/workflow/approval"
-import { tmpdir } from "../fixture/fixture"
+import { tmpdir, provideInstance } from "../fixture/fixture"
 import { WorkflowArtifact } from "../../src/workflow/artifact"
 import { WorkflowGithub } from "../../src/workflow/github"
 import { WorkflowScope } from "../../src/workflow/scope"
 import { WorkflowState } from "../../src/workflow/state"
 import { Workflow } from "../../src/workflow/workflow"
+import { WorkflowExecutor } from "../../src/workflow/executor"
+import { Session } from "../../src/session/session"
+import { SessionPrompt } from "../../src/session/prompt"
+import { MessageV2 } from "../../src/session/message-v2"
+import { SessionID, MessageID } from "../../src/session/schema"
+import { ProjectID } from "../../src/project/schema"
+import { ProviderID, ModelID } from "../../src/provider/schema"
+import { Config } from "../../src/config/config"
+
+const mockWfSessionInfo: Session.Info = {
+  id: "ses_test_wf" as SessionID,
+  slug: "test-wf",
+  projectID: "p_test_wf" as ProjectID,
+  directory: "",
+  title: "Test WF Session",
+  version: "0.0.0",
+  time: { created: 0, updated: 0 },
+}
+
+const mockWfPromptResponse: MessageV2.WithParts = {
+  info: {
+    id: "msg_test_wf_prompt" as MessageID,
+    sessionID: "ses_test_wf" as SessionID,
+    role: "user" as const,
+    time: { created: 0 },
+    agent: "build",
+    model: { providerID: "p_test" as ProviderID, modelID: "m_test" as ModelID },
+  },
+  parts: [],
+}
+
+const mockWfSession: Session.Interface = {
+  create: () => Effect.succeed(mockWfSessionInfo),
+  list: () => Effect.succeed([]),
+  fork: () => Effect.die("not implemented"),
+  touch: () => Effect.void,
+  get: () => Effect.die("not implemented"),
+  setTitle: () => Effect.void,
+  setArchived: () => Effect.void,
+  setPermission: () => Effect.void,
+  setRevert: () => Effect.void,
+  clearRevert: () => Effect.void,
+  setSummary: () => Effect.void,
+  diff: () => Effect.succeed([]),
+  messages: () => Effect.succeed([]),
+  children: () => Effect.succeed([]),
+  remove: () => Effect.die("not implemented"),
+  updateMessage: (msg: any) => Effect.succeed(msg),
+  removeMessage: () => Effect.succeed("" as MessageID),
+  removePart: () => Effect.succeed("" as any),
+  getPart: () => Effect.succeed(undefined),
+  updatePart: (part: any) => Effect.succeed(part),
+  updatePartDelta: () => Effect.void,
+  findMessage: () => Effect.succeed(Option.none()),
+}
+
+const mockWfSessionPrompt: SessionPrompt.Interface = {
+  cancel: () => Effect.void,
+  prompt: () => Effect.succeed(mockWfPromptResponse),
+  loop: () => Effect.succeed(mockWfPromptResponse),
+  shell: () => Effect.succeed(mockWfPromptResponse),
+  command: () => Effect.succeed(mockWfPromptResponse),
+  resolvePromptParts: () => Effect.succeed([{ type: "text", text: "mock" } as any]),
+}
+
+const mockWfConfig: Config.Interface = {
+  get: () => Effect.succeed({ workflow: { checks: [] } } as Config.Info),
+  getGlobal: () => Effect.succeed({} as Config.Info),
+  getConsoleState: () => Effect.succeed({} as any),
+  update: () => Effect.void,
+  updateGlobal: () => Effect.succeed({ info: {} as Config.Info, changed: false }),
+  invalidate: () => Effect.void,
+  directories: () => Effect.succeed([]),
+  waitForDependencies: () => Effect.void,
+}
 
 const mockGithub = (state: WorkflowState.PullRequestState): WorkflowGithub.Interface => ({
   createPullRequest: () =>
@@ -442,7 +517,7 @@ pending
     expect(amendment).toContain("approved")
     expect(amendment).toContain("## Resolved")
     expect(decisions).toContain("workflow.amendment.approved")
-    expect(decisions).toContain("Approved for this workflow.")
+    expect(decisions).toContain("Scope drift: src/new.ts")
   })
 
   test("validates scope drift outside workflow artifacts", async () => {
@@ -730,31 +805,41 @@ pending
       },
     })
 
-    const next = await runWorkflowWithGithub(
-      Workflow.Service.use((svc) =>
-        svc.syncGithub({
-          directory: tmp.path,
-          workflowID: state.workflow_id,
-          repo: "acme/repo",
-        }),
-      ),
-      mockGithub({
-        number: 8,
-        url: "https://github.com/acme/repo/pull/8",
-        branch: state.code_branch,
-        head_commit: "def456",
-        review_state: "changes_requested",
-        comments: [
-          {
-            id: "99",
-            url: "https://github.com/acme/repo/pull/8#discussion_r99",
-            body: "Please add a documentation site page for this feature.",
-            path: "docs/feature.md",
-            state: "open",
-            source: "review_comment",
-          },
-        ],
-      }),
+    const githubMockObj = mockGithub({
+      number: 8,
+      url: "https://github.com/acme/repo/pull/8",
+      branch: state.code_branch,
+      head_commit: "def456",
+      review_state: "changes_requested",
+      comments: [
+        {
+          id: "99",
+          url: "https://github.com/acme/repo/pull/8#discussion_r99",
+          body: "Please add a documentation site page for this feature.",
+          path: "docs/feature.md",
+          state: "open",
+          source: "review_comment",
+        },
+      ],
+    })
+    const githubLayer = Layer.succeed(WorkflowGithub.Service, WorkflowGithub.Service.of(githubMockObj))
+    const workflowLayer = Workflow.layer.pipe(
+      Layer.provide(githubLayer),
+      Layer.provide(WorkflowApproval.defaultLayer),
+      Layer.provide(WorkflowScope.defaultLayer),
+      Layer.provide(WorkflowArtifact.defaultLayer),
+      Layer.provide(Bus.layer),
+    )
+    const next = await Effect.runPromise(
+      provideInstance(tmp.path)(
+        Workflow.Service.use((svc) =>
+          svc.syncGithub({
+            directory: tmp.path,
+            workflowID: state.workflow_id,
+            repo: "acme/repo",
+          }),
+        ),
+      ).pipe(Effect.provide(workflowLayer)),
     )
 
     expect(next.state).toBe("needs_amendment")
@@ -812,7 +897,7 @@ pending
     expect(next.plan_pull_request.comments).toContainEqual(
       expect.objectContaining({
         id: "plan_feedback",
-        state: "addressed",
+        state: "open",
       }),
     )
     expect(spec).toContain("Clarify rollback plan.")
@@ -822,6 +907,7 @@ pending
 
   test("workflow run invokes the executor loop after preparing the code branch", async () => {
     await using tmp = await tmpdir({ git: true })
+    await $`git remote add origin .`.cwd(tmp.path)
 
     const state = await Workflow.start({
       directory: tmp.path,
@@ -833,25 +919,46 @@ pending
       "# Tasks\n\n- [ ] Complete approved implementation work\n",
     )
     const approvedHash = await WorkflowArtifact.hashApprovedArtifacts(tmp.path, state.workflow_id)
+    const headCommit = (await $`git rev-parse HEAD`.cwd(tmp.path).quiet().text()).trim()
     await WorkflowArtifact.writeState(tmp.path, {
       ...state,
       state: "plan_approved",
       approved_spec_hash: approvedHash,
-      approved_plan_commit: "abc123",
+      approved_plan_commit: headCommit,
       plan_pull_request: {
         number: 7,
         url: "https://github.com/acme/repo/pull/7",
         branch: state.plan_branch,
-        head_commit: "abc123",
+        head_commit: headCommit,
         review_state: "approved",
         comments: [],
       },
     })
 
-    const next = await Workflow.run({
-      directory: tmp.path,
-      workflowID: state.workflow_id,
-    })
+    const next = await Effect.runPromise(
+      Effect.gen(function* () {
+        const svc = yield* Workflow.Service
+        return yield* svc.run({ directory: tmp.path, workflowID: state.workflow_id })
+      }).pipe(
+        Effect.provide(
+          Workflow.layer.pipe(
+            Layer.provide(WorkflowExecutor.defaultLayer),
+            Layer.provide(Layer.succeed(WorkflowGithub.Service, WorkflowGithub.Service.of(mockGithub({
+              review_state: "approved",
+              comments: [],
+            })))),
+            Layer.provide(WorkflowApproval.defaultLayer),
+            Layer.provide(WorkflowScope.defaultLayer),
+            Layer.provide(WorkflowArtifact.defaultLayer),
+            Layer.provide(Bus.layer),
+          ),
+        ),
+        Effect.provideService(Session.Service, mockWfSession),
+        Effect.provideService(SessionPrompt.Service, mockWfSessionPrompt),
+        Effect.provideService(Config.Service, mockWfConfig),
+        provideInstance(tmp.path),
+      ),
+    )
 
     expect(next.state).toBe("awaiting_code_review")
     expect(next.completed_tasks).toEqual(["task_0"])

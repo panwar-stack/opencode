@@ -86,6 +86,7 @@ export type PlanApprovalRecord = {
   readonly approved_by?: string
   readonly approved_at: string
   readonly github_review_evidence?: string
+  readonly approval_source?: string
 }
 
 export type CodeApprovalRecord = {
@@ -99,6 +100,7 @@ export type CodeApprovalRecord = {
   readonly approved_by?: string
   readonly approved_at: string
   readonly github_review_evidence?: string
+  readonly approval_source?: string
 }
 
 export type WorkflowStateFile = {
@@ -160,7 +162,7 @@ const transitions: Record<StateName, readonly StateName[]> = {
   submitting_code_pull_request: ["awaiting_code_review", "addressing_code_comments", "needs_amendment", "paused", "failed", "cancelled"],
   awaiting_code_review: ["addressing_code_comments", "completed", "needs_amendment", "paused", "failed", "cancelled"],
   addressing_code_comments: ["validating", "awaiting_code_review", "completed", "needs_amendment", "paused", "failed", "cancelled"],
-  needs_amendment: ["executing", "paused", "failed", "cancelled"],
+  needs_amendment: ["plan_approved", "executing", "paused", "failed", "cancelled"],
   paused: [
     "created",
     "drafting_spec",

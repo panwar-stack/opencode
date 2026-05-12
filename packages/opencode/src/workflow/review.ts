@@ -326,4 +326,9 @@ export const layer = Layer.effect(
   }),
 )
 
+export const defaultLayer = layer.pipe(
+  Layer.provide(WorkflowGithub.defaultLayer),
+  Layer.provide(Workflow.defaultLayer),
+)
+
 export * as WorkflowReview from "./review"

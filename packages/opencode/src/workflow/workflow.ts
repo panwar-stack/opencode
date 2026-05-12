@@ -1,6 +1,7 @@
 import path from "path"
 import { Context, Effect, Layer, Option, Stream } from "effect"
 import { Bus } from "@/bus"
+import { Session } from "@/session/session"
 import { WorkflowArtifact, type ValidationResult } from "./artifact"
 import { WorkflowGithub } from "./github"
 import { WorkflowApproval } from "./approval"
@@ -354,11 +355,25 @@ const withPlanReviewState = (state: WorkflowStateFile): WorkflowStateFile => {
 const withCodeReviewState = (state: WorkflowStateFile, requireCodeApproval: boolean): WorkflowStateFile => {
   if (!state.code_pull_request.number && state.code_pull_request.review_state === "none") return state
   const started = state.state === "plan_approved" ? WorkflowState.withState(state, "executing") : state
-  if (!requireCodeApproval || WorkflowState.isApprovedReview(started.code_pull_request.review_state)) {
-    if (started.last_validation?.ok) return WorkflowState.transitionOrCurrent(started, "completed")
+  const approved = !requireCodeApproval || WorkflowState.isApprovedReview(started.code_pull_request.review_state)
+  const hasCodeOpenComments = openCommentCount(started.code_pull_request.comments) > 0
+  if (approved && started.last_validation?.ok && !hasCodeOpenComments) {
+    return WorkflowState.transitionOrCurrent(started, "completed")
+  }
+  if (approved) {
+    if (!started.last_validation?.ok) {
+      return {
+        ...WorkflowState.transitionOrCurrent(started, "awaiting_code_review"),
+        user_input_needed: "Code pull request is approved, but required validation evidence is missing.",
+        updated_at: WorkflowState.now(),
+      }
+    }
+    if (started.code_pull_request.review_state === "changes_requested") {
+      return WorkflowState.transitionOrCurrent(started, "addressing_code_comments")
+    }
     return {
       ...WorkflowState.transitionOrCurrent(started, "awaiting_code_review"),
-      user_input_needed: "Code pull request is approved, but required validation evidence is missing.",
+      user_input_needed: "Code pull request is approved but has unresolved open comments.",
       updated_at: WorkflowState.now(),
     }
   }
@@ -391,10 +406,10 @@ const withCommentBookkeepingState = (state: WorkflowStateFile, pullRequest: Pull
   return withCodeReviewState(state, requireCodeApproval)
 }
 
-const nextSession = (role: WorkflowSession["role"], task: string, githubCommentUrl?: string, agent?: string): WorkflowSession => {
+const nextSession = (role: WorkflowSession["role"], task: string, githubCommentUrl?: string, agent?: string, id?: string): WorkflowSession => {
   const created = WorkflowState.now()
   return {
-    id: WorkflowState.createSessionID(),
+    id: id ?? WorkflowState.createSessionID(),
     role,
     status: "active",
     task,
@@ -403,20 +418,6 @@ const nextSession = (role: WorkflowSession["role"], task: string, githubCommentU
     updated_at: created,
     github_comment_url: githubCommentUrl,
   }
-}
-
-const withAmendmentStatus = (content: string, status: "approved" | "rejected", resolvedAt: string) => {
-  const body = content.trim().length > 0 ? content.trim() : "# Amendment"
-  const updated = /^##\s+Approval Status\s*$/im.test(body)
-    ? body.replace(
-        /(##\s+Approval Status\s*\r?\n)([\s\S]*?)(?=\r?\n##\s+|$)/i,
-        `$1\n${status}\n`,
-      )
-    : `${body}\n\n## Approval Status\n\n${status}`
-  if (/^##\s+Resolved\s*$/im.test(updated)) {
-    return updated.replace(/(##\s+Resolved\s*\r?\n)([\s\S]*?)(?=\r?\n##\s+|$)/i, `$1\n${resolvedAt}\n`) + "\n"
-  }
-  return `${updated.trim()}\n\n## Resolved\n\n${resolvedAt}\n`
 }
 
 const postApprovalState = (state: WorkflowStateFile) =>
@@ -557,6 +558,12 @@ export const layer = Layer.effect(
     const allowedPathsConfig = wf.allowed_paths ?? []
     const forbiddenPathsConfig = wf.forbidden_paths ?? []
     const approvalSource = ghConfig.approval_source ?? "review_approval"
+    const supportedApprovalSources = ["github_pr_review", "review_approval"]
+    if (!supportedApprovalSources.includes(approvalSource)) {
+      yield* Effect.logWarning(
+        `Unsupported approval_source "${approvalSource}" configured. Supported sources: ${supportedApprovalSources.join(", ")}. Falling back to "github_pr_review".`,
+      )
+    }
     const runningWorkflows = new Set<string>()
     const syncInterval = ghConfig.comment_sync_interval_seconds ?? 60
 
@@ -574,6 +581,7 @@ export const layer = Layer.effect(
         approved_by: state.plan_pull_request.approved_by,
         approved_at: state.plan_pull_request.approved_at ?? state.plan_pull_request.latest_review_at ?? WorkflowState.now(),
         github_review_evidence: state.plan_pull_request.latest_review_url ?? state.plan_pull_request.url,
+        approval_source: approvalSource,
       }
     }
 
@@ -592,8 +600,15 @@ export const layer = Layer.effect(
         approved_by: state.code_pull_request.approved_by,
         approved_at: state.code_pull_request.approved_at ?? state.code_pull_request.latest_review_at ?? WorkflowState.now(),
         github_review_evidence: state.code_pull_request.latest_review_url ?? state.code_pull_request.url,
+        approval_source: approvalSource,
       }
     }
+
+    const publishAmendmentRequired = (workflowID: string, reason: string) =>
+      bus.publish(WorkflowEvents.AmendmentRequired, {
+        workflow_id: workflowID,
+        reason,
+      })
 
     const guardPostApprovalInput = Effect.fn("Workflow.guardPostApprovalInput")(function* (
       directory: string,
@@ -608,6 +623,7 @@ export const layer = Layer.effect(
         if (scopeResult.allowed) return undefined
         yield* approval.createAmendment(directory, state.workflow_id, scopeResult.reason)
         if (allowAutoAmendment) return undefined
+        yield* publishAmendmentRequired(state.workflow_id, scopeResult.reason)
         return {
           reason: scopeResult.reason,
           state: amendmentState(yield* get(directory, state.workflow_id), scopeResult.reason),
@@ -628,6 +644,7 @@ export const layer = Layer.effect(
       if (classification.tag !== "out_of_scope") return undefined
       yield* approval.createAmendment(directory, state.workflow_id, classification.reason)
       if (allowAutoAmendment) return undefined
+      yield* publishAmendmentRequired(state.workflow_id, classification.reason)
       return {
         reason: classification.reason,
         state: amendmentState(yield* get(directory, state.workflow_id), classification.reason),
@@ -660,6 +677,7 @@ export const layer = Layer.effect(
         )
         const pullRequest = state.plan_pull_request.comments.some((item) => item.id === comment.id) ? "plan" : "code"
         const key = pullRequest === "plan" ? "plan_pull_request" : "code_pull_request"
+        yield* publishAmendmentRequired(state.workflow_id, classification.reason)
         return amendmentState(
           {
             ...state,
@@ -687,7 +705,18 @@ export const layer = Layer.effect(
       yield* guardEnabled()
       const workflowID = WorkflowState.createWorkflowID()
       const created = WorkflowState.now()
-      const plannerSessionID = WorkflowState.createSessionID()
+
+      const sessionsOpt = yield* Effect.serviceOption(Session.Service)
+      let plannerSessionID = WorkflowState.createSessionID()
+      const plannerTask = "Draft workflow plan artifacts"
+      if (Option.isSome(sessionsOpt)) {
+        const realSession = yield* sessionsOpt.value.create({
+          title: plannerTask,
+          agent: planReviewerAgent,
+          permission: [],
+        })
+        plannerSessionID = realSession.id
+      }
 
       const checkResults = yield* Effect.forEach(checks, (cmd) =>
         execCommand("bun", ["run", cmd], input.directory).pipe(
@@ -728,7 +757,7 @@ export const layer = Layer.effect(
             id: plannerSessionID,
             role: "planner",
             status: "active",
-            task: "Draft workflow plan artifacts",
+            task: plannerTask,
             agent: planReviewerAgent,
             created_at: created,
             updated_at: created,
@@ -1051,24 +1080,21 @@ export const layer = Layer.effect(
         ],
         { concurrency: 3 },
       )
+      const sessionsOpt = yield* Effect.serviceOption(Session.Service)
+      let planSessionId: string | undefined
+      if (Option.isSome(sessionsOpt)) {
+        const realSession = yield* sessionsOpt.value.create({
+          title: task,
+          agent: planReviewerAgent,
+        })
+        planSessionId = realSession.id
+      }
       const next = WorkflowState.upsertSession(
         WorkflowState.transitionOrCurrent(
           {
             ...state,
             current_task: task,
             user_input_needed: undefined,
-            plan_pull_request: {
-              ...state.plan_pull_request,
-              comments: state.plan_pull_request.comments.map((comment) =>
-                comment.state === "open"
-                  ? {
-                      ...comment,
-                      state: "addressed" as const,
-                      updated_at: stamp,
-                    }
-                  : comment,
-              ),
-            },
           },
           "addressing_plan_comments",
         ),
@@ -1076,6 +1102,8 @@ export const layer = Layer.effect(
           state.plan_pull_request.review_state === "approved" ? "amendment" : "planner",
           task,
           input.githubCommentUrl,
+          undefined,
+          planSessionId,
         ),
       )
       yield* persist(artifact, input.directory, next)
@@ -1107,12 +1135,24 @@ export const layer = Layer.effect(
       } else {
         yield* checkoutBranch(input.directory, branch)
       }
+
+      const sessionsOpt = yield* Effect.serviceOption(Session.Service)
+      let executorSessionId: string | undefined
+      if (Option.isSome(sessionsOpt)) {
+        const realSession = yield* sessionsOpt.value.create({
+          title: "Implement approved workflow plan",
+          agent: codeReviewerAgent,
+          permission: [],
+        })
+        executorSessionId = realSession.id
+      }
+
       const next = WorkflowState.upsertSession(
         WorkflowState.withState(
           state.state === "plan_approved" ? state : WorkflowState.transitionOrCurrent(state, "plan_approved"),
           "executing",
         ),
-        nextSession("executor", "Implement approved workflow plan", undefined, codeReviewerAgent),
+        nextSession("executor", "Implement approved workflow plan", undefined, codeReviewerAgent, executorSessionId),
       )
       const withBranch = {
         ...next,
@@ -1169,6 +1209,7 @@ export const layer = Layer.effect(
       )
       if (!validation.ok) {
         yield* approval.createAmendment(input.directory, input.workflowID, validation.summary)
+        yield* publishAmendmentRequired(input.workflowID, validation.summary)
         const next = amendmentState(
           {
             ...(yield* get(input.directory, input.workflowID)),
@@ -1427,6 +1468,14 @@ export const layer = Layer.effect(
           workflow_id: input.workflowID,
           pull_request: code.number ?? 0,
         })
+        yield* artifact.appendDecision(input.directory, input.workflowID, {
+          action: "workflow.completed",
+          previous_state: state.state,
+          new_state: next.state,
+          summary: `Workflow completed. Code PR #${code.number ?? 0} approved by ${next.code_approval?.approved_by ?? "reviewer"} with validation passing.`,
+          evidence: next.code_approval?.validation_evidence ?? next.last_validation?.summary,
+          pull_request: code.number,
+        })
       }
 
       const beforePlanIds = new Set(state.plan_pull_request.comments.map((c) => c.id))
@@ -1495,7 +1544,15 @@ export const layer = Layer.effect(
       const state = yield* get(directory, workflowID)
       const currentState = state.state
 
-      const recoverySession = nextSession("recovery", `Recover workflow from ${currentState}`)
+      const sessionsOpt = yield* Effect.serviceOption(Session.Service)
+      let recoveryId: string | undefined
+      if (Option.isSome(sessionsOpt)) {
+        const realSession = yield* sessionsOpt.value.create({
+          title: `Recover workflow from ${currentState}`,
+        })
+        recoveryId = realSession.id
+      }
+      const recoverySession = nextSession("recovery", `Recover workflow from ${currentState}`, undefined, undefined, recoveryId)
       const withSession = WorkflowState.upsertSession(state, recoverySession)
 
       const decisions = yield* artifact.readArtifact(directory, workflowID, "DECISIONS.md").pipe(
@@ -1550,9 +1607,16 @@ export const layer = Layer.effect(
           summary = "Recovered from paused. Resumed to awaiting_plan_review (default)."
         }
       } else if (currentState === "plan_approved" && withSession.state !== "executing") {
+        let executorId: string | undefined
+        if (Option.isSome(sessionsOpt)) {
+          const realSession = yield* sessionsOpt.value.create({
+            title: "Implement approved workflow plan (recovery)",
+          })
+          executorId = realSession.id
+        }
         recovered = WorkflowState.upsertSession(
           WorkflowState.withState({ ...withSession, user_input_needed: undefined }, "executing"),
-          nextSession("executor", "Implement approved workflow plan (recovery)"),
+          nextSession("executor", "Implement approved workflow plan (recovery)", undefined, undefined, executorId),
         )
         summary = "Recovered from plan_approved: transitioned to executing. Created executor session."
       } else if (currentState === "awaiting_code_review") {
@@ -1763,8 +1827,10 @@ export const layer = Layer.effect(
         input.comment.path,
       )
       const key = input.pullRequest === "plan" ? "plan_pull_request" : "code_pull_request"
-      const next = guarded
-        ? amendmentState(
+      let next: WorkflowStateFile
+      if (guarded) {
+        yield* publishAmendmentRequired(input.workflowID, guarded.reason)
+        next = amendmentState(
           {
             ...guarded.state,
             [key]: {
@@ -1782,7 +1848,9 @@ export const layer = Layer.effect(
           },
           guarded.reason,
         )
-        : withCommentBookkeepingState(recorded, input.pullRequest, requireCodeApproval)
+      } else {
+        next = withCommentBookkeepingState(recorded, input.pullRequest, requireCodeApproval)
+      }
       yield* persist(artifact, input.directory, next)
       yield* artifact.appendDecision(input.directory, input.workflowID, {
         action: guarded ? "workflow.comment.requires_amendment" : "workflow.comment.recorded",
@@ -1801,26 +1869,46 @@ export const layer = Layer.effect(
       yield* guardPermission("workflow_amend")
       const approved = allowAutoAmendment || input.approve
       const state = yield* get(input.directory, input.workflowID)
-      const resolvedAt = WorkflowState.now()
-      const amendment = yield* artifact.readArtifact(input.directory, input.workflowID, "AMENDMENT.md").pipe(
-        Effect.catch(() => Effect.succeed("# Amendment\n\nNo amendment details were recorded.\n")),
-      )
-      yield* artifact.writeArtifact(
-        input.directory,
-        input.workflowID,
-        "AMENDMENT.md",
-        withAmendmentStatus(amendment, approved ? "approved" : "rejected", resolvedAt),
-      )
-      const next = WorkflowState.withState(state, approved ? "executing" : "paused")
-      yield* persist(artifact, input.directory, next)
-      yield* artifact.appendDecision(input.directory, input.workflowID, {
-        action: approved ? "workflow.amendment.approved" : "workflow.amendment.rejected",
-        previous_state: state.state,
-        new_state: next.state,
-        actor: "user",
-        summary: input.reason ?? (approved ? "Amendment approved by user." : "Amendment rejected by user."),
-      })
-      return next
+
+      if (approved) {
+        yield* approval.approveAmendment(input.directory, input.workflowID)
+        const next = yield* get(input.directory, input.workflowID)
+        const planWasApproved =
+          state.plan_pull_request.number !== undefined &&
+          state.plan_pull_request.number > 0 &&
+          WorkflowState.isApprovedReview(state.plan_pull_request.review_state)
+
+        const final = planWasApproved
+          ? WorkflowState.transitionOrCurrent(
+              {
+                ...next,
+                user_input_needed: "Amendment approved. Plan scope has expanded — plan re-approval is required before execution can continue.",
+                updated_at: WorkflowState.now(),
+              },
+              "plan_approved",
+            )
+          : next
+
+        yield* persist(artifact, input.directory, final)
+        yield* bus.publish(WorkflowEvents.WorkflowUpdated, {
+          workflow_id: input.workflowID,
+          previous_state: state.state,
+          new_state: final.state,
+          action: "amendment_processed",
+        })
+        return final
+      }
+
+      yield* approval.rejectAmendment(input.directory, input.workflowID)
+      const next = yield* get(input.directory, input.workflowID)
+      const final = {
+        ...next,
+        user_input_needed:
+          "Amendment was rejected. Review AMENDMENT.md for the rejection reason and recovery instructions. You can create a new amendment with revised scope, or continue within the current approved scope.",
+        updated_at: WorkflowState.now(),
+      }
+      yield* persist(artifact, input.directory, final)
+      return final
     })
 
     const commitPlan = Effect.fn("Workflow.commitPlan")(function* (input: CommitInput) {
@@ -1877,6 +1965,10 @@ export const layer = Layer.effect(
         previous_state: state.state,
         new_state: next.state,
         summary: "Workflow cancelled by user.",
+      })
+      yield* bus.publish(WorkflowEvents.WorkflowFailed, {
+        workflow_id: workflowID,
+        reason: "Workflow cancelled by user.",
       })
       return next
     })

@@ -4,7 +4,7 @@ import { Session } from "@/session/session"
 import { SessionPrompt } from "@/session/prompt"
 import { WorkflowArtifact } from "./artifact"
 import { WorkflowScope } from "./scope"
-import { WorkflowState, type WorkflowStateFile } from "./state"
+import { WorkflowState, type WorkflowSession, type WorkflowStateFile } from "./state"
 
 export type StopReason =
   | "all_tasks_complete"
@@ -378,6 +378,17 @@ export const layer = Layer.effect(
           const result = yield* Effect.gen(function* () {
             const session = yield* sessions.create({ agent: "build" })
 
+            state = WorkflowState.upsertSession(state, {
+              id: session.id,
+              role: "executor",
+              status: "active",
+              task: task.description,
+              agent: "build",
+              created_at: WorkflowState.now(),
+              updated_at: WorkflowState.now(),
+            })
+            yield* saveState(projectDir, state)
+
             yield* sessionPrompt.prompt({
               sessionID: session.id,
               agent: "build",
@@ -419,7 +430,7 @@ export const layer = Layer.effect(
               }
             }
 
-            return { filesChanged, validationOk, validationOutput, unrecoverable: false, permissionDenied: false }
+            return { filesChanged, validationOk, validationOutput, unrecoverable: false, permissionDenied: false, sessionId: session.id }
           }).pipe(
             Effect.catch((cause) => {
               const msg = String(cause).toLowerCase()
@@ -430,6 +441,7 @@ export const layer = Layer.effect(
                 validationOutput: String(cause),
                 unrecoverable: !denied,
                 permissionDenied: denied,
+                sessionId: "",
               })
             }),
           )
@@ -446,6 +458,10 @@ export const layer = Layer.effect(
           }
 
           if (result.permissionDenied) {
+            if (result.sessionId) {
+              const existing = state.sessions.find((s) => s.id === result.sessionId)
+              if (existing) state = WorkflowState.upsertSession(state, { ...existing, status: "failed", files_touched: result.filesChanged, updated_at: WorkflowState.now() })
+            }
             const next = WorkflowState.withState(state, "paused")
             yield* saveState(projectDir, next)
             yield* Effect.promise(() =>
@@ -467,6 +483,10 @@ export const layer = Layer.effect(
           }
 
           if (result.unrecoverable) {
+            if (result.sessionId) {
+              const existing = state.sessions.find((s) => s.id === result.sessionId)
+              if (existing) state = WorkflowState.upsertSession(state, { ...existing, status: "failed", files_touched: result.filesChanged, updated_at: WorkflowState.now() })
+            }
             const next = WorkflowState.withState(state, "failed")
             yield* saveState(projectDir, next)
             yield* Effect.promise(() =>
@@ -488,6 +508,10 @@ export const layer = Layer.effect(
           }
 
           if (!result.validationOk) {
+            if (result.sessionId) {
+              const existing = state.sessions.find((s) => s.id === result.sessionId)
+              if (existing) state = WorkflowState.upsertSession(state, { ...existing, status: "failed", files_touched: result.filesChanged, updated_at: WorkflowState.now() })
+            }
             const next = WorkflowState.withState(state, "validating")
             yield* saveState(projectDir, next)
             yield* Effect.promise(() =>
@@ -509,6 +533,10 @@ export const layer = Layer.effect(
           }
 
           if (!scopeOk) {
+            if (result.sessionId) {
+              const existing = state.sessions.find((s) => s.id === result.sessionId)
+              if (existing) state = WorkflowState.upsertSession(state, { ...existing, status: "failed", files_touched: result.filesChanged, updated_at: WorkflowState.now() })
+            }
             const next = {
               ...WorkflowState.withState(state, "needs_amendment"),
               user_input_needed: scopeReason,
@@ -536,6 +564,10 @@ export const layer = Layer.effect(
           }
 
           state = withCompletedTask(state, task)
+          if (result.sessionId) {
+            const existing = state.sessions.find((s) => s.id === result.sessionId)
+            if (existing) state = WorkflowState.upsertSession(state, { ...existing, status: "completed", files_touched: result.filesChanged, updated_at: WorkflowState.now() })
+          }
           tasksCompleted = countChecked(state, tasks)
           yield* saveState(projectDir, state)
 
@@ -647,6 +679,17 @@ export const layer = Layer.effect(
         const result = yield* Effect.gen(function* () {
           const session = yield* sessions.create({ agent: "build" })
 
+          const withSession = WorkflowState.upsertSession(state, {
+            id: session.id,
+            role: "executor",
+            status: "active",
+            task: task.description,
+            agent: "build",
+            created_at: WorkflowState.now(),
+            updated_at: WorkflowState.now(),
+          })
+          yield* saveState(projectDir, withSession)
+
           yield* sessionPrompt.prompt({
             sessionID: session.id,
             agent: "build",
@@ -688,7 +731,7 @@ export const layer = Layer.effect(
             }
           }
 
-          return { filesChanged, validationOk, validationOutput, unrecoverable: false, permissionDenied: false }
+          return { filesChanged, validationOk, validationOutput, unrecoverable: false, permissionDenied: false, sessionId: session.id }
         }).pipe(
           Effect.catch((cause) => {
             const msg = String(cause).toLowerCase()
@@ -699,6 +742,7 @@ export const layer = Layer.effect(
               validationOutput: String(cause),
               unrecoverable: !denied,
               permissionDenied: denied,
+              sessionId: "",
             })
           }),
         )
@@ -725,7 +769,19 @@ export const layer = Layer.effect(
         }
 
         const updated = withCompletedTask(state, task)
-        yield* saveState(projectDir, updated)
+        const final = result.sessionId
+          ? WorkflowState.upsertSession(updated, {
+              id: result.sessionId,
+              role: "executor",
+              status: result.validationOk && scopeOk ? "completed" : "failed",
+              task: task.description,
+              agent: "build",
+              files_touched: result.filesChanged,
+              created_at: updated.sessions.find((s) => s.id === result.sessionId)?.created_at ?? WorkflowState.now(),
+              updated_at: WorkflowState.now(),
+            })
+          : updated
+        yield* saveState(projectDir, final)
 
         return {
           task_id: task.id,

@@ -1,16 +1,97 @@
 import { describe, expect, test } from "bun:test"
 import path from "path"
-import { Effect, Layer } from "effect"
+import { Effect, Layer, Option } from "effect"
 import { tmpdir } from "../fixture/fixture"
 import { WorkflowExecutor } from "../../src/workflow/executor"
 import { WorkflowScope } from "../../src/workflow/scope"
 import { WorkflowApproval } from "../../src/workflow/approval"
 import { WorkflowArtifact } from "../../src/workflow/artifact"
 import { WorkflowState } from "../../src/workflow/state"
+import { Session } from "../../src/session/session"
+import { SessionPrompt } from "../../src/session/prompt"
+import { MessageV2 } from "../../src/session/message-v2"
+import { SessionID, MessageID } from "../../src/session/schema"
+import { ProjectID } from "../../src/project/schema"
+import { ProviderID, ModelID } from "../../src/provider/schema"
+import { Config } from "../../src/config/config"
+
+const mockSessionInfo: Session.Info = {
+  id: "ses_test_executor" as SessionID,
+  slug: "test-executor",
+  projectID: "p_test_workflow" as ProjectID,
+  directory: "",
+  title: "Test Executor Session",
+  version: "0.0.0",
+  time: { created: 0, updated: 0 },
+}
+
+const mockPromptResponse: MessageV2.WithParts = {
+  info: {
+    id: "msg_test_prompt" as MessageID,
+    sessionID: "ses_test_executor" as SessionID,
+    role: "user" as const,
+    time: { created: 0 },
+    agent: "build",
+    model: { providerID: "p_test" as ProviderID, modelID: "m_test" as ModelID },
+  },
+  parts: [],
+}
+
+const mockSession: Session.Interface = {
+  create: () => Effect.succeed(mockSessionInfo),
+  list: () => Effect.succeed([]),
+  fork: () => Effect.die("not implemented"),
+  touch: () => Effect.void,
+  get: () => Effect.die("not implemented"),
+  setTitle: () => Effect.void,
+  setArchived: () => Effect.void,
+  setPermission: () => Effect.void,
+  setRevert: () => Effect.void,
+  clearRevert: () => Effect.void,
+  setSummary: () => Effect.void,
+  diff: () => Effect.succeed([]),
+  messages: () => Effect.succeed([]),
+  children: () => Effect.succeed([]),
+  remove: () => Effect.die("not implemented"),
+  updateMessage: (msg: any) => Effect.succeed(msg),
+  removeMessage: () => Effect.succeed("" as MessageID),
+  removePart: () => Effect.succeed("" as any),
+  getPart: () => Effect.succeed(undefined),
+  updatePart: (part: any) => Effect.succeed(part),
+  updatePartDelta: () => Effect.void,
+  findMessage: () => Effect.succeed(Option.none()),
+}
+
+const mockSessionPrompt: SessionPrompt.Interface = {
+  cancel: () => Effect.void,
+  prompt: () => Effect.succeed(mockPromptResponse),
+  loop: () => Effect.succeed(mockPromptResponse),
+  shell: () => Effect.succeed(mockPromptResponse),
+  command: () => Effect.succeed(mockPromptResponse),
+  resolvePromptParts: () => Effect.succeed([{ type: "text", text: "mock" } as any]),
+}
+
+const mockConfig: Config.Interface = {
+  get: () => Effect.succeed({ workflow: { checks: [] } } as Config.Info),
+  getGlobal: () => Effect.succeed({} as Config.Info),
+  getConsoleState: () => Effect.succeed({} as any),
+  update: () => Effect.void,
+  updateGlobal: () => Effect.succeed({ info: {} as Config.Info, changed: false }),
+  invalidate: () => Effect.void,
+  directories: () => Effect.succeed([]),
+  waitForDependencies: () => Effect.void,
+}
 
 const executorLayer = WorkflowExecutor.defaultLayer
 const runExecutor = <A, E>(effect: Effect.Effect<A, E, WorkflowExecutor.Service>) =>
-  Effect.runPromise(effect.pipe(Effect.provide(executorLayer)))
+  Effect.runPromise(
+    effect.pipe(
+      Effect.provide(executorLayer),
+      Effect.provideService(Session.Service, mockSession),
+      Effect.provideService(SessionPrompt.Service, mockSessionPrompt),
+      Effect.provideService(Config.Service, mockConfig),
+    ),
+  )
 
 async function setupApprovedWorkflow(dir: string, workflowID: string) {
   const workflowDir = path.join(dir, ".opencode", "workflows", workflowID)

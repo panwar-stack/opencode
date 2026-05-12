@@ -89,6 +89,20 @@ export const layer = Layer.effect(
       { permission: "write", pattern: ".opencode/workflows/**", action: "allow" },
     ]
 
+    const executorPermissions = (allowedPaths: readonly string[]): Permission.Ruleset => {
+      const rules: Permission.Ruleset = [
+        { permission: "edit", pattern: "**", action: "deny" },
+        { permission: "write", pattern: "**", action: "deny" },
+      ]
+      for (const p of allowedPaths) {
+        rules.push(
+          { permission: "edit", pattern: p, action: "allow" },
+          { permission: "write", pattern: p, action: "allow" },
+        )
+      }
+      return rules
+    }
+
     const rolePermissions = (role: SessionRole): Permission.Ruleset => {
       switch (role) {
         case "planner":
@@ -97,9 +111,11 @@ export const layer = Layer.effect(
         case "validator":
         case "code_reviewer":
           return readOnlyPerm
+        case "recovery":
+          return []
         case "executor":
         case "amendment":
-        case "recovery":
+          // Derived from IMPACT.md at session creation time
           return []
       }
     }
@@ -118,13 +134,20 @@ export const layer = Layer.effect(
         }
         const task = taskMap[role]
 
+        let permission = rolePermissions(role)
+        if (role === "executor" || role === "amendment") {
+          const impact = yield* artifact.readArtifact(directory, workflowID, "IMPACT.md")
+          const allowedPaths = WorkflowArtifact.parseAllowedPaths(impact)
+          permission = executorPermissions(allowedPaths)
+        }
+
         const sessionsOpt = yield* Effect.serviceOption(Session.Service)
         let sessionId = WorkflowState.createSessionID()
         if (Option.isSome(sessionsOpt)) {
           const realSession = yield* sessionsOpt.value.create({
             title: task,
             agent,
-            permission: rolePermissions(role),
+            permission,
           })
           sessionId = realSession.id
         }

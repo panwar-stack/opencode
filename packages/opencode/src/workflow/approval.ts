@@ -1,6 +1,9 @@
-import { Context, Effect, Layer, Schema } from "effect"
+import { Context, Effect, Layer, Option, Schema } from "effect"
+import { Bus } from "@/bus"
 import { WorkflowArtifact } from "./artifact"
 import { WorkflowState, type WorkflowStateFile } from "./state"
+import { WorkflowEvents } from "./events"
+import { Config } from "@/config/config"
 
 export type PlanApprovalEvidence = {
   readonly workflow_id?: string
@@ -12,6 +15,7 @@ export type PlanApprovalEvidence = {
   readonly approved_at: string
   readonly approved_scope_summary?: string
   readonly github_review_evidence?: string
+  readonly approval_source?: string
 }
 
 export type CodeApprovalEvidence = {
@@ -25,6 +29,7 @@ export type CodeApprovalEvidence = {
   readonly approved_by?: string
   readonly approved_at: string
   readonly github_review_evidence?: string
+  readonly approval_source?: string
 }
 
 export type ApprovalStatus =
@@ -144,9 +149,21 @@ export class Service extends Context.Service<Service, Interface>()("@opencode/Wo
 export const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
+    const busOpt = yield* Effect.serviceOption(Bus.Service)
+    const configOpt = yield* Effect.serviceOption(Config.Service)
+    const approvalSource = Option.isSome(configOpt)
+      ? (yield* configOpt.value.get()).workflow?.github?.approval_source ?? "github_pr_review"
+      : "github_pr_review"
+
+    const publishSafe = (def: typeof WorkflowEvents.WorkflowUpdated, properties: { workflow_id: string; previous_state?: string; new_state: string; action?: string }) =>
+      Option.isSome(busOpt)
+        ? busOpt.value.publish(def, properties).pipe(Effect.catch(() => Effect.void))
+        : Effect.void
+
     const recordPlanApproval = Effect.fn("WorkflowApproval.recordPlanApproval")(
       function* (projectDir: string, workflowID: string, evidence: PlanApprovalEvidence) {
         const state = yield* loadState(projectDir, workflowID)
+        const source = evidence.approval_source ?? approvalSource
         const next = {
           ...WorkflowState.transitionOrCurrent(state, "plan_approved"),
           approved_spec_hash: evidence.approved_spec_hash,
@@ -162,6 +179,7 @@ export const layer = Layer.effect(
             approved_by: evidence.approved_by,
             approved_at: evidence.approved_at,
             github_review_evidence: evidence.github_review_evidence,
+            approval_source: source,
           },
           updated_at: WorkflowState.now(),
         }
@@ -171,7 +189,7 @@ export const layer = Layer.effect(
             action: "workflow.plan_approval.recorded",
             previous_state: state.state,
             new_state: next.state,
-            summary: `Plan approved by ${evidence.approved_by ?? "reviewer"} on PR #${evidence.pull_request_number}.`,
+            summary: `Plan approved by ${evidence.approved_by ?? "reviewer"} on PR #${evidence.pull_request_number} (source: ${source}).`,
             evidence: evidence.approved_spec_hash,
             pull_request: evidence.pull_request_number,
           }),
@@ -213,6 +231,7 @@ export const layer = Layer.effect(
     const recordCodeApproval = Effect.fn("WorkflowApproval.recordCodeApproval")(
       function* (projectDir: string, workflowID: string, evidence: CodeApprovalEvidence) {
         const state = yield* loadState(projectDir, workflowID)
+        const source = evidence.approval_source ?? approvalSource
         const next = {
           ...state,
           code_approval: {
@@ -226,6 +245,7 @@ export const layer = Layer.effect(
             approved_by: evidence.approved_by,
             approved_at: evidence.approved_at,
             github_review_evidence: evidence.github_review_evidence,
+            approval_source: source,
           },
           updated_at: WorkflowState.now(),
         }
@@ -235,7 +255,7 @@ export const layer = Layer.effect(
             action: "workflow.code_approval.recorded",
             previous_state: state.state,
             new_state: next.state,
-            summary: `Code approved by ${evidence.approved_by ?? "reviewer"} on PR #${evidence.pull_request_number}.`,
+            summary: `Code approved by ${evidence.approved_by ?? "reviewer"} on PR #${evidence.pull_request_number} (source: ${source}).`,
             pull_request: evidence.pull_request_number,
           }),
         )
@@ -324,16 +344,47 @@ export const layer = Layer.effect(
         yield* Effect.promise(() =>
           WorkflowArtifact.writeArtifact(projectDir, workflowID, "AMENDMENT.md", formatAmendment(info)),
         )
-        const next = WorkflowState.withState(state, "executing")
+
+        const impact = yield* Effect.promise(() =>
+          WorkflowArtifact.readArtifact(projectDir, workflowID, "IMPACT.md"),
+        ).pipe(Effect.catch(() => Effect.succeed("")))
+
+        if (parsed.affected_files.length > 0) {
+          const newPaths = parsed.affected_files.map((f) => `- ${f}`).join("\n")
+          const updatedImpact = /^##\s+Allowed Paths\s*$/im.test(impact)
+            ? impact.replace(/(^##\s+Allowed Paths\s*\r?\n)/im, `$1\n${newPaths}\n`)
+            : `${impact.trimEnd()}\n\n## Allowed Paths\n\n${newPaths}\n`
+          yield* Effect.promise(() =>
+            WorkflowArtifact.writeArtifact(projectDir, workflowID, "IMPACT.md", updatedImpact),
+          )
+        }
+
+        const newHash = yield* Effect.promise(() =>
+          WorkflowArtifact.hashApprovedArtifacts(projectDir, workflowID),
+        )
+
+        const next = {
+          ...WorkflowState.withState(state, "executing"),
+          approved_spec_hash: newHash,
+          user_input_needed: undefined,
+          updated_at: WorkflowState.now(),
+        }
         yield* saveState(projectDir, next)
         yield* Effect.promise(() =>
           WorkflowArtifact.appendDecision(projectDir, workflowID, {
             action: "workflow.amendment.approved",
             previous_state: state.state,
             new_state: next.state,
-            summary: `Amendment approved. Scope expanded: ${info.scope_change}`,
+            summary: `Amendment approved (source: ${approvalSource}). Reason: ${parsed.reason}. Scope expanded: ${info.scope_change}. Affected files: ${parsed.affected_files.join(", ") || "none"}.`,
+            evidence: newHash,
           }),
         )
+        yield* publishSafe(WorkflowEvents.WorkflowUpdated, {
+          workflow_id: workflowID,
+          previous_state: state.state,
+          new_state: next.state,
+          action: "amendment_approved",
+        })
       },
     )
 
@@ -350,19 +401,37 @@ export const layer = Layer.effect(
           state: "rejected",
           resolved_at: WorkflowState.now(),
         }
+        const recoveryNote =
+          "\n## Recovery Instructions\n\n" +
+          "This amendment was rejected. The original approved scope remains in effect.\n\n" +
+          "To proceed:\n" +
+          "1. Revise the amendment and re-submit for approval, or\n" +
+          "2. Address the reviewer's feedback and continue within the current scope, or\n" +
+          "3. Request a scope review from the plan reviewer.\n"
         yield* Effect.promise(() =>
-          WorkflowArtifact.writeArtifact(projectDir, workflowID, "AMENDMENT.md", formatAmendment(info)),
+          WorkflowArtifact.writeArtifact(projectDir, workflowID, "AMENDMENT.md", formatAmendment(info) + recoveryNote),
         )
-        const next = WorkflowState.withState(state, "paused")
+        const next = {
+          ...WorkflowState.withState(state, "paused"),
+          user_input_needed:
+            "Amendment was rejected. Review AMENDMENT.md for the rejection reason and recovery instructions. You can create a new amendment with revised scope, or continue within the current approved scope.",
+          updated_at: WorkflowState.now(),
+        }
         yield* saveState(projectDir, next)
         yield* Effect.promise(() =>
           WorkflowArtifact.appendDecision(projectDir, workflowID, {
             action: "workflow.amendment.rejected",
             previous_state: state.state,
             new_state: next.state,
-            summary: `Amendment rejected. Workflow paused for revision.`,
+            summary: `Amendment rejected. Reason: ${parsed.reason}. Workflow paused for revision. See AMENDMENT.md for recovery instructions.`,
           }),
         )
+        yield* publishSafe(WorkflowEvents.WorkflowUpdated, {
+          workflow_id: workflowID,
+          previous_state: state.state,
+          new_state: next.state,
+          action: "amendment_rejected",
+        })
       },
     )
 
