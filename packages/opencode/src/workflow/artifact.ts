@@ -19,6 +19,7 @@ export type ValidationResult = {
 
 export type DecisionInput = {
   readonly action: string
+  readonly session_id?: string
   readonly previous_state?: string
   readonly new_state?: string
   readonly actor?: string
@@ -228,7 +229,14 @@ export const layer = Layer.effect(
     const exists = (file: string) => Effect.promise(() => Bun.file(file).exists())
 
     const readState = Effect.fn("WorkflowArtifact.readState")(function* (directory: string, workflowID: string) {
-      return yield* Effect.promise(() => Bun.file(artifactPath(directory, workflowID, "STATE.json")).json())
+      const state = yield* Effect.promise(() => Bun.file(artifactPath(directory, workflowID, "STATE.json")).json()).pipe(
+        Effect.map((json) => json as WorkflowStateFile),
+      )
+      return {
+        ...state,
+        request: state.request ?? state.title,
+        open_github_comments: WorkflowState.openComments(state),
+      }
     })
 
     const readArtifact = Effect.fn("WorkflowArtifact.readArtifact")(function* (
@@ -254,10 +262,15 @@ export const layer = Layer.effect(
       directory: string,
       state: WorkflowStateFile,
     ) {
+      const normalized = {
+        ...state,
+        request: state.request ?? state.title,
+        open_github_comments: WorkflowState.openComments(state),
+      }
       yield* Effect.promise(() =>
         Bun.write(
           artifactPath(directory, state.workflow_id, "STATE.json"),
-          `${JSON.stringify(state, null, 2)}\n`,
+          `${JSON.stringify(normalized, null, 2)}\n`,
         ),
       )
     })
@@ -354,7 +367,7 @@ export const layer = Layer.effect(
 
 ## Summary
 
-Draft the reviewed implementation plan here.
+Requested workflow: ${state.request ?? state.title}
 
 ## Goals
 
@@ -470,14 +483,14 @@ Revert the implementation PR and leave workflow artifacts in place.
           Effect.promise(() =>
             Bun.write(
               artifactPath(directory, state.workflow_id, "GITHUB.md"),
-              `# GitHub\n\nPlan review state: ${state.plan_pull_request.review_state}\n\nCode review state: ${state.code_pull_request.review_state}\n`,
+              `# GitHub\n\nPlan review state: ${state.plan_pull_request.review_state}\n\nCode review state: ${state.code_pull_request.review_state}\n\n## Open Comments\n\nNone recorded.\n\n## Addressed Comments\n\nNone recorded.\n\n## Out-of-Scope Comments\n\nNone recorded.\n\n## Review Response Log\n\nNo responses recorded.\n`,
             ),
           ),
           writeState(directory, state),
           Effect.promise(() =>
             Bun.write(
               artifactPath(directory, state.workflow_id, "DECISIONS.md"),
-              `# Decisions\n\n## ${state.created_at} - workflow.created\n\nActor: opencode\nNew state: ${state.state}\n\nCreated workflow artifacts for ${state.workflow_id}.\n`,
+              `# Decisions\n\n## ${state.created_at} - workflow.created\n\nWorkflow: ${state.workflow_id}\nActor: opencode\nNew state: ${state.state}\n\nCreated workflow artifacts for ${state.workflow_id}.\n`,
             ),
           ),
         ],
@@ -494,6 +507,8 @@ Revert the implementation PR and leave workflow artifacts in place.
         "",
         `## ${WorkflowState.now()} - ${input.action}`,
         "",
+        `Workflow: ${workflowID}`,
+        input.session_id ? `Session: ${input.session_id}` : undefined,
         `Actor: ${input.actor ?? "opencode"}`,
         input.previous_state ? `Previous state: ${input.previous_state}` : undefined,
         input.new_state ? `New state: ${input.new_state}` : undefined,
@@ -516,6 +531,21 @@ Revert the implementation PR and leave workflow artifacts in place.
       directory: string,
       state: WorkflowStateFile,
     ) {
+      const formatComment = (pullRequest: "plan" | "code", comment: WorkflowState.ReviewComment) =>
+        [
+          `- ${pullRequest} ${comment.id} [${comment.state}] ${comment.url ?? "no-url"}`,
+          `  author: ${comment.author ?? "unknown"}`,
+          comment.path ? `  path: ${comment.path}${comment.line ? `:${comment.line}` : ""}` : undefined,
+          `  body: ${comment.body.replace(/\s+/g, " ").slice(0, 240)}`,
+        ].filter((line): line is string => line !== undefined).join("\n")
+      const comments = [
+        ...state.plan_pull_request.comments.map((comment) => ({ pullRequest: "plan" as const, comment })),
+        ...state.code_pull_request.comments.map((comment) => ({ pullRequest: "code" as const, comment })),
+      ]
+      const openComments = comments.filter((item) => item.comment.state === "open")
+      const addressedComments = comments.filter((item) => item.comment.state === "addressed")
+      const outOfScopeComments = comments.filter((item) => item.comment.state === "out_of_scope")
+      const responseSessions = state.sessions.filter((session) => session.github_comment_url)
       yield* writeArtifact(
         directory,
         state.workflow_id,
@@ -560,6 +590,30 @@ Revert the implementation PR and leave workflow artifacts in place.
           state.code_approval?.validation_evidence ? `Validation evidence: ${state.code_approval.validation_evidence}` : undefined,
           "",
           `Open comments: ${WorkflowState.openComments(state).length}`,
+          "",
+          "## Open Comments",
+          "",
+          openComments.length > 0
+            ? openComments.map((item) => formatComment(item.pullRequest, item.comment)).join("\n")
+            : "None recorded.",
+          "",
+          "## Addressed Comments",
+          "",
+          addressedComments.length > 0
+            ? addressedComments.map((item) => formatComment(item.pullRequest, item.comment)).join("\n")
+            : "None recorded.",
+          "",
+          "## Out-of-Scope Comments",
+          "",
+          outOfScopeComments.length > 0
+            ? outOfScopeComments.map((item) => formatComment(item.pullRequest, item.comment)).join("\n")
+            : "None recorded.",
+          "",
+          "## Review Response Log",
+          "",
+          responseSessions.length > 0
+            ? responseSessions.map((session) => `- ${session.updated_at} ${session.role} ${session.id} [${session.status}] ${session.github_comment_url}: ${session.task}`).join("\n")
+            : "No responses recorded.",
         ]
           .filter((line): line is string => line !== undefined)
           .join("\n"),

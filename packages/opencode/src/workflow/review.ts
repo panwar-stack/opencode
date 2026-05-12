@@ -3,6 +3,7 @@ import { Context, Effect, Layer, Stream } from "effect"
 import { Bus } from "@/bus"
 import { Workflow } from "./workflow"
 import { WorkflowGithub } from "./github"
+import { WorkflowArtifact } from "./artifact"
 import { WorkflowState, type PullRequestKind, type ReviewComment, type CommentState } from "./state"
 import { WorkflowEvents } from "./events"
 
@@ -152,6 +153,11 @@ export const layer = Layer.effect(
           if (numId !== undefined) {
             yield* replyToComment(directory, workflowID, prType, numId, `This concern falls outside the approved scope. ${classification.reasoning}`)
           }
+        } else if (classification.classification === "in_scope") {
+          const task = yield* createResponseTask(directory, workflowID, comment)
+          if (numId !== undefined) {
+            yield* replyToComment(directory, workflowID, prType, numId, `I've queued this in-scope review feedback as workflow response work: ${task}`)
+          }
         } else if (classification.classification === "already_addressed") {
           yield* workflow.markReviewComment({
             directory,
@@ -218,14 +224,60 @@ export const layer = Layer.effect(
         const isPlanComment = state.plan_pull_request.comments.some((c) => c.id === comment.id)
         const pullRequest: PullRequestKind = isPlanComment ? "plan" : "code"
 
-        yield* workflow.addComment({
+        const recorded = yield* workflow.addComment({
           directory,
           workflowID,
           pullRequest,
           comment,
         })
 
-        return `Address review comment from ${comment.author ?? "unknown"}: "${comment.body.slice(0, 80)}"`
+        const artifactDir = path.join(directory, recorded.artifact_dir)
+        const tasksPath = path.join(artifactDir, "TASKS.md")
+        const tasks = yield* Effect.promise(() => Bun.file(tasksPath).text()).pipe(Effect.catch(() => Effect.succeed("# Tasks\n")))
+        const taskID = `review_${comment.id.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "") || Date.now().toString(36)}`
+        if (!new RegExp(`\\b${taskID}\\b`).test(tasks)) {
+          const files = comment.path ?? WorkflowArtifact.relativeArtifactDir(workflowID)
+          const line = [
+            `- [ ] ${taskID} | Address ${pullRequest} review comment from ${comment.author ?? "unknown"}: ${comment.body.replace(/\s+/g, " ").slice(0, 120)}`,
+            `files: ${files}`,
+            "validation: bun typecheck",
+            "status: pending",
+            "evidence: none",
+            `github: ${comment.url ?? "none"}`,
+          ].join(" | ")
+          yield* Effect.promise(() => Bun.write(tasksPath, `${tasks.trimEnd()}\n${line}\n`))
+        }
+
+        const responseSession = {
+          id: WorkflowState.createSessionID(),
+          role: pullRequest === "plan" ? "plan_reviewer" as const : "code_reviewer" as const,
+          status: "waiting" as const,
+          task: `Address review comment ${comment.id}`,
+          agent: pullRequest === "plan" ? "plan_reviewer" : "code_reviewer",
+          created_at: WorkflowState.now(),
+          updated_at: WorkflowState.now(),
+          github_comment_url: comment.url,
+        }
+        const next = WorkflowState.upsertSession(
+          yield* workflow.get(directory, workflowID),
+          responseSession,
+        )
+        yield* Effect.promise(() => WorkflowArtifact.writeState(directory, next))
+        yield* Effect.promise(() => WorkflowArtifact.writeGithubSummary(directory, next))
+        yield* Effect.promise(() =>
+          WorkflowArtifact.appendDecision(directory, workflowID, {
+            action: "workflow.review_response_task.created",
+            session_id: responseSession.id,
+            previous_state: state.state,
+            new_state: next.state,
+            actor: "opencode",
+            summary: `Created response task ${taskID} for ${pullRequest} review comment ${comment.id}.`,
+            pull_request: pullRequest === "plan" ? next.plan_pull_request.number : next.code_pull_request.number,
+            github_comment_url: comment.url,
+          }),
+        )
+
+        return `${taskID} - Address review comment from ${comment.author ?? "unknown"}`
       },
     )
 

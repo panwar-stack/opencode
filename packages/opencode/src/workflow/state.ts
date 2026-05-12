@@ -106,6 +106,7 @@ export type CodeApprovalRecord = {
 export type WorkflowStateFile = {
   readonly workflow_id: string
   readonly title: string
+  readonly request?: string
   readonly state: StateName
   readonly artifact_dir: string
   readonly created_at: string
@@ -124,6 +125,7 @@ export type WorkflowStateFile = {
   readonly active_session_id?: string
   readonly user_input_needed?: string
   readonly last_synced_at?: string
+  readonly open_github_comments?: readonly ReviewComment[]
   readonly last_validation?: {
     readonly ok: boolean
     readonly summary: string

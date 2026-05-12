@@ -1144,6 +1144,9 @@ function WorkflowDetailView(props: { workflowID: string; initialTab?: string }) 
             <text fg={theme.primary} onMouseUp={() => void revisePlan()}>
               revise
             </text>
+            <text fg={theme.primary} onMouseUp={() => void runWorkflowAction("plan submitted", (workflow) => WorkflowService.submitPlan({ directory: dir(), workflowID: workflow.workflow_id }))}>
+              submit plan
+            </text>
             <text fg={theme.primary} onMouseUp={() => void runWorkflowAction("run completed", (workflow) => WorkflowService.run({ directory: dir(), workflowID: workflow.workflow_id }))}>
               run
             </text>

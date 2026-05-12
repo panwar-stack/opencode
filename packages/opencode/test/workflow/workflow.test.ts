@@ -1,6 +1,6 @@
 import { $ } from "bun"
 import { describe, expect, test } from "bun:test"
-import { Effect, Layer, Option } from "effect"
+import { Effect, Layer, Option, Stream } from "effect"
 import { mkdir } from "fs/promises"
 import path from "path"
 import { Bus } from "../../src/bus"
@@ -12,6 +12,7 @@ import { WorkflowScope } from "../../src/workflow/scope"
 import { WorkflowState } from "../../src/workflow/state"
 import { Workflow } from "../../src/workflow/workflow"
 import { WorkflowExecutor } from "../../src/workflow/executor"
+import { WorkflowReview } from "../../src/workflow/review"
 import { Session } from "../../src/session/session"
 import { SessionPrompt } from "../../src/session/prompt"
 import { MessageV2 } from "../../src/session/message-v2"
@@ -86,6 +87,14 @@ const mockWfConfig: Config.Interface = {
   directories: () => Effect.succeed([]),
   waitForDependencies: () => Effect.void,
 }
+
+const testBus = Bus.Service.of({
+  publish: () => Effect.void,
+  subscribe: () => Stream.empty as never,
+  subscribeAll: () => Stream.empty as never,
+  subscribeCallback: () => Effect.succeed(() => {}),
+  subscribeAllCallback: () => Effect.succeed(() => {}),
+} as import("../../src/bus").Interface)
 
 const mockGithub = (state: WorkflowState.PullRequestState): WorkflowGithub.Interface => ({
   createPullRequest: () =>
@@ -179,7 +188,12 @@ describe("workflow", () => {
     expect(await Bun.file(path.join(tmp.path, state.artifact_dir, "STATE.json")).json()).toMatchObject({
       workflow_id: state.workflow_id,
       title: "Add password reset flow",
+      request: "Add password reset flow",
+      open_github_comments: [],
     })
+    const github = await Bun.file(path.join(tmp.path, state.artifact_dir, "GITHUB.md")).text()
+    expect(github).toContain("## Open Comments")
+    expect(github).toContain("## Review Response Log")
     expect((await $`git branch --show-current`.cwd(tmp.path).quiet().text()).trim()).toBe(state.plan_branch)
   })
 
@@ -1109,6 +1123,125 @@ pending
     expect(spec).toContain("Clarify rollback plan.")
     expect(tasks).toContain("Review Response Tasks")
     expect(impact).toContain("Review Response Boundaries")
+    expect(next.sessions).toContainEqual(expect.objectContaining({ role: "plan_reviewer" }))
+    expect(await WorkflowArtifact.readArtifact(tmp.path, state.workflow_id, "DECISIONS.md")).toContain("Session:")
+  })
+
+  test("in-scope review comments become response tasks with audit evidence", async () => {
+    await using tmp = await tmpdir({ git: true })
+
+    const state = await Workflow.start({
+      directory: tmp.path,
+      title: "Queue code review response",
+      localDraft: true,
+    })
+    await WorkflowArtifact.writeArtifact(
+      tmp.path,
+      state.workflow_id,
+      "IMPACT.md",
+      `# Impact
+
+## Allowed Paths
+
+- packages/opencode/src/workflow/review.ts
+
+## Expected New Files
+
+- None
+
+## Forbidden Paths
+
+- .env
+
+## Dependency Changes
+
+- None
+
+## Data Model Changes
+
+- None
+
+## Security Considerations
+
+- No secret handling changes.
+
+## Migration Risk
+
+- None
+
+## User-Visible Changes
+
+- None
+
+## Review Response Boundaries
+
+Only address workflow review handling.
+
+## Rollback Notes
+
+Revert the workflow review change.
+`,
+    )
+    const comment = {
+      id: "12345",
+      url: "https://github.com/acme/repo/pull/8#discussion_r12345",
+      author: "reviewer",
+      body: "Please update the implementation in `packages/opencode/src/workflow/review.ts`.",
+      state: "open" as const,
+      source: "review_comment" as const,
+      path: "packages/opencode/src/workflow/review.ts",
+    }
+    await WorkflowArtifact.writeState(tmp.path, {
+      ...state,
+      state: "awaiting_code_review",
+      code_pull_request: {
+        number: 8,
+        url: "https://github.com/acme/repo/pull/8",
+        branch: state.code_branch,
+        head_commit: "def456",
+        review_state: "changes_requested",
+        comments: [comment],
+      },
+    })
+
+    const task = await Effect.runPromise(
+      Effect.gen(function* () {
+        const review = yield* WorkflowReview.Service
+        return yield* review.createResponseTask(tmp.path, state.workflow_id, comment)
+      }).pipe(
+        Effect.provide(
+          WorkflowReview.layer.pipe(
+            Layer.provide(
+              Workflow.layer.pipe(
+                Layer.provide(Layer.succeed(WorkflowGithub.Service, WorkflowGithub.Service.of(disabledGithub))),
+                Layer.provide(WorkflowApproval.defaultLayer),
+                Layer.provide(WorkflowScope.defaultLayer),
+                Layer.provide(WorkflowArtifact.defaultLayer),
+                Layer.provide(Layer.succeed(Bus.Service, testBus)),
+              ),
+            ),
+            Layer.provide(Layer.succeed(WorkflowGithub.Service, WorkflowGithub.Service.of(disabledGithub))),
+            Layer.provide(Layer.succeed(Bus.Service, testBus)),
+          ),
+        ),
+      ),
+    )
+    const saved = await Workflow.get(tmp.path, state.workflow_id)
+    const tasks = await WorkflowArtifact.readArtifact(tmp.path, state.workflow_id, "TASKS.md")
+    const github = await WorkflowArtifact.readArtifact(tmp.path, state.workflow_id, "GITHUB.md")
+    const decisions = await WorkflowArtifact.readArtifact(tmp.path, state.workflow_id, "DECISIONS.md")
+
+    expect(task).toContain("review_12345")
+    expect(tasks).toContain("review_12345")
+    expect(tasks).toContain("github: https://github.com/acme/repo/pull/8#discussion_r12345")
+    expect(saved.sessions).toContainEqual(expect.objectContaining({ role: "code_reviewer", github_comment_url: comment.url }))
+    expect(saved.open_github_comments).toContainEqual(expect.objectContaining({ id: "12345" }))
+    expect(github).toContain("## Open Comments")
+    expect(github).toContain("code 12345 [open]")
+    expect(github).toContain("## Review Response Log")
+    expect(decisions).toContain("workflow.review_response_task.created")
+    expect(decisions).toContain("Workflow:")
+    expect(decisions).toContain("Session:")
   })
 
   test("workflow run invokes the executor loop after preparing the code branch", async () => {

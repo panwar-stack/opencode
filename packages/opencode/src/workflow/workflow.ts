@@ -2,6 +2,8 @@ import path from "path"
 import { Context, Effect, Layer, Option, Stream } from "effect"
 import { Bus } from "@/bus"
 import { Session } from "@/session/session"
+import { SessionPrompt } from "@/session/prompt"
+import { SessionID } from "@/session/schema"
 import { WorkflowArtifact, type ValidationResult } from "./artifact"
 import { WorkflowGithub } from "./github"
 import { WorkflowApproval } from "./approval"
@@ -738,6 +740,7 @@ export const layer = Layer.effect(
       const created = WorkflowState.now()
 
       const sessionsOpt = yield* Effect.serviceOption(Session.Service)
+      const promptOpt = yield* Effect.serviceOption(SessionPrompt.Service)
       let plannerSessionID = WorkflowState.createSessionID()
       const plannerTask = "Draft workflow plan artifacts"
       if (Option.isSome(sessionsOpt)) {
@@ -767,6 +770,7 @@ export const layer = Layer.effect(
       const state: WorkflowStateFile = {
         workflow_id: workflowID,
         title: input.title,
+        request: input.title,
         state: "drafting_spec",
         artifact_dir: WorkflowArtifact.relativeArtifactDir(workflowID),
         created_at: created,
@@ -776,6 +780,7 @@ export const layer = Layer.effect(
         code_branch: codeBranch(workflowID, input.title, codeBranchPrefix),
         current_task: "Draft plan artifacts",
         active_session_id: plannerSessionID,
+        open_github_comments: [],
         last_validation: {
           ok: allPassed,
           summary: checkSummary,
@@ -789,7 +794,7 @@ export const layer = Layer.effect(
             role: "planner",
             status: "active",
             task: plannerTask,
-            agent: planReviewerAgent,
+            ...(planReviewerAgent ? { agent: planReviewerAgent } : {}),
             created_at: created,
             updated_at: created,
           },
@@ -804,6 +809,44 @@ export const layer = Layer.effect(
       }
 
       yield* artifact.writeInitialArtifacts(input.directory, state)
+
+      if (Option.isSome(promptOpt)) {
+        yield* promptOpt.value.prompt({
+          sessionID: SessionID.make(plannerSessionID),
+          agent: planReviewerAgent,
+          parts: [
+            {
+              type: "text",
+              text: [
+                "You are the planner for a GitHub-reviewed autonomous workflow.",
+                "",
+                `Workflow: ${workflowID}`,
+                `Request: ${input.title}`,
+                `Artifact directory: ${state.artifact_dir}`,
+                "",
+                "Inspect the repository and replace the initial SPEC.md, TASKS.md, and IMPACT.md placeholders with a reviewable plan.",
+                "Do not edit product source code, install dependencies, or commit implementation changes.",
+                "Keep all writes limited to the workflow artifact directory.",
+                "",
+                "Required outputs:",
+                "- SPEC.md with summary, goals, non-goals, current/proposed behavior, architecture, expected files, CLI/TUI changes, GitHub flow, test plan, rollback plan, and open questions.",
+                "- TASKS.md with deterministic task IDs, expected files, validation command, status, evidence, and related GitHub comment.",
+                "- IMPACT.md with allowed paths, expected new files, forbidden paths, dependency changes, security considerations, migration risk, review response boundaries, and rollback notes.",
+              ].join("\n"),
+            },
+          ],
+        }).pipe(
+          Effect.catch((error) =>
+            artifact.appendDecision(input.directory, workflowID, {
+              action: "workflow.planner_prompt.failed",
+              session_id: plannerSessionID,
+              previous_state: state.state,
+              new_state: state.state,
+              summary: `Planner session prompt failed: ${String(error)}`,
+            }),
+          ),
+        )
+      }
 
       yield* bus.publish(WorkflowEvents.WorkflowCreated, {
         workflow_id: workflowID,
@@ -1146,10 +1189,10 @@ export const layer = Layer.effect(
           "addressing_plan_comments",
         ),
         nextSession(
-          state.plan_pull_request.review_state === "approved" ? "amendment" : "planner",
+          "plan_reviewer",
           task,
           input.githubCommentUrl,
-          undefined,
+          planReviewerAgent,
           planSessionId,
         ),
       )
@@ -1158,6 +1201,7 @@ export const layer = Layer.effect(
         action: "workflow.plan_revision.started",
         previous_state: state.state,
         new_state: next.state,
+        session_id: next.active_session_id,
         summary: task,
         github_comment_url: input.githubCommentUrl,
       })

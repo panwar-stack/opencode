@@ -7,6 +7,7 @@ import type { InstanceContext } from "@/project/instance"
 import { Bus } from "@/bus"
 import { Workflow } from "@/workflow/workflow"
 import { WorkflowState, type WorkflowStateFile } from "@/workflow/state"
+import { SessionPrompt } from "@/session/prompt"
 import { UI } from "../ui"
 import { EOL } from "os"
 
@@ -14,7 +15,7 @@ type WorkflowArgs = {
   readonly workflowID: string
 }
 
-const workflowLayer = Workflow.defaultLayer.pipe(Layer.provide(Bus.layer))
+const workflowLayer = Layer.mergeAll(Workflow.defaultLayer, SessionPrompt.defaultLayer).pipe(Layer.provide(Bus.layer))
 
 function directoryFromInstance(ctx: InstanceContext) {
   return ctx.worktree || ctx.directory
