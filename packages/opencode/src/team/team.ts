@@ -156,6 +156,16 @@ export const layer = Layer.effect(
         (member) => runState.cancel(SessionID.make(member.session_id)).pipe(Effect.ignore),
         { concurrency: "unbounded", discard: true },
       )
+      yield* Effect.forEach(
+        allMembers,
+        (member) =>
+          bus.publish(MemberUpdated, {
+            memberID: member.id,
+            sessionID: member.session_id,
+            status: member.status,
+          }),
+        { concurrency: "unbounded", discard: true },
+      )
       yield* bus.publish(TeamClosed, { teamID })
       yield* bus.publish(TuiEvent.ToastShow, {
         title: "Team Shut Down",
