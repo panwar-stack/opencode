@@ -174,11 +174,13 @@ describe("WorkflowExecutor", () => {
     const saved = await WorkflowArtifact.readState(tmp.path, workflowID)
     const tasksMd = await WorkflowArtifact.readArtifact(tmp.path, workflowID, "TASKS.md")
     expect(saved.completed_tasks).toEqual(["task_0", "task_2", "task_3"])
+    expect(saved.last_validation).toMatchObject({ ok: true })
+    expect(saved.sessions.filter((session) => session.role === "validator")).toHaveLength(3)
     expect(await WorkflowArtifact.hashApprovedArtifacts(tmp.path, workflowID)).toBe(approvedHash)
-    expect(tasksMd).toContain("[ ] First task")
+    expect(tasksMd).toContain("[x] First task | status: completed | evidence: session ses_test_executor; Validation passed for task task_0: First task. | github: none")
     expect(tasksMd).toContain("[x] Already done task")
-    expect(tasksMd).toContain("[ ] Second task")
-    expect(tasksMd).toContain("[ ] Third task")
+    expect(tasksMd).toContain("[x] Second task | status: completed | evidence: session ses_test_executor; Validation passed for task task_2: Second task. | github: none")
+    expect(tasksMd).toContain("[x] Third task | status: completed | evidence: session ses_test_executor; Validation passed for task task_3: Third task. | github: none")
   })
 
   test("stops execution on max_steps", async () => {
@@ -316,6 +318,38 @@ describe("WorkflowExecutor", () => {
     expect(result.task_id).toBe("task_0")
     expect(result.task_description).toBe("First task")
     expect(result.success).toBe(true)
+  })
+
+  test("runTask records failed validation without completing the task", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const workflowID = "wf_test_validation_failed"
+    await setupApprovedWorkflow(tmp.path, workflowID)
+
+    await runExecutorWithSession(
+      WorkflowExecutor.Service.use((svc) => svc.runTask(tmp.path, workflowID, "task_0")),
+      mockSession,
+    )
+
+    const result = await Effect.runPromise(
+      WorkflowExecutor.Service.use((svc) => svc.runTask(tmp.path, workflowID, "task_2")).pipe(
+        Effect.provide(executorLayer),
+        Effect.provideService(Session.Service, mockSession),
+        Effect.provideService(SessionPrompt.Service, mockSessionPrompt),
+        Effect.provideService(Config.Service, {
+          ...mockConfig,
+          get: () => Effect.succeed({ workflow: { checks: ["false"] } } as Config.Info),
+        }),
+      ),
+    )
+
+    const saved = await WorkflowArtifact.readState(tmp.path, workflowID)
+    const tasksMd = await WorkflowArtifact.readArtifact(tmp.path, workflowID, "TASKS.md")
+
+    expect(result.success).toBe(false)
+    expect(saved.completed_tasks).toEqual(["task_0"])
+    expect(saved.last_validation).toMatchObject({ ok: false })
+    expect(saved.sessions).toContainEqual(expect.objectContaining({ role: "validator", status: "failed" }))
+    expect(tasksMd).toContain("[ ] Second task | status: failed | evidence: session ses_test_executor; Validation failed for task task_2: Second task.")
   })
 
   test("returns already-completed result for checked task", async () => {

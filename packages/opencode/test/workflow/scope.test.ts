@@ -217,6 +217,56 @@ describe("WorkflowScope", () => {
     }
   })
 
+  test("classifies comments using task ids and expected files", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Bun.write(path.join(tmp.path, ".opencode", "workflows", "wf_test", "SPEC.md"), "# Spec\n\n## Summary\n\nUpdate auth.\n\n## Goals\n\n- Update auth service\n\n## Expected Files\n\n- src/auth.ts\n", { createPath: true })
+    await Bun.write(path.join(tmp.path, ".opencode", "workflows", "wf_test", "TASKS.md"), "# Tasks\n\n- [ ] task_042 | Update auth | files: src/auth.ts | validation: bun typecheck | status: pending | evidence: none | github: none\n", { createPath: true })
+    await Bun.write(path.join(tmp.path, ".opencode", "workflows", "wf_test", "IMPACT.md"), "# Impact\n\n## Allowed Paths\n\n- src/**\n\n## Expected New Files\n\n- src/auth.ts\n", { createPath: true })
+
+    const context = await runScope(WorkflowScope.Service.use((svc) => svc.readScopeContext(tmp.path, "wf_test")))
+    const result = await runScope(
+      WorkflowScope.Service.use((svc) =>
+        svc.classifyComment(
+          {
+            id: "c4",
+            body: "Please finish task_042 in src/auth.ts.",
+            state: "open" as const,
+            source: "review_comment" as const,
+          },
+          context,
+        ),
+      ),
+    )
+
+    expect(result.tag).toBe("in_scope")
+  })
+
+  test("classifies forbidden-path review comments as out of scope", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Bun.write(path.join(tmp.path, ".opencode", "workflows", "wf_test", "SPEC.md"), "# Spec\n\n## Summary\n\nUpdate auth.\n\n## Goals\n\n- Update auth service\n", { createPath: true })
+    await Bun.write(path.join(tmp.path, ".opencode", "workflows", "wf_test", "TASKS.md"), "# Tasks\n\n- [ ] task_001 | Update auth | files: src/auth.ts | validation: bun typecheck | status: pending | evidence: none | github: none\n", { createPath: true })
+    await Bun.write(path.join(tmp.path, ".opencode", "workflows", "wf_test", "IMPACT.md"), "# Impact\n\n## Allowed Paths\n\n- src/**\n\n## Forbidden Paths\n\n- docs/**\n", { createPath: true })
+
+    const result = await runScope(
+      Effect.gen(function* () {
+        const svc = yield* WorkflowScope.Service
+        return yield* svc.classifyComment(
+          {
+            id: "c5",
+            body: "Please add docs for this feature.",
+            path: "docs/auth.md",
+            state: "open" as const,
+            source: "review_comment" as const,
+          },
+          yield* svc.readScopeContext(tmp.path, "wf_test"),
+        )
+      }),
+    )
+
+    expect(result.tag).toBe("out_of_scope")
+    if (result.tag === "out_of_scope") expect(result.reason).toContain("forbidden path")
+  })
+
   test("parses spec content from markdown", async () => {
     const spec = `# Password Reset
 

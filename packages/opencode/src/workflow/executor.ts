@@ -6,6 +6,7 @@ import { SessionPrompt } from "@/session/prompt"
 import { WorkflowArtifact } from "./artifact"
 import { WorkflowScope } from "./scope"
 import { WorkflowState, type WorkflowSession, type WorkflowStateFile } from "./state"
+import type { ValidationResult } from "./artifact"
 
 export type StopReason =
   | "all_tasks_complete"
@@ -41,6 +42,7 @@ export type ParsedTask = {
   readonly description: string
   readonly checked: boolean
   readonly line_index: number
+  readonly github_comment_url?: string
 }
 
 export type ExecutorConfig = {
@@ -63,6 +65,7 @@ function parseTASKS(tasksMd: string): ParsedTask[] {
         description,
         checked: match.groups!.checked === "x",
         line_index: lineIndex,
+        github_comment_url: content.match(/(?:^|\|)\s*github:\s*([^|]+)/i)?.[1]?.trim().replace(/^none$/, "") || undefined,
       }
       taskIndex++
       return task
@@ -94,6 +97,32 @@ function loadTasks(projectDir: string, workflowID: string): Effect.Effect<string
   return Effect.promise(() => WorkflowArtifact.readArtifact(projectDir, workflowID, "TASKS.md"))
 }
 
+function saveTasks(projectDir: string, workflowID: string, tasksMd: string): Effect.Effect<void> {
+  return Effect.promise(() => WorkflowArtifact.writeArtifact(projectDir, workflowID, "TASKS.md", tasksMd))
+}
+
+function replaceTaskMetadata(line: string, key: string, value: string) {
+  const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  const pattern = new RegExp(`(^|\\|)\\s*${escaped}:\\s*[^|]+`, "i")
+  if (pattern.test(line)) return line.replace(pattern, `$1 ${key}: ${value}`)
+  return `${line} | ${key}: ${value}`
+}
+
+function updateTaskStatus(tasksMd: string, task: ParsedTask, input: { checked: boolean; status: string; evidence: string; github?: string }) {
+  return tasksMd
+    .split(/\r?\n/)
+    .map((line, index) => {
+      if (index !== task.line_index) return line
+      const checked = line.replace(/^\s*-\s+\[[ x]\]/, `- [${input.checked ? "x" : " "}]`)
+      return [
+        ["status", input.status],
+        ["evidence", input.evidence],
+        ["github", input.github ?? task.github_comment_url ?? "none"],
+      ].reduce((next, item) => replaceTaskMetadata(next, item[0], item[1]), checked)
+    })
+    .join("\n")
+}
+
 function withCompletedTask(state: WorkflowStateFile, task: ParsedTask): WorkflowStateFile {
   return {
     ...state,
@@ -101,6 +130,33 @@ function withCompletedTask(state: WorkflowStateFile, task: ParsedTask): Workflow
     current_task: task.description,
     updated_at: WorkflowState.now(),
   }
+}
+
+function withValidationSession(state: WorkflowStateFile, task: ParsedTask, validation: ValidationResult, sessionID: string): WorkflowStateFile {
+  return WorkflowState.upsertSession(
+    {
+      ...state,
+      last_validation: validation,
+      updated_at: WorkflowState.now(),
+    },
+    {
+      id: sessionID,
+      role: "validator",
+      status: validation.ok ? "completed" : "failed",
+      task: `Validate task ${task.id}: ${task.description}`,
+      agent: "validator",
+      files_touched: validation.files,
+      created_at: WorkflowState.now(),
+      updated_at: WorkflowState.now(),
+      github_comment_url: task.github_comment_url,
+    },
+  )
+}
+
+function taskEvidence(validation: ValidationResult, sessionID?: string) {
+  return [sessionID ? `session ${sessionID}` : undefined, validation.summary, validation.files?.length ? `files: ${validation.files.join(", ")}` : undefined]
+    .filter((part): part is string => part !== undefined && part.length > 0)
+    .join("; ")
 }
 
 function amendmentContent(reason: string, files: readonly string[]) {
@@ -533,19 +589,37 @@ export const layer = Layer.effect(
             }
           }
 
+          const validation: ValidationResult = {
+            ok: result.validationOk && scopeOk,
+            checked_at: WorkflowState.now(),
+            summary: result.validationOk
+              ? scopeOk
+                ? `Validation passed for task ${task.id}: ${task.description}.`
+                : `Scope drift detected for task ${task.id}: ${scopeReason}`
+              : `Validation failed for task ${task.id}: ${task.description}. ${result.validationOutput}`,
+            files: result.filesChanged,
+            allowed_paths: allowedPaths,
+          }
+          const validatorSessionID = WorkflowState.createSessionID()
+          state = withValidationSession(state, task, validation, validatorSessionID)
+
           if (!result.validationOk) {
             if (result.sessionId) {
               const existing = state.sessions.find((s) => s.id === result.sessionId)
               if (existing) state = WorkflowState.upsertSession(state, { ...existing, status: "failed", files_touched: result.filesChanged, updated_at: WorkflowState.now() })
             }
+            yield* saveTasks(projectDir, workflowID, updateTaskStatus(tasksMd, task, { checked: false, status: "failed", evidence: taskEvidence(validation, result.sessionId) }))
             const next = WorkflowState.withState(state, "validating")
             yield* saveState(projectDir, next)
             yield* Effect.promise(() =>
               WorkflowArtifact.appendDecision(projectDir, workflowID, {
                 action: "workflow.executor.validation_failed",
+                session_id: validatorSessionID,
                 previous_state: state.state,
                 new_state: next.state,
-                summary: `Validation failed for task ${task.id}: ${task.description}. ${result.validationOutput}`,
+                summary: validation.summary,
+                evidence: taskEvidence(validation, result.sessionId),
+                github_comment_url: task.github_comment_url,
               }),
             )
             return {
@@ -563,6 +637,7 @@ export const layer = Layer.effect(
               const existing = state.sessions.find((s) => s.id === result.sessionId)
               if (existing) state = WorkflowState.upsertSession(state, { ...existing, status: "failed", files_touched: result.filesChanged, updated_at: WorkflowState.now() })
             }
+            yield* saveTasks(projectDir, workflowID, updateTaskStatus(tasksMd, task, { checked: false, status: "blocked", evidence: taskEvidence(validation, result.sessionId) }))
             const next = {
               ...WorkflowState.withState(state, "needs_amendment"),
               user_input_needed: scopeReason,
@@ -574,9 +649,12 @@ export const layer = Layer.effect(
             yield* Effect.promise(() =>
               WorkflowArtifact.appendDecision(projectDir, workflowID, {
                 action: "workflow.executor.scope_drift",
+                session_id: validatorSessionID,
                 previous_state: state.state,
                 new_state: next.state,
-                summary: `Scope drift detected for task ${task.id}: ${scopeReason}`,
+                summary: validation.summary,
+                evidence: taskEvidence(validation, result.sessionId),
+                github_comment_url: task.github_comment_url,
               }),
             )
             return {
@@ -595,15 +673,18 @@ export const layer = Layer.effect(
             if (existing) state = WorkflowState.upsertSession(state, { ...existing, status: "completed", files_touched: result.filesChanged, updated_at: WorkflowState.now() })
           }
           tasksCompleted = countChecked(state, tasks)
+          yield* saveTasks(projectDir, workflowID, updateTaskStatus(tasksMd, task, { checked: true, status: "completed", evidence: taskEvidence(validation, result.sessionId) }))
           yield* saveState(projectDir, state)
 
           yield* Effect.promise(() =>
             WorkflowArtifact.appendDecision(projectDir, workflowID, {
               action: "workflow.executor.task_completed",
+              session_id: validatorSessionID,
               previous_state: state.state,
               new_state: state.state,
               summary: `Completed task ${task.id}: ${task.description}. Files changed: ${result.filesChanged.join(", ") || "none"}`,
-              evidence: result.filesChanged.join(", "),
+              evidence: taskEvidence(validation, result.sessionId),
+              github_comment_url: task.github_comment_url,
             }),
           )
         }
@@ -794,9 +875,22 @@ export const layer = Layer.effect(
           }
         }
 
-        const updated = withCompletedTask(state, task)
+        const validation: ValidationResult = {
+          ok: result.validationOk && scopeOk,
+          checked_at: WorkflowState.now(),
+          summary: result.validationOk
+            ? scopeOk
+              ? `Validation passed for task ${task.id}: ${task.description}.`
+              : `Scope drift detected for task ${task.id}: ${scopeReason}`
+            : `Validation failed for task ${task.id}: ${task.description}. ${result.validationOutput}`,
+          files: result.filesChanged,
+          allowed_paths: allowedPaths,
+        }
+        const validatorSessionID = WorkflowState.createSessionID()
+        const updated = validation.ok ? withCompletedTask(state, task) : state
+        const withValidator = withValidationSession(updated, task, validation, validatorSessionID)
         const final = result.sessionId
-          ? WorkflowState.upsertSession(updated, {
+          ? WorkflowState.upsertSession(withValidator, {
               id: result.sessionId,
               role: "executor",
               status: result.validationOk && scopeOk ? "completed" : "failed",
@@ -806,15 +900,27 @@ export const layer = Layer.effect(
               created_at: updated.sessions.find((s) => s.id === result.sessionId)?.created_at ?? WorkflowState.now(),
               updated_at: WorkflowState.now(),
             })
-          : updated
+          : withValidator
+        yield* saveTasks(projectDir, workflowID, updateTaskStatus(tasksMd, task, { checked: validation.ok, status: validation.ok ? "completed" : scopeOk ? "failed" : "blocked", evidence: taskEvidence(validation, result.sessionId) }))
         yield* saveState(projectDir, final)
+        yield* Effect.promise(() =>
+          WorkflowArtifact.appendDecision(projectDir, workflowID, {
+            action: validation.ok ? "workflow.executor.task_completed" : scopeOk ? "workflow.executor.validation_failed" : "workflow.executor.scope_drift",
+            session_id: validatorSessionID,
+            previous_state: state.state,
+            new_state: final.state,
+            summary: validation.summary,
+            evidence: taskEvidence(validation, result.sessionId),
+            github_comment_url: task.github_comment_url,
+          }),
+        )
 
         return {
           task_id: task.id,
           task_description: task.description,
-          success: result.validationOk && scopeOk,
+          success: validation.ok,
           files_changed: result.filesChanged,
-          summary: result.validationOk
+          summary: validation.ok
             ? scopeOk
               ? `Task executed: ${task.description}`
               : `Task executed: ${task.description}. Scope drift: ${scopeReason}`

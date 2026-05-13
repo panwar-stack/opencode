@@ -14,7 +14,7 @@ import path from "path"
 import { readdir } from "fs/promises"
 import { spawnSync } from "child_process"
 
-type WorkflowState = (typeof WorkflowStates)[number]
+export type WorkflowState = (typeof WorkflowStates)[number]
 
 type WorkflowTab = "spec" | "tasks" | "impact" | "github" | "sessions" | "changes" | "decisions" | "amendments"
 type PullRequestDisplay = PullRequestState & {
@@ -29,6 +29,19 @@ type WorkflowSessionDisplay = WorkflowSession & {
 type WorkflowStateDisplay = WorkflowStateFile & {
   readonly spec_version?: string
 }
+export type WorkflowDetailActionID =
+  | "open_session"
+  | "steer"
+  | "sync"
+  | "revise"
+  | "submit_plan"
+  | "run"
+  | "submit_code"
+  | "pause"
+  | "resume"
+  | "approve_amendment"
+  | "reject_amendment"
+export type WorkflowDetailAction = { id: WorkflowDetailActionID; label: string; enabled: boolean; visible: boolean }
 
 const tabs: { id: WorkflowTab; label: string }[] = [
   { id: "spec", label: "Spec" },
@@ -40,6 +53,10 @@ const tabs: { id: WorkflowTab; label: string }[] = [
   { id: "decisions", label: "Decisions" },
   { id: "amendments", label: "Amendments" },
 ]
+
+export function workflowTabs() {
+  return tabs
+}
 
 const stateLabels: Record<WorkflowState, string> = {
   created: "Created",
@@ -101,6 +118,82 @@ export function workflowSessionPrompt(workflow: WorkflowStateFile, session: Work
       .join("\n"),
     parts: [],
   }
+}
+
+export function workflowOpenSessionRoute(workflow: WorkflowStateFile, sessionID?: string) {
+  const session = workflow.sessions.find((item) => item.id === (sessionID ?? workflow.active_session_id))
+  if (!session) return undefined
+  return {
+    type: "session" as const,
+    sessionID: session.id,
+    prompt: workflowSessionPrompt(workflow, session),
+  }
+}
+
+export function workflowSteeringInput(workflow: WorkflowStateFile, directory: string, instruction: string | null | undefined) {
+  if (!workflow.active_session_id) return undefined
+  const trimmed = instruction?.trim()
+  if (!trimmed) return undefined
+  return {
+    directory,
+    workflowID: workflow.workflow_id,
+    sessionID: workflow.active_session_id,
+    instruction: trimmed,
+  }
+}
+
+export function workflowAmendmentInput(
+  workflow: WorkflowStateFile,
+  directory: string,
+  approve: boolean,
+  reason: string | null | undefined,
+) {
+  return {
+    directory,
+    workflowID: workflow.workflow_id,
+    approve,
+    reason: reason?.trim() || undefined,
+  }
+}
+
+export function workflowStateLabel(state: WorkflowState) {
+  return stateLabels[state]
+}
+
+export function workflowReviewLabel(state: ReviewState) {
+  return reviewLabels[state]
+}
+
+export function workflowPullRequestLabel(pr: PullRequestState) {
+  if (!pr.number) return "-"
+  return `#${pr.number} (${workflowReviewLabel(pr.review_state)})`
+}
+
+export function workflowDetailActions(workflow: WorkflowStateFile) {
+  const actions: WorkflowDetailAction[] = [
+    { id: "open_session", label: "open session", enabled: Boolean(workflow.active_session_id), visible: true },
+    { id: "steer", label: "steer", enabled: Boolean(workflow.active_session_id), visible: true },
+    { id: "sync", label: "sync", enabled: true, visible: true },
+    { id: "revise", label: "revise", enabled: true, visible: true },
+    { id: "submit_plan", label: "submit plan", enabled: true, visible: true },
+    { id: "run", label: "run", enabled: true, visible: true },
+    { id: "submit_code", label: "submit code", enabled: true, visible: true },
+    { id: "pause", label: "pause", enabled: true, visible: true },
+    { id: "resume", label: "resume", enabled: true, visible: true },
+    {
+      id: "approve_amendment",
+      label: "approve amendment",
+      enabled: true,
+      visible: workflow.state === "needs_amendment",
+    },
+    {
+      id: "reject_amendment",
+      label: "reject amendment",
+      enabled: true,
+      visible: workflow.state === "needs_amendment",
+    },
+  ]
+  return actions.filter((action): action is WorkflowDetailAction & { visible: true } => action.visible)
 }
 
 function short(value: string, length = 12) {
@@ -347,17 +440,17 @@ function WorkflowListView() {
                       <text fg={theme.text}>
                         <b>{wf.title}</b>
                       </text>
-                      <text fg={stateColor(wf.state, theme)}>{stateLabels[wf.state]}</text>
+                      <text fg={stateColor(wf.state, theme)}>{workflowStateLabel(wf.state)}</text>
                     </box>
                     <box flexDirection="row" gap={2} paddingLeft={2}>
                       <text fg={theme.textMuted}>
-                        Phase: <text fg={stateColor(wf.state, theme)}>{stateLabels[wf.state]}</text>
+                        Phase: <text fg={stateColor(wf.state, theme)}>{workflowStateLabel(wf.state)}</text>
                       </text>
                       <text fg={theme.textMuted}>
                         Plan:{" "}
                         <Show when={wf.plan_pull_request.number} fallback={<text fg={theme.textMuted}>-</text>}>
                           <text fg={reviewColor(wf.plan_pull_request.review_state, theme)}>
-                            #{wf.plan_pull_request.number} ({reviewLabels[wf.plan_pull_request.review_state]})
+                            #{wf.plan_pull_request.number} ({workflowReviewLabel(wf.plan_pull_request.review_state)})
                           </text>
                         </Show>
                       </text>
@@ -365,7 +458,7 @@ function WorkflowListView() {
                         Code:{" "}
                         <Show when={wf.code_pull_request.number} fallback={<text fg={theme.textMuted}>-</text>}>
                           <text fg={reviewColor(wf.code_pull_request.review_state, theme)}>
-                            #{wf.code_pull_request.number} ({reviewLabels[wf.code_pull_request.review_state]})
+                            #{wf.code_pull_request.number} ({workflowReviewLabel(wf.code_pull_request.review_state)})
                           </text>
                         </Show>
                       </text>
@@ -540,7 +633,7 @@ function GitHubView(props: { state: WorkflowStateFile }) {
           </text>
           <Show when={pr.number} fallback={<text fg={theme.textMuted}>Not created</text>}>
             <text fg={theme.primary}>#{pr.number}</text>
-            <text fg={reviewColor(pr.review_state, theme)}>({reviewLabels[pr.review_state]})</text>
+            <text fg={reviewColor(pr.review_state, theme)}>({workflowReviewLabel(pr.review_state)})</text>
           </Show>
         </box>
         <Show when={pr.url}>
@@ -820,6 +913,7 @@ function WorkflowDetailView(props: { workflowID: string; initialTab?: string }) 
   const [state, setState] = createSignal<WorkflowStateFile | null>(null)
   const [loading, setLoading] = createSignal(true)
   const [tab, setTab] = createSignal<WorkflowTab>((props.initialTab as WorkflowTab) || "spec")
+  const detailActions = createMemo(() => (state() ? workflowDetailActions(state()!) : []))
 
   const dir = () => project.instance.worktree()
 
@@ -834,16 +928,12 @@ function WorkflowDetailView(props: { workflowID: string; initialTab?: string }) 
   const openSession = (sessionID?: string) => {
     const workflow = state()
     if (!workflow) return
-    const session = workflow.sessions.find((item) => item.id === (sessionID ?? workflow.active_session_id))
-    if (!session) {
+    const next = workflowOpenSessionRoute(workflow, sessionID)
+    if (!next) {
       toast.show({ variant: "error", message: "Workflow has no active session to open" })
       return
     }
-    route.navigate({
-      type: "session",
-      sessionID: session.id,
-      prompt: workflowSessionPrompt(workflow, session),
-    })
+    route.navigate(next)
   }
 
   const steerActiveSession = async () => {
@@ -861,13 +951,9 @@ function WorkflowDetailView(props: { workflowID: string; initialTab?: string }) 
         </box>
       ),
     })
-    if (!instruction?.trim()) return
-    const next = await WorkflowService.steer({
-      directory: dir(),
-      workflowID: workflow.workflow_id,
-      sessionID: workflow.active_session_id,
-      instruction: instruction.trim(),
-    }).catch((error) => {
+    const input = workflowSteeringInput(workflow, dir(), instruction)
+    if (!input) return
+    const next = await WorkflowService.steer(input).catch((error) => {
       toast.show({
         variant: "error",
         message: error instanceof Error ? error.message : "Failed to steer workflow session",
@@ -923,12 +1009,7 @@ function WorkflowDetailView(props: { workflowID: string; initialTab?: string }) 
       description: () => <text fg={theme.textMuted}>Workflow: {workflow.title}</text>,
     })
     await runWorkflowAction(approve ? "amendment approved" : "amendment rejected", (wf) =>
-      WorkflowService.processAmendment({
-        directory: dir(),
-        workflowID: wf.workflow_id,
-        approve,
-        reason: reason?.trim() || undefined,
-      }),
+      WorkflowService.processAmendment(workflowAmendmentInput(wf, dir(), approve, reason)),
     )
     dialog.clear()
   }
@@ -1057,7 +1138,7 @@ function WorkflowDetailView(props: { workflowID: string; initialTab?: string }) 
             <text fg={theme.text}>
               <b>{state()!.title}</b>
             </text>
-            <text fg={stateColor(state()!.state, theme)}>{stateLabels[state()!.state]}</text>
+            <text fg={stateColor(state()!.state, theme)}>{workflowStateLabel(state()!.state)}</text>
             <text fg={theme.textMuted}>{state()!.workflow_id.slice(0, 12)}</text>
             <Show when={state()!.current_task}>
               <text fg={theme.textMuted}>│ Task: {state()!.current_task}</text>
@@ -1080,13 +1161,13 @@ function WorkflowDetailView(props: { workflowID: string; initialTab?: string }) 
           <text fg={theme.textMuted}>Plan PR:</text>
           <Show when={state()!.plan_pull_request.number} fallback={<text fg={theme.textMuted}>-</text>}>
             <text fg={reviewColor(state()!.plan_pull_request.review_state, theme)}>
-              #{state()!.plan_pull_request.number} ({reviewLabels[state()!.plan_pull_request.review_state]})
+              #{state()!.plan_pull_request.number} ({workflowReviewLabel(state()!.plan_pull_request.review_state)})
             </text>
           </Show>
           <text fg={theme.textMuted}> Code PR:</text>
           <Show when={state()!.code_pull_request.number} fallback={<text fg={theme.textMuted}>-</text>}>
             <text fg={reviewColor(state()!.code_pull_request.review_state, theme)}>
-              #{state()!.code_pull_request.number} ({reviewLabels[state()!.code_pull_request.review_state]})
+              #{state()!.code_pull_request.number} ({workflowReviewLabel(state()!.code_pull_request.review_state)})
             </text>
           </Show>
           <Show when={state()!.active_session_id}>
@@ -1129,11 +1210,16 @@ function WorkflowDetailView(props: { workflowID: string; initialTab?: string }) 
           </box>
           <box flexDirection="row" gap={2}>
             <text fg={theme.textMuted}>Actions:</text>
-            <text fg={state()!.active_session_id ? theme.primary : theme.textMuted} onMouseUp={() => openSession()}>
+            <text
+              fg={
+                detailActions().find((action) => action.id === "open_session")?.enabled ? theme.primary : theme.textMuted
+              }
+              onMouseUp={() => openSession()}
+            >
               open session
             </text>
             <text
-              fg={state()!.active_session_id ? theme.primary : theme.textMuted}
+              fg={detailActions().find((action) => action.id === "steer")?.enabled ? theme.primary : theme.textMuted}
               onMouseUp={() => void steerActiveSession()}
             >
               steer
@@ -1159,7 +1245,7 @@ function WorkflowDetailView(props: { workflowID: string; initialTab?: string }) 
             <text fg={theme.primary} onMouseUp={() => void runWorkflowAction("resumed", (workflow) => WorkflowService.resume(dir(), workflow.workflow_id))}>
               resume
             </text>
-            <Show when={state()!.state === "needs_amendment"}>
+            <Show when={detailActions().some((action) => action.id === "approve_amendment")}>
               <text fg={theme.primary} onMouseUp={() => void processAmendment(true)}>
                 approve amendment
               </text>

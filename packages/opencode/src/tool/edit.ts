@@ -16,6 +16,7 @@ import { Format } from "../format"
 import { InstanceState } from "@/effect/instance-state"
 import { Snapshot } from "@/snapshot"
 import { assertExternalDirectoryEffect } from "./external-directory"
+import { assertWorkflowScope } from "./workflow-scope"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import * as Bom from "@/util/bom"
 
@@ -81,6 +82,7 @@ export const EditTool = Tool.define(
             ? params.filePath
             : path.join(instance.directory, params.filePath)
           yield* assertExternalDirectoryEffect(ctx, filePath)
+          yield* assertWorkflowScope(ctx, [filePath]).pipe(Effect.orDie)
 
           let diff = ""
           let contentOld = ""

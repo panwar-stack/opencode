@@ -167,6 +167,18 @@ export interface Interface {
     body: string,
   ) => Effect.Effect<PullRequestInfo>
 
+  readonly updatePullRequest: (
+    repo: string,
+    prNumber: number,
+    input: {
+      readonly title?: string
+      readonly body?: string
+      readonly base?: string
+    },
+  ) => Effect.Effect<PullRequestInfo>
+
+  readonly getPullRequestForBranch: (repo: string, head: string) => Effect.Effect<PullRequestInfo | undefined>
+
   readonly getPullRequest: (repo: string, prNumber: number) => Effect.Effect<PullRequestInfo>
 
   readonly listIssueComments: (
@@ -324,6 +336,18 @@ export const layer = Layer.effect(
       return intoPrInfo(data)
     })
 
+    const getPullRequestForBranch = Effect.fn("WorkflowGithub.getPullRequestForBranch")(function* (
+      repo: string,
+      head: string,
+    ) {
+      const api = yield* octokit
+      const { owner, repo: repoName } = parseRepo(repo)
+      const { data } = yield* Effect.promise(() =>
+        api.pulls.list({ owner, repo: repoName, head: `${owner}:${head}`, state: "open", per_page: 1 }),
+      )
+      return data[0] ? intoPrInfo(data[0]) : undefined
+    })
+
     const getPullRequestState = Effect.fn("WorkflowGithub.getPullRequestState")(function* (
       repo: string,
       prNumber: number,
@@ -450,6 +474,30 @@ export const layer = Layer.effect(
       return intoPrInfo(data)
     })
 
+    const updatePullRequest = Effect.fn("WorkflowGithub.updatePullRequest")(function* (
+      repo: string,
+      prNumber: number,
+      input: {
+        readonly title?: string
+        readonly body?: string
+        readonly base?: string
+      },
+    ) {
+      const api = yield* octokit
+      const { owner, repo: repoName } = parseRepo(repo)
+      const { data } = yield* Effect.promise(() =>
+        api.pulls.update({
+          owner,
+          repo: repoName,
+          pull_number: prNumber,
+          title: input.title,
+          body: input.body,
+          base: input.base,
+        }),
+      )
+      return intoPrInfo(data)
+    })
+
     const listIssueComments = Effect.fn("WorkflowGithub.listIssueComments")(function* (
       repo: string,
       prNumber: number,
@@ -541,6 +589,8 @@ export const layer = Layer.effect(
 
     return Service.of({
       createPullRequest,
+      updatePullRequest,
+      getPullRequestForBranch,
       getPullRequest: getPr,
       listIssueComments,
       listReviewComments,

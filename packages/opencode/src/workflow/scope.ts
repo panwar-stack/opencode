@@ -20,6 +20,15 @@ export type SpecContent = {
   readonly out_of_scope: readonly string[]
 }
 
+export type ScopeContext = SpecContent & {
+  readonly allowed_paths: readonly string[]
+  readonly forbidden_paths: readonly string[]
+  readonly expected_files: readonly string[]
+  readonly task_ids: readonly string[]
+  readonly task_files: readonly string[]
+  readonly amendment_rules: readonly string[]
+}
+
 function parseSection(lines: string[], header: string): readonly string[] {
   const start = lines.findIndex((line) => new RegExp(`^##\\s+${header}\\s*$`, "i").test(line.trim()))
   if (start === -1) return []
@@ -32,6 +41,41 @@ function parseSection(lines: string[], header: string): readonly string[] {
 
 function parseForbiddenPaths(impact: string): readonly string[] {
   return parseSection(impact.split(/\r?\n/), "Forbidden Paths").map((line) => line.replace(/^`|`$/g, ""))
+}
+
+function parseExpectedFiles(spec: string, impact: string) {
+  return [
+    ...parseSection(spec.split(/\r?\n/), "Expected Files"),
+    ...parseSection(impact.split(/\r?\n/), "Expected New Files"),
+  ].map((line) => line.replace(/^`|`$/g, ""))
+}
+
+function parseTaskIDs(tasks: string) {
+  return tasks
+    .split(/\r?\n/)
+    .map((line) => line.match(/^\s*-\s+\[[ x]\]\s+([^|\s]+)\s*\|/)?.[1]?.trim())
+    .filter((line): line is string => line !== undefined && line.length > 0)
+}
+
+function parseTaskFiles(tasks: string) {
+  return tasks
+    .split(/\r?\n/)
+    .flatMap((line) => line.match(/\|\s*files:\s*([^|]+)/i)?.[1]?.split(",") ?? [])
+    .map((line) => line.trim().replace(/^`|`$/g, ""))
+    .filter((line) => line.length > 0 && line.toLowerCase() !== "none")
+}
+
+function parseAmendmentRules(impact: string) {
+  return [
+    ...parseSection(impact.split(/\r?\n/), "Review Response Boundaries"),
+    ...parseSection(impact.split(/\r?\n/), "Scope Rules"),
+  ]
+}
+
+function containsMeaningfulReference(body: string, item: string) {
+  const lower = item.toLowerCase()
+  const keywords = lower.split(/\s+/).filter((word) => word.length >= 2)
+  return body.includes(lower) || keywords.some((word) => body.includes(word))
 }
 
 function parseNewFilesAllowed(impact: string): boolean {
@@ -56,7 +100,9 @@ function parseSpecContent(spec: string): SpecContent {
 export interface Interface {
   checkEdit: (projectDir: string, workflowID: string, paths: string[], existingFiles?: readonly string[]) => Effect.Effect<ScopeResult>
   checkComment: (comment: ReviewComment, spec: SpecContent) => Effect.Effect<ScopeClassification>
+  classifyComment: (comment: ReviewComment, context: ScopeContext) => Effect.Effect<ScopeClassification>
   parseSpecContent: (spec: string) => Effect.Effect<SpecContent>
+  readScopeContext: (projectDir: string, workflowID: string) => Effect.Effect<ScopeContext>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/WorkflowScope") {}
@@ -125,11 +171,43 @@ export const layer = Layer.effect(
 
     const checkComment = Effect.fn("WorkflowScope.checkComment")(
       function* (comment: ReviewComment, spec: SpecContent) {
+        return yield* classifyComment(comment, {
+          ...spec,
+          allowed_paths: [],
+          forbidden_paths: [],
+          expected_files: [],
+          task_ids: [],
+          task_files: [],
+          amendment_rules: [],
+        })
+      },
+    )
+
+    const classifyComment = Effect.fn("WorkflowScope.classifyComment")(
+      function* (comment: ReviewComment, context: ScopeContext) {
         const body = comment.body.toLowerCase()
 
-        for (const item of spec.out_of_scope) {
-          const keywords = item.toLowerCase().split(/\s+/).filter((w) => w.length >= 2)
-          if (body.includes(item.toLowerCase()) || keywords.some((kw) => body.includes(kw))) {
+        if (comment.path) {
+          const forbidden = context.forbidden_paths.find((item) => WorkflowArtifact.matchesAllowedPath(comment.path ?? "", item))
+          if (forbidden) {
+            return {
+              tag: "out_of_scope" as const,
+              reason: `Comment targets forbidden path ${forbidden}`,
+            }
+          }
+          if (context.allowed_paths.some((item) => WorkflowArtifact.matchesAllowedPath(comment.path ?? "", item))) {
+            return { tag: "in_scope" as const }
+          }
+        }
+
+        const task = context.task_ids.find((item) => body.includes(item.toLowerCase()))
+        if (task) return { tag: "in_scope" as const, task }
+
+        const expectedFile = [...context.expected_files, ...context.task_files].find((item) => body.includes(item.toLowerCase()))
+        if (expectedFile) return { tag: "in_scope" as const, task: expectedFile }
+
+        for (const item of context.out_of_scope) {
+          if (containsMeaningfulReference(body, item)) {
             return {
               tag: "out_of_scope" as const,
               reason: `Comment references out-of-scope item: ${item}`,
@@ -137,7 +215,7 @@ export const layer = Layer.effect(
           }
         }
 
-        const relevantReq = spec.requirements.find((req) => body.includes(req.toLowerCase()))
+        const relevantReq = context.requirements.find((req) => body.includes(req.toLowerCase()))
         if (relevantReq) {
           return {
             tag: "in_scope" as const,
@@ -155,6 +233,13 @@ export const layer = Layer.effect(
           }
         }
 
+        if (context.amendment_rules.length > 0 && /\b(scope|outside|amend|amendment|additional|also)\b/i.test(comment.body)) {
+          return {
+            tag: "out_of_scope" as const,
+            reason: `Comment does not map to approved tasks or files and may require amendment: ${context.amendment_rules.join(" ").slice(0, 160)}`,
+          }
+        }
+
         return {
           tag: "out_of_scope" as const,
           reason: "Comment does not map to a recognized requirement or out-of-scope item.",
@@ -166,10 +251,32 @@ export const layer = Layer.effect(
       return parseSpecContent(spec)
     })
 
+    const readScopeContext = Effect.fn("WorkflowScope.readScopeContext")(function* (projectDir: string, workflowID: string) {
+      const [spec, tasks, impact] = yield* Effect.all(
+        [
+          Effect.promise(() => WorkflowArtifact.readArtifact(projectDir, workflowID, "SPEC.md")),
+          Effect.promise(() => WorkflowArtifact.readArtifact(projectDir, workflowID, "TASKS.md")),
+          Effect.promise(() => WorkflowArtifact.readArtifact(projectDir, workflowID, "IMPACT.md")),
+        ],
+        { concurrency: 3 },
+      )
+      return {
+        ...parseSpecContent(spec),
+        allowed_paths: WorkflowArtifact.parseImpactAllowedPaths(impact),
+        forbidden_paths: parseForbiddenPaths(impact),
+        expected_files: parseExpectedFiles(spec, impact),
+        task_ids: parseTaskIDs(tasks),
+        task_files: parseTaskFiles(tasks),
+        amendment_rules: parseAmendmentRules(impact),
+      }
+    })
+
     return Service.of({
       checkEdit,
       checkComment,
+      classifyComment,
       parseSpecContent: parseSpecContentFn,
+      readScopeContext,
     })
   }),
 )

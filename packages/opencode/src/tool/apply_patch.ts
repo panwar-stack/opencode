@@ -7,6 +7,7 @@ import { InstanceState } from "@/effect/instance-state"
 import { Patch } from "../patch"
 import { createTwoFilesPatch, diffLines } from "diff"
 import { assertExternalDirectoryEffect } from "./external-directory"
+import { assertWorkflowScope } from "./workflow-scope"
 import { trimDiff } from "./edit"
 import { LSP } from "@/lsp/lsp"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
@@ -199,6 +200,7 @@ export const ApplyPatchTool = Tool.define(
 
       // Check permissions if needed
       const relativePaths = fileChanges.map((c) => path.relative(instance.worktree, c.filePath).replaceAll("\\", "/"))
+      yield* assertWorkflowScope(ctx, fileChanges.flatMap((change) => [change.filePath, change.movePath].filter((file): file is string => file !== undefined))).pipe(Effect.orDie)
       yield* ctx.ask({
         permission: "edit",
         patterns: relativePaths,

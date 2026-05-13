@@ -1,10 +1,11 @@
 import path from "path"
-import { Context, Effect, Layer, Stream } from "effect"
+import { Context, Effect, Layer, Option, Stream } from "effect"
 import { Bus } from "@/bus"
 import { Workflow } from "./workflow"
 import { WorkflowGithub } from "./github"
 import { WorkflowArtifact } from "./artifact"
-import { WorkflowState, type PullRequestKind, type ReviewComment, type CommentState } from "./state"
+import { WorkflowExecutor } from "./executor"
+import { WorkflowState, type PullRequestKind, type ReviewComment, type CommentState, type WorkflowStateFile } from "./state"
 import { WorkflowEvents } from "./events"
 
 export type ReviewSyncResult = {
@@ -30,6 +31,8 @@ export interface Interface {
   readonly markComment: (directory: string, workflowID: string, pullRequest: PullRequestKind, commentID: string, status: CommentState, reply?: string) => Effect.Effect<void, Error>
 
   readonly replyToComment: (directory: string, workflowID: string, prType: PullRequestKind, commentId: number, body: string) => Effect.Effect<void, Error>
+
+  readonly runCodeReview: (directory: string, workflowID: string) => Effect.Effect<WorkflowStateFile, Error>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/WorkflowReview") {}
@@ -40,6 +43,7 @@ export const layer = Layer.effect(
     const bus = yield* Bus.Service
     const workflow = yield* Workflow.Service
     const github = yield* WorkflowGithub.Service
+    const executorOpt = yield* Effect.serviceOption(WorkflowExecutor.Service)
 
     const repoFromUrl = (url?: string) => {
       const match = url?.match(/^https:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/\d+/)
@@ -306,6 +310,142 @@ export const layer = Layer.effect(
       yield* Effect.promise(() => WorkflowArtifact.writeGithubSummary(directory, recorded))
     })
 
+    const runCodeReview = Effect.fn("WorkflowReview.runCodeReview")(function* (directory: string, workflowID: string) {
+      const beforeSync = yield* workflow.get(directory, workflowID)
+      const synced = yield* workflow.syncGithub({ directory, workflowID, repo: repoFromUrl(beforeSync.code_pull_request.url) })
+      if (!synced.code_pull_request.number) return yield* Effect.fail(new Error(`No code pull request exists for workflow ${workflowID}.`))
+
+      const artifactDir = path.join(directory, synced.artifact_dir)
+      const [spec, tasks, impact] = yield* Effect.all(
+        [
+          Effect.promise(() => Bun.file(path.join(artifactDir, "SPEC.md")).text()).pipe(Effect.catch(() => Effect.succeed(""))),
+          Effect.promise(() => Bun.file(path.join(artifactDir, "TASKS.md")).text()).pipe(Effect.catch(() => Effect.succeed(""))),
+          Effect.promise(() => Bun.file(path.join(artifactDir, "IMPACT.md")).text()).pipe(Effect.catch(() => Effect.succeed(""))),
+        ],
+        { concurrency: 3 },
+      )
+      const openCodeComments = synced.code_pull_request.comments.filter((comment) => comment.state === "open")
+      const allowedPaths = WorkflowArtifact.parseImpactAllowedPaths(impact)
+      const classifications = openCodeComments.map((comment) => ({
+        comment,
+        classification:
+          comment.path && allowedPaths.some((allowedPath) => WorkflowArtifact.matchesAllowedPath(comment.path ?? "", allowedPath))
+            ? { classification: "in_scope" as const, reasoning: "Review comment path is within the approved impact boundary." }
+            : classifyComment(comment, spec, tasks, impact),
+      }))
+
+      yield* Effect.forEach(
+        classifications,
+        ({ comment, classification }) =>
+          Effect.gen(function* () {
+            if (classification.classification === "out_of_scope") {
+              yield* workflow.markReviewComment({
+                directory,
+                workflowID,
+                pullRequest: "code",
+                commentID: comment.id,
+                state: "out_of_scope",
+                summary: classification.reasoning,
+              })
+              if (/^\d+$/.test(comment.id)) {
+                yield* replyToComment(directory, workflowID, "code", Number(comment.id), `This concern falls outside the approved scope. ${classification.reasoning}`)
+              }
+              return
+            }
+            if (classification.classification === "already_addressed") {
+              yield* workflow.markReviewComment({
+                directory,
+                workflowID,
+                pullRequest: "code",
+                commentID: comment.id,
+                state: "addressed",
+                summary: classification.reasoning,
+              })
+              return
+            }
+            if (classification.classification !== "in_scope") return
+            const task = yield* createResponseTask(directory, workflowID, comment)
+            yield* workflow.markReviewComment({
+              directory,
+              workflowID,
+              pullRequest: "code",
+              commentID: comment.id,
+              state: "addressed",
+              summary: `Queued as executor work: ${task}`,
+            })
+          }),
+        { concurrency: 1, discard: true },
+      )
+
+      const queued = classifications.filter((item) => item.classification.classification === "in_scope").map((item) => item.comment)
+      const queuedIds = new Set(queued.map((comment) => comment.id))
+      const unresolved = (yield* workflow.get(directory, workflowID)).code_pull_request.comments.filter((comment) => comment.state === "open" && !queuedIds.has(comment.id))
+      if (unresolved.length > 0 && synced.code_pull_request.review_state === "changes_requested") {
+        return yield* Effect.fail(new Error(`Code review has ${unresolved.length} unresolved requested change comment(s).`))
+      }
+      if (queued.length === 0) return yield* workflow.get(directory, workflowID)
+      if (Option.isNone(executorOpt)) return yield* Effect.fail(new Error("Workflow code review runner requires WorkflowExecutor service."))
+
+      const queuedState = yield* workflow.get(directory, workflowID)
+      const queuedHash = yield* Effect.promise(() => WorkflowArtifact.hashApprovedArtifacts(directory, workflowID))
+      yield* Effect.promise(() => WorkflowArtifact.writeState(directory, { ...queuedState, approved_spec_hash: queuedHash }))
+
+      yield* Effect.forEach(
+        queued,
+        (comment) => executorOpt.value.runTask(directory, workflowID, `review_${comment.id.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "")}`),
+        { concurrency: 1, discard: true },
+      )
+      const submitted = yield* workflow.submitCode({ directory, workflowID, repo: repoFromUrl((yield* workflow.get(directory, workflowID)).code_pull_request.url) })
+      const repo = repoFromUrl(submitted.code_pull_request.url)
+      const evidence = submitted.code_pull_request.head_commit ?? submitted.last_validation?.summary
+      const reply = [
+        "Addressed this in-scope code review feedback and pushed the code branch.",
+        submitted.code_pull_request.url ? `Code PR: ${submitted.code_pull_request.url}` : undefined,
+        evidence ? `Evidence: ${evidence}` : undefined,
+        submitted.last_validation?.summary ? `Validation: ${submitted.last_validation.summary}` : undefined,
+      ]
+        .filter((line): line is string => line !== undefined)
+        .join("\n")
+
+      yield* Effect.forEach(
+        queued,
+        (comment) =>
+          Effect.gen(function* () {
+            if (repo && submitted.code_pull_request.number && /^\d+$/.test(comment.id)) {
+              yield* replyToComment(directory, workflowID, "code", Number(comment.id), reply).pipe(
+                Effect.catch((error) =>
+                  Effect.promise(() =>
+                    WorkflowArtifact.appendDecision(directory, workflowID, {
+                      action: "workflow.code_review.reply_failed",
+                      previous_state: submitted.state,
+                      new_state: submitted.state,
+                      summary: `Failed to reply to code comment ${comment.id}: ${String(error)}`,
+                      pull_request: submitted.code_pull_request.number,
+                      github_comment_url: comment.url,
+                    }),
+                  ),
+                ),
+              )
+            }
+            yield* workflow.markReviewComment({
+              directory,
+              workflowID,
+              pullRequest: "code",
+              commentID: comment.id,
+              state: "addressed",
+              summary: evidence ? `Addressed with evidence: ${evidence}` : "Addressed and resubmitted code PR.",
+            })
+          }),
+        { concurrency: 3, discard: true },
+      )
+
+      const finalState = yield* workflow.get(directory, workflowID)
+      if (finalState.code_pull_request.review_state === "changes_requested" && finalState.code_pull_request.comments.some((comment) => comment.state === "open")) {
+        return yield* Effect.fail(new Error("Code review still has unresolved requested changes."))
+      }
+      return finalState
+    })
+
     yield* bus.subscribe(WorkflowEvents.ReviewSyncNeeded).pipe(
       Stream.runForEach((evt) =>
         (evt.properties.comment_ids?.length
@@ -323,11 +463,12 @@ export const layer = Layer.effect(
       addressComment,
       markComment,
       replyToComment,
+      runCodeReview,
     })
   }),
 )
 
-export const defaultLayer = layer.pipe(Layer.provide(WorkflowGithub.defaultLayer), Layer.provide(Workflow.defaultLayer))
+export const defaultLayer = layer.pipe(Layer.provide(WorkflowGithub.defaultLayer), Layer.provide(WorkflowExecutor.defaultLayer), Layer.provide(Workflow.defaultLayer))
 
 export const workflowLayer = Layer.effect(
   Workflow.Service,

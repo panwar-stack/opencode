@@ -6,6 +6,7 @@ import { WorkflowState, type WorkflowStateFile } from "./state"
 
 export const ArtifactFiles = ["SPEC.md", "TASKS.md", "IMPACT.md", "GITHUB.md", "STATE.json", "DECISIONS.md", "AMENDMENT.md"] as const
 export const RequiredArtifactFiles = ["SPEC.md", "TASKS.md", "IMPACT.md", "GITHUB.md", "STATE.json", "DECISIONS.md"] as const
+const ApprovedArtifactFiles = new Set<ArtifactFile>(["SPEC.md", "TASKS.md", "IMPACT.md"])
 
 export type ArtifactFile = (typeof ArtifactFiles)[number]
 
@@ -111,9 +112,26 @@ export function permissionPatternForAllowedPath(allowedPath: string) {
   return allowed
 }
 
+function normalizeApprovedArtifact(file: ArtifactFile, content: string) {
+  if (file !== "TASKS.md") return content
+  return content
+    .split(/\r?\n/)
+    .map((line) =>
+      /^\s*-\s+\[[ x]\]\s+/.test(line)
+        ? line
+            .replace(/^\s*-\s+\[[ x]\]/, "- [ ]")
+            .replace(/\s*\|\s*status:\s*[^|]+/i, "")
+            .replace(/\s*\|\s*evidence:\s*[^|]+/i, "")
+            .replace(/\s*\|\s*github:\s*none\s*$/i, "")
+        : line,
+    )
+    .join("\n")
+}
+
 export function validatePlanOnlyFiles(workflowID: string, files: readonly string[]): ValidationResult {
   const allowed = `${relativeArtifactDir(workflowID)}/`
-  const invalid = files.filter((file) => !file.startsWith(allowed))
+  const alternateAllowed = allowed.startsWith(".") ? allowed.slice(1) : allowed
+  const invalid = files.filter((file) => !file.startsWith(allowed) && !file.startsWith(alternateAllowed))
   if (invalid.length === 0) {
     return {
       ok: true,
@@ -262,6 +280,40 @@ function validateArtifactStructure(contents: Record<Exclude<ArtifactFile, "AMEND
   return missing
 }
 
+function invalidatedPlanState(state: WorkflowStateFile): WorkflowStateFile {
+  return WorkflowState.transitionOrCurrent(
+    {
+      ...state,
+      approved_spec_hash: undefined,
+      approved_plan_commit: undefined,
+      plan_approval: undefined,
+      user_input_needed: "Approved workflow artifacts changed after plan approval.",
+      plan_pull_request: {
+        ...state.plan_pull_request,
+        review_state: "changes_requested",
+        comments: [
+          ...state.plan_pull_request.comments.filter((comment) => comment.id !== "local-approved-plan-drift"),
+          {
+            id: "local-approved-plan-drift",
+            body: "Approved SPEC.md, TASKS.md, or IMPACT.md changed after plan approval. Re-approval is required before execution can continue.",
+            state: "open",
+            source: "review" as const,
+            created_at: WorkflowState.now(),
+            updated_at: WorkflowState.now(),
+          },
+        ],
+      },
+    },
+    state.state === "executing" ||
+      state.state === "validating" ||
+      state.state === "submitting_code_pull_request" ||
+      state.state === "awaiting_code_review" ||
+      state.state === "addressing_code_comments"
+      ? "needs_amendment"
+      : "addressing_plan_comments",
+  )
+}
+
 export interface Interface {
   readonly readState: (directory: string, workflowID: string) => Effect.Effect<WorkflowStateFile>
   readonly readArtifact: (directory: string, workflowID: string, file: ArtifactFile) => Effect.Effect<string>
@@ -317,6 +369,21 @@ export const layer = Layer.effect(
       yield* Effect.promise(() =>
         Bun.write(artifactPath(directory, workflowID, file), content.endsWith("\n") ? content : `${content}\n`),
       )
+      if (!ApprovedArtifactFiles.has(file)) return
+      const state = yield* readState(directory, workflowID).pipe(Effect.catch(() => Effect.succeed(undefined)))
+      if (!state?.approved_spec_hash) return
+      const currentHash = yield* hashApprovedArtifacts(directory, workflowID)
+      if (currentHash === state.approved_spec_hash) return
+      const next = invalidatedPlanState(state)
+      yield* writeState(directory, next)
+      yield* appendDecision(directory, workflowID, {
+        action: "workflow.approved_plan.invalidated",
+        previous_state: state.state,
+        new_state: next.state,
+        summary: "Approved workflow artifacts changed after approval. Plan approval evidence was cleared.",
+        evidence: state.approved_spec_hash,
+        pull_request: state.plan_pull_request.number,
+      })
     })
 
     const writeState = Effect.fn("WorkflowArtifact.writeState")(function* (
@@ -338,9 +405,12 @@ export const layer = Layer.effect(
 
     const list = Effect.fn("WorkflowArtifact.list")(function* (directory: string) {
       const root = workflowRoot(directory)
-      const rootExists = yield* exists(root)
-      if (!rootExists) return []
-      const entries = yield* Effect.promise(() => readdir(root, { withFileTypes: true }))
+      const entries = yield* Effect.tryPromise({
+        try: () => readdir(root, { withFileTypes: true }),
+        catch: () => undefined,
+      }).pipe(
+        Effect.catch(() => Effect.succeed([])),
+      )
       return entries
         .filter((entry) => entry.isDirectory() && entry.name.startsWith("wf_"))
         .map((entry) => entry.name)
@@ -407,7 +477,7 @@ export const layer = Layer.effect(
       for (const file of ["SPEC.md", "TASKS.md", "IMPACT.md"] as const) {
         hash.update(file)
         hash.update("\0")
-        hash.update(yield* readArtifact(directory, workflowID, file))
+        hash.update(normalizeApprovedArtifact(file, yield* readArtifact(directory, workflowID, file)))
         hash.update("\0")
       }
       return hash.digest("hex")
