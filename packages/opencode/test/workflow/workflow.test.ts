@@ -132,11 +132,7 @@ const disabledGithub: WorkflowGithub.Interface = {
   getPullRequestState: () => Effect.die("unexpected GitHub getPullRequestState call"),
 }
 
-const runWorkflowWithGithub = <A, E>(
-  effect: Effect.Effect<A, E, Workflow.Service>,
-  github: WorkflowGithub.Interface,
-  directory?: string,
-) =>
+const runWorkflowWithGithub = <A, E>(effect: Effect.Effect<A, E, Workflow.Service>, github: WorkflowGithub.Interface, directory?: string) =>
   Effect.runPromise(
     (directory ? effect.pipe(provideInstance(directory)) : effect).pipe(
       Effect.provide(
@@ -200,19 +196,9 @@ describe("workflow", () => {
   test("validates plan-only files", () => {
     const workflowID = "wf_test"
 
-    expect(
-      WorkflowArtifact.validatePlanOnlyFiles(workflowID, [
-        ".opencode/workflows/wf_test/SPEC.md",
-        ".opencode/workflows/wf_test/STATE.json",
-      ]).ok,
-    ).toBe(true)
+    expect(WorkflowArtifact.validatePlanOnlyFiles(workflowID, [".opencode/workflows/wf_test/SPEC.md", ".opencode/workflows/wf_test/STATE.json"]).ok).toBe(true)
 
-    expect(
-      WorkflowArtifact.validatePlanOnlyFiles(workflowID, [
-        ".opencode/workflows/wf_test/SPEC.md",
-        "packages/opencode/src/index.ts",
-      ]),
-    ).toMatchObject({
+    expect(WorkflowArtifact.validatePlanOnlyFiles(workflowID, [".opencode/workflows/wf_test/SPEC.md", "packages/opencode/src/index.ts"])).toMatchObject({
       ok: false,
       files: ["packages/opencode/src/index.ts"],
     })
@@ -226,10 +212,7 @@ describe("workflow", () => {
       title: "Reject incomplete plan",
       localDraft: true,
     })
-    await Bun.write(
-      WorkflowArtifact.artifactPath(tmp.path, state.workflow_id, "SPEC.md"),
-      "# Missing required workflow sections\n",
-    )
+    await Bun.write(WorkflowArtifact.artifactPath(tmp.path, state.workflow_id, "SPEC.md"), "# Missing required workflow sections\n")
 
     await expect(
       Workflow.submitPlan({
@@ -404,17 +387,11 @@ describe("workflow", () => {
     })
     const approvedHash = await WorkflowArtifact.hashApprovedArtifacts(tmp.path, state.workflow_id)
 
-    await Bun.write(
-      WorkflowArtifact.artifactPath(tmp.path, state.workflow_id, "GITHUB.md"),
-      "# GitHub\n\nPlan review state: approved\n",
-    )
+    await Bun.write(WorkflowArtifact.artifactPath(tmp.path, state.workflow_id, "GITHUB.md"), "# GitHub\n\nPlan review state: approved\n")
 
     expect(await WorkflowArtifact.hashApprovedArtifacts(tmp.path, state.workflow_id)).toBe(approvedHash)
 
-    await Bun.write(
-      WorkflowArtifact.artifactPath(tmp.path, state.workflow_id, "SPEC.md"),
-      "# Hash reviewed plan\n\n## Summary\n\nChanged after approval.\n",
-    )
+    await Bun.write(WorkflowArtifact.artifactPath(tmp.path, state.workflow_id, "SPEC.md"), "# Hash reviewed plan\n\n## Summary\n\nChanged after approval.\n")
 
     expect(await WorkflowArtifact.hashApprovedArtifacts(tmp.path, state.workflow_id)).not.toBe(approvedHash)
     await WorkflowArtifact.writeState(tmp.path, {
@@ -478,11 +455,7 @@ describe("workflow", () => {
           },
         ],
       ),
-    ).toEqual([
-      expect.objectContaining({ id: "ic_1", state: "addressed" }),
-      expect.objectContaining({ id: "rv_1", state: "out_of_scope" }),
-      expect.objectContaining({ id: "ic_2", state: "open" }),
-    ])
+    ).toEqual([expect.objectContaining({ id: "ic_1", state: "addressed" }), expect.objectContaining({ id: "rv_1", state: "out_of_scope" }), expect.objectContaining({ id: "ic_2", state: "open" })])
   })
 
   test("lists workflow sessions from persisted workflow state", async () => {
@@ -678,10 +651,7 @@ pending
       title: "Invalidate changed approved plan",
       localDraft: true,
     })
-    await Bun.write(
-      WorkflowArtifact.artifactPath(tmp.path, state.workflow_id, "IMPACT.md"),
-      "# Impact\n\n## Allowed Paths\n\n- src/**\n",
-    )
+    await Bun.write(WorkflowArtifact.artifactPath(tmp.path, state.workflow_id, "IMPACT.md"), "# Impact\n\n## Allowed Paths\n\n- src/**\n")
     const approvedHash = await WorkflowArtifact.hashApprovedArtifacts(tmp.path, state.workflow_id)
     await WorkflowArtifact.writeState(tmp.path, {
       ...state,
@@ -697,10 +667,7 @@ pending
         comments: [],
       },
     })
-    await Bun.write(
-      WorkflowArtifact.artifactPath(tmp.path, state.workflow_id, "SPEC.md"),
-      "# Changed\n\n## Summary\n\nChanged after approval.\n",
-    )
+    await Bun.write(WorkflowArtifact.artifactPath(tmp.path, state.workflow_id, "SPEC.md"), "# Changed\n\n## Summary\n\nChanged after approval.\n")
 
     const next = await Workflow.syncGithub({
       directory: tmp.path,
@@ -728,10 +695,7 @@ pending
       title: "Require reapproval after amendment",
       localDraft: true,
     })
-    await Bun.write(
-      WorkflowArtifact.artifactPath(tmp.path, state.workflow_id, "IMPACT.md"),
-      "# Impact\n\n## Allowed Paths\n\n- src/**\n",
-    )
+    await Bun.write(WorkflowArtifact.artifactPath(tmp.path, state.workflow_id, "IMPACT.md"), "# Impact\n\n## Allowed Paths\n\n- src/**\n")
     const approvedHash = await WorkflowArtifact.hashApprovedArtifacts(tmp.path, state.workflow_id)
     await Bun.write(
       WorkflowArtifact.artifactPath(tmp.path, state.workflow_id, "AMENDMENT.md"),
@@ -762,11 +726,7 @@ pending
       },
     })
 
-    await Effect.runPromise(
-      WorkflowApproval.Service.use((svc) => svc.approveAmendment(tmp.path, state.workflow_id)).pipe(
-        Effect.provide(WorkflowApproval.defaultLayer),
-      ),
-    )
+    await Effect.runPromise(WorkflowApproval.Service.use((svc) => svc.approveAmendment(tmp.path, state.workflow_id)).pipe(Effect.provide(WorkflowApproval.defaultLayer)))
     const amended = await WorkflowArtifact.readState(tmp.path, state.workflow_id)
     const stale = await runWorkflowWithGithub(
       Workflow.Service.use((svc) =>
@@ -829,10 +789,7 @@ pending
       title: "Require validation before complete",
       localDraft: true,
     })
-    await Bun.write(
-      WorkflowArtifact.artifactPath(tmp.path, state.workflow_id, "IMPACT.md"),
-      "# Impact\n\n## Allowed Paths\n\n- src/**\n",
-    )
+    await Bun.write(WorkflowArtifact.artifactPath(tmp.path, state.workflow_id, "IMPACT.md"), "# Impact\n\n## Allowed Paths\n\n- src/**\n")
     const approvedHash = await WorkflowArtifact.hashApprovedArtifacts(tmp.path, state.workflow_id)
     await WorkflowArtifact.writeState(tmp.path, {
       ...state,
@@ -878,10 +835,7 @@ pending
       WorkflowArtifact.artifactPath(tmp.path, state.workflow_id, "SPEC.md"),
       "# Guard review scope\n\n## Summary\n\nUpdate API implementation.\n\n## Requirements\n\n- Update API implementation\n\n## Out of Scope\n\n- Documentation site\n",
     )
-    await Bun.write(
-      WorkflowArtifact.artifactPath(tmp.path, state.workflow_id, "IMPACT.md"),
-      "# Impact\n\n## Allowed Paths\n\n- src/**\n\n## Forbidden Paths\n\n- docs/**\n",
-    )
+    await Bun.write(WorkflowArtifact.artifactPath(tmp.path, state.workflow_id, "IMPACT.md"), "# Impact\n\n## Allowed Paths\n\n- src/**\n\n## Forbidden Paths\n\n- docs/**\n")
     const approvedHash = await WorkflowArtifact.hashApprovedArtifacts(tmp.path, state.workflow_id)
     await WorkflowArtifact.writeState(tmp.path, {
       ...state,
@@ -927,9 +881,7 @@ pending
       }),
     )
     expect(decisions).toContain("workflow.comment.requires_amendment")
-    expect(await Bun.file(WorkflowArtifact.artifactPath(tmp.path, state.workflow_id, "AMENDMENT.md")).text()).toContain(
-      "Path docs/feature.md matches forbidden path docs/**",
-    )
+    expect(await Bun.file(WorkflowArtifact.artifactPath(tmp.path, state.workflow_id, "AMENDMENT.md")).text()).toContain("Path docs/feature.md matches forbidden path docs/**")
   })
 
   test("post-approval plan comments also pass through the scope guard", async () => {
@@ -944,10 +896,7 @@ pending
       WorkflowArtifact.artifactPath(tmp.path, state.workflow_id, "SPEC.md"),
       "# Guard approved plan comments\n\n## Summary\n\nUpdate API implementation.\n\n## Requirements\n\n- Update API implementation\n\n## Out of Scope\n\n- Documentation site\n",
     )
-    await Bun.write(
-      WorkflowArtifact.artifactPath(tmp.path, state.workflow_id, "IMPACT.md"),
-      "# Impact\n\n## Allowed Paths\n\n- src/**\n\n## Forbidden Paths\n\n- docs/**\n",
-    )
+    await Bun.write(WorkflowArtifact.artifactPath(tmp.path, state.workflow_id, "IMPACT.md"), "# Impact\n\n## Allowed Paths\n\n- src/**\n\n## Forbidden Paths\n\n- docs/**\n")
     const approvedHash = await WorkflowArtifact.hashApprovedArtifacts(tmp.path, state.workflow_id)
     await WorkflowArtifact.writeState(tmp.path, {
       ...state,
@@ -997,10 +946,7 @@ pending
       WorkflowArtifact.artifactPath(tmp.path, state.workflow_id, "SPEC.md"),
       "# Guard synced review scope\n\n## Summary\n\nUpdate API implementation.\n\n## Requirements\n\n- Update API implementation\n\n## Out of Scope\n\n- Documentation site\n",
     )
-    await Bun.write(
-      WorkflowArtifact.artifactPath(tmp.path, state.workflow_id, "IMPACT.md"),
-      "# Impact\n\n## Allowed Paths\n\n- src/**\n\n## Forbidden Paths\n\n- docs/**\n",
-    )
+    await Bun.write(WorkflowArtifact.artifactPath(tmp.path, state.workflow_id, "IMPACT.md"), "# Impact\n\n## Allowed Paths\n\n- src/**\n\n## Forbidden Paths\n\n- docs/**\n")
     const approvedHash = await WorkflowArtifact.hashApprovedArtifacts(tmp.path, state.workflow_id)
     await WorkflowArtifact.writeState(tmp.path, {
       ...state,
@@ -1071,9 +1017,7 @@ pending
         state: "out_of_scope",
       }),
     )
-    expect(await Bun.file(WorkflowArtifact.artifactPath(tmp.path, state.workflow_id, "AMENDMENT.md")).text()).toContain(
-      "Path docs/feature.md matches forbidden path docs/**",
-    )
+    expect(await Bun.file(WorkflowArtifact.artifactPath(tmp.path, state.workflow_id, "AMENDMENT.md")).text()).toContain("Path docs/feature.md matches forbidden path docs/**")
   })
 
   test("revise plan records review feedback in plan artifacts", async () => {
@@ -1244,6 +1188,136 @@ Revert the workflow review change.
     expect(decisions).toContain("Session:")
   })
 
+  test("sync github queues response tasks through the default review subscriber", async () => {
+    await using tmp = await tmpdir({ git: true })
+
+    const state = await Workflow.start({
+      directory: tmp.path,
+      title: "Sync review feedback",
+      localDraft: true,
+    })
+    await WorkflowArtifact.writeArtifact(tmp.path, state.workflow_id, "SPEC.md", "# Sync review feedback\n\n## Summary\n\nUpdate workflow review handling.\n")
+    await WorkflowArtifact.writeArtifact(tmp.path, state.workflow_id, "TASKS.md", "# Tasks\n\n- [ ] Update workflow review handling\n")
+    await WorkflowArtifact.writeArtifact(
+      tmp.path,
+      state.workflow_id,
+      "IMPACT.md",
+      `# Impact
+
+## Allowed Paths
+
+- packages/opencode/src/workflow/review.ts
+
+## Expected New Files
+
+- None
+
+## Forbidden Paths
+
+- .env
+
+## Dependency Changes
+
+- None
+
+## Data Model Changes
+
+- None
+
+## Security Considerations
+
+- No secret handling changes.
+
+## Migration Risk
+
+- None
+
+## User-Visible Changes
+
+- None
+
+## Review Response Boundaries
+
+Only address workflow review handling.
+
+## Rollback Notes
+
+Revert the workflow review change.
+`,
+    )
+    const comment = {
+      id: "67890",
+      url: "https://github.com/acme/repo/pull/8#discussion_r67890",
+      author: "reviewer",
+      body: "Please update workflow review handling in packages/opencode/src/workflow/review.ts.",
+      state: "open" as const,
+      source: "review_comment" as const,
+      path: "packages/opencode/src/workflow/review.ts",
+    }
+    await WorkflowArtifact.writeState(tmp.path, {
+      ...state,
+      state: "awaiting_plan_review",
+      plan_pull_request: {
+        number: 8,
+        url: "https://github.com/acme/repo/pull/8",
+        branch: state.plan_branch,
+        head_commit: "def456",
+        review_state: "pending",
+        comments: [],
+      },
+      code_pull_request: WorkflowState.emptyPullRequest(),
+    })
+    const githubLayer = Layer.succeed(
+      WorkflowGithub.Service,
+      WorkflowGithub.Service.of(
+        mockGithub({
+          number: 8,
+          url: "https://github.com/acme/repo/pull/8",
+          branch: state.plan_branch,
+          head_commit: "def456",
+          review_state: "changes_requested",
+          comments: [comment],
+        }),
+      ),
+    )
+    const workflowRuntimeLayer = Workflow.layer.pipe(
+      Layer.provide(githubLayer),
+      Layer.provide(WorkflowApproval.defaultLayer),
+      Layer.provide(WorkflowScope.defaultLayer),
+      Layer.provide(WorkflowArtifact.defaultLayer),
+    )
+    const reviewRuntimeLayer = WorkflowReview.layer.pipe(Layer.provide(workflowRuntimeLayer), Layer.provide(githubLayer))
+    const workflowWithReviewLayer = Layer.effect(
+      Workflow.Service,
+      Effect.gen(function* () {
+        const workflow = yield* Workflow.Service
+        yield* WorkflowReview.Service
+        return workflow
+      }),
+    ).pipe(Layer.provide(Layer.mergeAll(workflowRuntimeLayer, reviewRuntimeLayer)))
+
+    const saved = await Effect.runPromise(
+      Effect.gen(function* () {
+        const svc = yield* Workflow.Service
+        yield* Effect.sleep("10 millis")
+        yield* svc.syncGithub({
+          directory: tmp.path,
+          workflowID: state.workflow_id,
+          repo: "acme/repo",
+        })
+        yield* Effect.sleep("500 millis")
+        return yield* svc.get(tmp.path, state.workflow_id)
+      }).pipe(Effect.scoped, Effect.provide(workflowWithReviewLayer.pipe(Layer.provide(Bus.layer))), provideInstance(tmp.path)),
+    )
+    const tasks = await WorkflowArtifact.readArtifact(tmp.path, state.workflow_id, "TASKS.md")
+    const decisions = await WorkflowArtifact.readArtifact(tmp.path, state.workflow_id, "DECISIONS.md")
+
+    expect(saved.plan_pull_request.comments).toContainEqual(expect.objectContaining({ id: "67890", state: "open" }))
+    expect(saved.sessions).toContainEqual(expect.objectContaining({ role: "plan_reviewer", github_comment_url: comment.url }))
+    expect(tasks).toContain("review_67890")
+    expect(decisions).toContain("workflow.review_response_task.created")
+  })
+
   test("workflow run invokes the executor loop after preparing the code branch", async () => {
     await using tmp = await tmpdir({ git: true })
     await $`git remote add origin .`.cwd(tmp.path)
@@ -1253,10 +1327,7 @@ Revert the workflow review change.
       title: "Run approved workflow",
       localDraft: true,
     })
-    await Bun.write(
-      WorkflowArtifact.artifactPath(tmp.path, state.workflow_id, "TASKS.md"),
-      "# Tasks\n\n- [ ] Complete approved implementation work\n",
-    )
+    await Bun.write(WorkflowArtifact.artifactPath(tmp.path, state.workflow_id, "TASKS.md"), "# Tasks\n\n- [ ] Complete approved implementation work\n")
     const approvedHash = await WorkflowArtifact.hashApprovedArtifacts(tmp.path, state.workflow_id)
     const headCommit = (await $`git rev-parse HEAD`.cwd(tmp.path).quiet().text()).trim()
     await WorkflowArtifact.writeState(tmp.path, {
@@ -1282,10 +1353,17 @@ Revert the workflow review change.
         Effect.provide(
           Workflow.layer.pipe(
             Layer.provide(WorkflowExecutor.defaultLayer),
-            Layer.provide(Layer.succeed(WorkflowGithub.Service, WorkflowGithub.Service.of(mockGithub({
-              review_state: "approved",
-              comments: [],
-            })))),
+            Layer.provide(
+              Layer.succeed(
+                WorkflowGithub.Service,
+                WorkflowGithub.Service.of(
+                  mockGithub({
+                    review_state: "approved",
+                    comments: [],
+                  }),
+                ),
+              ),
+            ),
             Layer.provide(WorkflowApproval.defaultLayer),
             Layer.provide(WorkflowScope.defaultLayer),
             Layer.provide(WorkflowArtifact.defaultLayer),

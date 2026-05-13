@@ -220,6 +220,7 @@ export const ReviewSyncNeeded = BusEvent.define(
     workflow_id: Schema.String,
     directory: Schema.String,
     pull_request: Schema.Union([Schema.Literal("plan"), Schema.Literal("code")]),
+    comment_ids: Schema.optional(Schema.Array(Schema.String)),
   }),
 )
 

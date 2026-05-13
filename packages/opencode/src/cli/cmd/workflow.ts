@@ -6,6 +6,7 @@ import { InstanceRef } from "@/effect/instance-ref"
 import type { InstanceContext } from "@/project/instance"
 import { Bus } from "@/bus"
 import { Workflow } from "@/workflow/workflow"
+import { WorkflowReview } from "@/workflow/review"
 import { WorkflowState, type WorkflowStateFile } from "@/workflow/state"
 import { SessionPrompt } from "@/session/prompt"
 import { UI } from "../ui"
@@ -15,7 +16,7 @@ type WorkflowArgs = {
   readonly workflowID: string
 }
 
-const workflowLayer = Layer.mergeAll(Workflow.defaultLayer, SessionPrompt.defaultLayer).pipe(Layer.provide(Bus.layer))
+const workflowLayer = Layer.mergeAll(WorkflowReview.workflowLayer, SessionPrompt.defaultLayer).pipe(Layer.provide(Bus.layer))
 
 function directoryFromInstance(ctx: InstanceContext) {
   return ctx.worktree || ctx.directory
@@ -111,17 +112,9 @@ function printWorkflowList(states: readonly WorkflowStateFile[], format?: string
         `Current task${" ".repeat(taskWidth - 12)}`,
         "Title",
       ].join("  "),
-      [
-        "─".repeat(idWidth),
-        "─".repeat(stateWidth),
-        "─".repeat(planWidth),
-        "─".repeat(codeWidth),
-        "─".repeat(8),
-        "─".repeat(5),
-        "─".repeat(activeWidth),
-        "─".repeat(taskWidth),
-        "─".repeat(40),
-      ].join("  "),
+      ["─".repeat(idWidth), "─".repeat(stateWidth), "─".repeat(planWidth), "─".repeat(codeWidth), "─".repeat(8), "─".repeat(5), "─".repeat(activeWidth), "─".repeat(taskWidth), "─".repeat(40)].join(
+        "  ",
+      ),
       ...states.map((state) =>
         [
           state.workflow_id.padEnd(idWidth),
@@ -156,13 +149,9 @@ function printSessions(state: WorkflowStateFile, format?: string) {
       `Role${" ".repeat(roleWidth - 4)}  Session ID${" ".repeat(idWidth - 10)}  Status     Active  Task${" ".repeat(taskWidth - 4)}`,
       `${"─".repeat(roleWidth)}  ${"─".repeat(idWidth)}  ${"─".repeat(9)}  ${"─".repeat(6)}  ${"─".repeat(taskWidth)}`,
       ...state.sessions.map((session) =>
-        [
-          session.role.padEnd(roleWidth),
-          session.id.padEnd(idWidth),
-          session.status.padEnd(9),
-          (session.id === state.active_session_id ? "yes" : "no").padEnd(6),
-          session.task.padEnd(taskWidth),
-        ].join("  "),
+        [session.role.padEnd(roleWidth), session.id.padEnd(idWidth), session.status.padEnd(9), (session.id === state.active_session_id ? "yes" : "no").padEnd(6), session.task.padEnd(taskWidth)].join(
+          "  ",
+        ),
       ),
     ].join(EOL),
   )
@@ -332,9 +321,7 @@ export const WorkflowStatusCommand = effectCmd({
         const ctx = yield* InstanceRef
         const directory = (ctx as InstanceContext).worktree || (ctx as InstanceContext).directory
         const states = yield* svc.all(directory)
-        const state = args.workflowID
-          ? yield* svc.get(directory, args.workflowID)
-          : states.toSorted((a, b) => b.updated_at.localeCompare(a.updated_at))[0]
+        const state = args.workflowID ? yield* svc.get(directory, args.workflowID) : states.toSorted((a, b) => b.updated_at.localeCompare(a.updated_at))[0]
         if (!state) return yield* fail("No workflows found.")
         printState(state, args.format)
       }),
@@ -829,11 +816,7 @@ export const WorkflowSteerCommand = effectCmd({
 export const WorkflowAmendmentCommand = cmd({
   command: "amendment",
   describe: "manage scope amendment requests",
-  builder: (yargs: Argv) =>
-    yargs
-      .command(WorkflowAmendmentApproveCommand)
-      .command(WorkflowAmendmentRejectCommand)
-      .demandCommand(),
+  builder: (yargs: Argv) => yargs.command(WorkflowAmendmentApproveCommand).command(WorkflowAmendmentRejectCommand).demandCommand(),
   async handler() {},
 })
 
