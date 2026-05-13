@@ -158,6 +158,53 @@ function hasHeading(content: string, heading: string) {
   return new RegExp(`^##\\s+${heading}\\s*$`, "im").test(content)
 }
 
+function sectionContent(content: string, heading: string) {
+  const lines = content.split(/\r?\n/)
+  const start = lines.findIndex((line) => new RegExp(`^##\\s+${heading}\\s*$`, "i").test(line.trim()))
+  if (start === -1) return ""
+  const end = lines.slice(start + 1).findIndex((line) => /^##\s+/.test(line.trim()))
+  return lines
+    .slice(start + 1, end === -1 ? undefined : start + 1 + end)
+    .join("\n")
+    .trim()
+}
+
+const placeholderPatterns = [
+  /define the requested behavior/i,
+  /document the current behavior before implementation/i,
+  /document the proposed behavior after implementation/i,
+  /document the services, modules, and integration points involved/i,
+  /list files expected to change/i,
+  /add targeted validation commands for each task/i,
+]
+
+function hasPlaceholderContent(content: string) {
+  return placeholderPatterns.some((pattern) => pattern.test(content))
+}
+
+const placeholderTaskTitles = new Set([
+  "Complete reviewed specification",
+  "Validate impact boundary",
+  "Submit plan pull request",
+])
+
+function hasPlaceholderTask(line: string) {
+  const title = line.match(/^\s*-\s+\[[ x]\]\s+\S+\s+\|\s+([^|]+)/)?.[1]?.trim()
+  return title ? placeholderTaskTitles.has(title) : false
+}
+
+function hasPlaceholderImpact(content: string) {
+  const allowedPaths = parseAllowedPaths(content)
+  if (allowedPaths.length !== 1 || !/^\.opencode\/workflows\/wf_[^/]+\/\*\*$/.test(allowedPaths[0] ?? "")) return false
+  return [
+    "Expected New Files",
+    "Dependency Changes",
+    "Data Model Changes",
+    "Migration Risk",
+    "User-Visible Changes",
+  ].some((heading) => /none (identified|approved)/i.test(sectionContent(content, heading)))
+}
+
 function validateArtifactStructure(contents: Record<Exclude<ArtifactFile, "AMENDMENT.md">, string>) {
   const missing = [
     ...[
@@ -197,6 +244,20 @@ function validateArtifactStructure(contents: Record<Exclude<ArtifactFile, "AMEND
   )
   if (taskLines.length === 0) missing.push("TASKS.md#tasks")
   if (malformedTasks.length > 0) missing.push("TASKS.md#task-metadata")
+  if (
+    [
+      "Goals",
+      "Current Behavior",
+      "Proposed Behavior",
+      "Architecture",
+      "Expected Files",
+      "Test Plan",
+    ].some((heading) => hasPlaceholderContent(sectionContent(contents["SPEC.md"], heading)))
+  ) {
+    missing.push("SPEC.md#placeholder-content")
+  }
+  if (taskLines.some(hasPlaceholderTask)) missing.push("TASKS.md#placeholder-content")
+  if (hasPlaceholderImpact(contents["IMPACT.md"])) missing.push("IMPACT.md#placeholder-content")
   if (!/^#\s+GitHub\s*$/im.test(contents["GITHUB.md"])) missing.push("GITHUB.md#GitHub")
   return missing
 }

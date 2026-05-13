@@ -262,11 +262,6 @@ export const WorkflowStartCommand = effectCmd({
         type: "boolean",
         default: false,
       })
-      .option("base", {
-        describe: "base branch or ref for plan pull request submission",
-        type: "string",
-        default: "dev",
-      })
       .option("format", {
         describe: "output format",
         type: "string",
@@ -284,16 +279,7 @@ export const WorkflowStartCommand = effectCmd({
           title: args.title,
           localDraft: args.localDraft,
         })
-        printState(
-          args.localDraft
-            ? state
-            : yield* svc.submitPlan({
-                directory,
-                workflowID: state.workflow_id,
-                base: args.base,
-              }),
-          args.format,
-        )
+        printState(state, args.format)
       }),
     )
   }),

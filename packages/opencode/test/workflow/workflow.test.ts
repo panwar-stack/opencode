@@ -166,6 +166,147 @@ const runWorkflowWithGithubDisabled = <A, E>(effect: Effect.Effect<A, E, Workflo
     ),
   )
 
+const runWorkflowWithConfig = <A, E>(effect: Effect.Effect<A, E, Workflow.Service>, config: Config.Info, directory?: string) =>
+  Effect.runPromise(
+    (directory ? effect.pipe(provideInstance(directory)) : effect).pipe(
+      Effect.provide(
+        Workflow.layer.pipe(
+          Layer.provide(Layer.succeed(WorkflowGithub.Service, WorkflowGithub.Service.of(disabledGithub))),
+          Layer.provide(WorkflowApproval.defaultLayer),
+          Layer.provide(WorkflowScope.defaultLayer),
+          Layer.provide(WorkflowArtifact.defaultLayer),
+          Layer.provide(Bus.layer),
+        ),
+      ),
+      Effect.provideService(Config.Service, {
+        ...mockWfConfig,
+        get: () => Effect.succeed(config),
+      }),
+    ),
+  )
+
+async function writeReviewedPlanArtifacts(directory: string, workflowID: string) {
+  await Promise.all([
+    WorkflowArtifact.writeArtifact(
+      directory,
+      workflowID,
+      "SPEC.md",
+      `# Reviewed Plan
+
+## Summary
+
+Implement the requested workflow behavior with reviewed plan artifacts.
+
+## Goals
+
+- Add the workflow behavior requested by the user.
+
+## Non-Goals
+
+- Do not change unrelated command behavior.
+
+## Current Behavior
+
+- The current workflow path can continue before reviewed artifacts are ready.
+
+## Proposed Behavior
+
+- The workflow path waits for reviewed artifacts before plan submission.
+
+## Architecture
+
+- Update workflow services and CLI command handling.
+
+## Expected Files
+
+- packages/opencode/src/workflow/workflow.ts
+- packages/opencode/src/cli/cmd/workflow.ts
+
+## Data Model Changes
+
+- Persist session status in the workflow state file.
+
+## CLI/TUI Changes
+
+- The start command leaves the plan in drafting state.
+
+## GitHub PR Flow
+
+- The plan pull request is submitted after reviewed artifacts exist.
+
+## Test Plan
+
+- Run bun test test/workflow/workflow.test.ts.
+
+## Rollback Plan
+
+- Revert the workflow service and CLI changes.
+
+## Open Questions
+
+- None.
+`,
+    ),
+    WorkflowArtifact.writeArtifact(
+      directory,
+      workflowID,
+      "TASKS.md",
+      `# Tasks
+
+- [ ] task_001 | Update workflow start gating | files: packages/opencode/src/workflow/workflow.ts | validation: bun typecheck | status: pending | evidence: none | github: none
+`,
+    ),
+    WorkflowArtifact.writeArtifact(
+      directory,
+      workflowID,
+      "IMPACT.md",
+      `# Impact
+
+## Allowed Paths
+
+- packages/opencode/src/workflow/workflow.ts
+- packages/opencode/src/cli/cmd/workflow.ts
+
+## Expected New Files
+
+- none
+
+## Forbidden Paths
+
+- .env
+
+## Dependency Changes
+
+- No dependency changes.
+
+## Data Model Changes
+
+- Workflow session status remains in STATE.json.
+
+## Security Considerations
+
+- No secrets are read or written.
+
+## Migration Risk
+
+- Existing workflow state files remain compatible.
+
+## User-Visible Changes
+
+- Plan submission waits for completed planner output.
+
+## Review Response Boundaries
+
+- Changes stay within workflow orchestration.
+
+## Rollback Notes
+
+- Revert this workflow orchestration change.
+`,
+    ),
+  ])
+}
+
 describe("workflow", () => {
   test("creates durable workflow artifacts", async () => {
     await using tmp = await tmpdir({ git: true })
@@ -191,6 +332,26 @@ describe("workflow", () => {
     expect(github).toContain("## Open Comments")
     expect(github).toContain("## Review Response Log")
     expect((await $`git branch --show-current`.cwd(tmp.path).quiet().text()).trim()).toBe(state.plan_branch)
+  })
+
+  test("non-local start waits for planner completion before auto-submitting plan", async () => {
+    await using tmp = await tmpdir({ git: true })
+
+    const state = await runWorkflowWithConfig(
+      Workflow.Service.use((svc) =>
+        svc.start({
+          directory: tmp.path,
+          title: "Draft before submit",
+          localDraft: false,
+        }),
+      ),
+      { workflow: { auto_submit_plan: true, checks: [], github: { enabled: false } } } as Config.Info,
+      tmp.path,
+    )
+
+    expect(state.state).toBe("drafting_spec")
+    expect(state.plan_pull_request.number).toBeUndefined()
+    expect(state.sessions).toEqual([expect.objectContaining({ role: "planner", status: "active" })])
   })
 
   test("validates plan-only files", () => {
@@ -222,6 +383,25 @@ describe("workflow", () => {
         dryRun: true,
       }),
     ).rejects.toThrow("Invalid workflow artifact structure")
+  })
+
+  test("rejects seeded placeholder plan artifacts", async () => {
+    await using tmp = await tmpdir({ git: true })
+
+    const state = await Workflow.start({
+      directory: tmp.path,
+      title: "Reject placeholder plan",
+      localDraft: true,
+    })
+
+    await expect(
+      Workflow.submitPlan({
+        directory: tmp.path,
+        workflowID: state.workflow_id,
+        base: "HEAD",
+        dryRun: true,
+      }),
+    ).rejects.toThrow("placeholder-content")
   })
 
   test("enforces state transitions", () => {
@@ -620,6 +800,7 @@ pending
       title: "Keep implementation scoped",
       localDraft: true,
     })
+    await writeReviewedPlanArtifacts(tmp.path, state.workflow_id)
     await mkdir(path.join(tmp.path, "packages", "opencode", "src"), { recursive: true })
     await Bun.write(path.join(tmp.path, "packages", "opencode", "src", "index.ts"), "export const drift = true\n")
 

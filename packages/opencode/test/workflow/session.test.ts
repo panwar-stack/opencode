@@ -3,12 +3,14 @@ import { Effect, Layer } from "effect"
 import path from "path"
 import { Bus } from "../../src/bus"
 import { Permission } from "../../src/permission"
+import { Config } from "../../src/config/config"
 import { Session } from "../../src/session/session"
 import { ProjectID } from "../../src/project/schema"
 import { SessionID } from "../../src/session/schema"
 import { WorkflowArtifact } from "../../src/workflow/artifact"
 import { WorkflowSession } from "../../src/workflow/session"
 import { WorkflowState } from "../../src/workflow/state"
+import { Workflow } from "../../src/workflow/workflow"
 import { tmpdir } from "../fixture/fixture"
 
 describe("WorkflowSession", () => {
@@ -263,6 +265,76 @@ describe("WorkflowSession", () => {
         { status: "completed" },
       ),
     ).toThrow(/session not found/i)
+  })
+
+  test("completeSession auto-submits plan only after planner completion", async () => {
+    const now = WorkflowState.now()
+    let submitCalls = 0
+    let savedState: WorkflowState.WorkflowStateFile | undefined
+    const state: WorkflowState.WorkflowStateFile = {
+      workflow_id: "wf_test_auto_submit",
+      title: "test",
+      state: "drafting_spec",
+      artifact_dir: ".opencode/workflows/wf_test_auto_submit",
+      created_at: now,
+      updated_at: now,
+      plan_branch: "branch",
+      plan_pull_request: WorkflowState.emptyPullRequest(),
+      code_pull_request: WorkflowState.emptyPullRequest(),
+      sessions: [
+        {
+          id: "ses_plan",
+          role: "planner",
+          status: "active",
+          task: "Draft plan",
+          created_at: now,
+          updated_at: now,
+        },
+      ],
+    }
+
+    await Effect.runPromise(
+      WorkflowSession.Service.use((svc) => svc.completeSession("/repo", state.workflow_id, "ses_plan")).pipe(
+        Effect.provide(WorkflowSession.layer),
+        Effect.provide(
+          Layer.mock(Workflow.Service, {
+            get: () => Effect.succeed(savedState ?? state),
+            getSession: () => Effect.succeed(state.sessions[0]),
+            submitPlan: () =>
+              Effect.sync(() => {
+                submitCalls++
+                return savedState ?? state
+              }),
+            findSession: (workflowState, sessionID) => workflowState.sessions.find((session) => session.id === sessionID),
+            sessions: (workflowState) => workflowState.sessions,
+            branch: (workflowState) => ({ plan: workflowState.plan_branch, code: workflowState.code_branch }),
+          }),
+        ),
+        Effect.provide(
+          Layer.mock(WorkflowArtifact.Service, {
+            writeState: (_directory, next) =>
+              Effect.sync(() => {
+                savedState = next
+              }),
+            writeGithubSummary: () => Effect.void,
+          }),
+        ),
+        Effect.provide(Layer.mock(Bus.Service, { publish: () => Effect.void })),
+        Effect.provideService(Config.Service, {
+          get: () => Effect.succeed({ workflow: { auto_submit_plan: true } } as Config.Info),
+          getGlobal: () => Effect.succeed({} as Config.Info),
+          getConsoleState: () => Effect.succeed({} as any),
+          update: () => Effect.void,
+          updateGlobal: () => Effect.succeed({ info: {} as Config.Info, changed: false }),
+          invalidate: () => Effect.void,
+          directories: () => Effect.succeed([]),
+          waitForDependencies: () => Effect.void,
+        }),
+      ),
+    )
+
+    expect(submitCalls).toBe(1)
+    expect(savedState?.sessions).toEqual([expect.objectContaining({ id: "ses_plan", status: "completed" })])
   })
 
   test("session roles cover all workflow lifecycle phases", () => {

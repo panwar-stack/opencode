@@ -2,6 +2,7 @@ import { Context, Effect, Layer, Option } from "effect"
 import { Bus } from "@/bus"
 import { Session } from "@/session/session"
 import { Permission } from "@/permission"
+import { Config } from "@/config/config"
 import { Workflow } from "./workflow"
 import { WorkflowState, type SessionRole, type WorkflowSession, type ReviewComment } from "./state"
 import { WorkflowEvents } from "./events"
@@ -270,6 +271,27 @@ export const layer = Layer.effect(
           role: completed.role,
           status: completed.status,
         })
+        yield* bus.publish(WorkflowEvents.SessionCompleted, {
+          workflow_id: workflowID,
+          session_id: sessionID,
+          role: completed.role,
+        })
+
+        const configOpt = yield* Effect.serviceOption(Config.Service)
+        const workflowConfig = Option.isSome(configOpt) ? (yield* configOpt.value.get()).workflow : undefined
+        if (completed.role !== "planner" || workflowConfig?.auto_submit_plan !== true) return
+
+        yield* workflow.submitPlan({ directory, workflowID }).pipe(
+          Effect.catch((error) =>
+            artifact.appendDecision(directory, workflowID, {
+              action: "workflow.plan_auto_submit.skipped",
+              session_id: sessionID,
+              previous_state: state.state,
+              new_state: next.state,
+              summary: `Planner completed but plan auto-submit did not run: ${String(error)}`,
+            }),
+          ),
+        )
       },
     )
 
