@@ -1,0 +1,9 @@
+Generate a post-session effectiveness report for an agent team.
+
+Use this after team orchestration to see:
+- teammate throughput and lifecycle distribution
+- dependency and task progress behavior
+- mailbox/message delivery behavior
+- session cost and token impact
+
+Pass compare_session_ids with lead session IDs from earlier direct or subagent-only runs to benchmark outcomes.

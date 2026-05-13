@@ -24,6 +24,7 @@ import { TeamTaskUpdateTool } from "./team_task_update"
 import { TeamPlanSubmitTool } from "./team_plan_submit"
 import { TeamPlanDecideTool } from "./team_plan_decide"
 import { TeamShutdownTool } from "./team_shutdown"
+import { TeamReportTool } from "./team_report"
 import * as Tool from "./tool"
 import { Config } from "@/config/config"
 import { type ToolContext as PluginToolContext, type ToolDefinition } from "@opencode-ai/plugin"
@@ -159,6 +160,7 @@ export const layer: Layer.Layer<
     const teamPlanSubmit = yield* TeamPlanSubmitTool
     const teamPlanDecide = yield* TeamPlanDecideTool
     const teamShutdown = yield* TeamShutdownTool
+    const teamReport = yield* TeamReportTool
 
     const state = yield* InstanceState.make<State>(
       Effect.fn("ToolRegistry.state")(function* (ctx) {
@@ -282,6 +284,7 @@ export const layer: Layer.Layer<
           teamPlanSubmit: Tool.init(teamPlanSubmit),
           teamPlanDecide: Tool.init(teamPlanDecide),
           teamShutdown: Tool.init(teamShutdown),
+          teamReport: Tool.init(teamReport),
         })
 
         return {
@@ -318,6 +321,7 @@ export const layer: Layer.Layer<
                   tool.teamPlanSubmit,
                   tool.teamPlanDecide,
                   tool.teamShutdown,
+                  tool.teamReport,
                 ]
               : []),
           ],
