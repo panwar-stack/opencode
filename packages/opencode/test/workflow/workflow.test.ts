@@ -1252,6 +1252,138 @@ pending
     expect(await WorkflowArtifact.readArtifact(tmp.path, state.workflow_id, "DECISIONS.md")).toContain("Session:")
   })
 
+  test("revise plan runs reviewer session, pushes plan branch, and replies with evidence", async () => {
+    await using tmp = await tmpdir({ git: true })
+
+    await $`git branch -M dev`.cwd(tmp.path).quiet()
+    await $`git init --bare remote.git`.cwd(tmp.path).quiet()
+    await $`git remote add origin ${path.join(tmp.path, "remote.git")}`.cwd(tmp.path).quiet()
+    await $`git push -u origin dev`.cwd(tmp.path).quiet()
+
+    await mkdir(path.join(tmp.path, "bin"))
+    await Bun.write(path.join(tmp.path, ".git", "info", "exclude"), "bin/\nremote.git/\n")
+    await Bun.write(
+      path.join(tmp.path, "bin", "gh"),
+      `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$1 $2" == "repo view" ]]; then
+  echo "acme/repo"
+  exit 0
+fi
+if [[ "$1 $2" == "pr view" ]]; then
+  sha="$(git rev-parse HEAD)"
+  printf '{"number":7,"url":"https://github.com/acme/repo/pull/7","headRefName":"%s","headRefOid":"%s","reviewDecision":"REVIEW_REQUIRED","state":"OPEN"}\\n' "$3" "$sha"
+  exit 0
+fi
+if [[ "$1 $2" == "pr edit" || "$1 $2" == "pr create" ]]; then
+  exit 0
+fi
+echo "unexpected gh call: $*" >&2
+exit 1
+`,
+    )
+    await $`chmod +x ${path.join(tmp.path, "bin", "gh")}`.quiet()
+
+    const previousPath = process.env.PATH
+    process.env.PATH = `${path.join(tmp.path, "bin")}${path.delimiter}${previousPath ?? ""}`
+    try {
+      const state = await Workflow.start({
+        directory: tmp.path,
+        title: "Autonomous plan revision",
+        localDraft: true,
+      })
+      await writeReviewedPlanArtifacts(tmp.path, state.workflow_id)
+      const comment: WorkflowState.ReviewComment = {
+        id: "123",
+        url: "https://github.com/acme/repo/pull/7#issuecomment-123",
+        body: "Clarify rollback plan.",
+        state: "open",
+        source: "issue_comment",
+      }
+      await WorkflowArtifact.writeState(tmp.path, {
+        ...state,
+        state: "awaiting_plan_review",
+        plan_pull_request: {
+          number: 7,
+          url: "https://github.com/acme/repo/pull/7",
+          branch: state.plan_branch,
+          head_commit: "abc123",
+          review_state: "changes_requested",
+          comments: [comment],
+        },
+      })
+
+      const prompts: string[] = []
+      const replies: string[] = []
+      const next = await Effect.runPromise(
+        provideInstance(tmp.path)(
+          Workflow.Service.use((svc) =>
+            svc.revisePlan({
+              directory: tmp.path,
+              workflowID: state.workflow_id,
+            }),
+          ),
+        ).pipe(
+          Effect.provide(
+            Workflow.layer.pipe(
+              Layer.provide(
+                Layer.succeed(
+                  WorkflowGithub.Service,
+                  WorkflowGithub.Service.of({
+                    ...mockGithub({
+                      number: 7,
+                      url: "https://github.com/acme/repo/pull/7",
+                      branch: state.plan_branch,
+                      head_commit: "def456",
+                      review_state: "pending",
+                      comments: [comment],
+                    }),
+                    addComment: (_repo, _pr, body) =>
+                      Effect.sync(() => {
+                        replies.push(body)
+                      }),
+                  }),
+                ),
+              ),
+              Layer.provide(WorkflowApproval.defaultLayer),
+              Layer.provide(WorkflowScope.defaultLayer),
+              Layer.provide(WorkflowArtifact.defaultLayer),
+              Layer.provide(Bus.layer),
+            ),
+          ),
+          Effect.provideService(Session.Service, Session.Service.of(mockWfSession)),
+          Effect.provideService(
+            SessionPrompt.Service,
+            SessionPrompt.Service.of({
+              ...mockWfSessionPrompt,
+              prompt: (input) =>
+                Effect.sync(() => {
+                  prompts.push(input.parts.map((part) => ("text" in part ? part.text : "")).join("\n"))
+                  return mockWfPromptResponse
+                }),
+            }),
+          ),
+          Effect.provideService(Config.Service, {
+            ...mockWfConfig,
+            get: () => Effect.succeed({ workflow: { checks: [] } } as Config.Info),
+          }),
+        ),
+      )
+
+      expect(prompts).toHaveLength(1)
+      expect(prompts[0]).toContain("## Open Plan Comments")
+      expect(prompts[0]).toContain("Clarify rollback plan.")
+      expect(replies).toHaveLength(1)
+      expect(replies[0]).toContain("Addressed in the revised plan artifacts")
+      expect(replies[0]).toContain("Evidence:")
+      expect(next.state).toBe("awaiting_plan_review")
+      expect(next.plan_pull_request.comments).toContainEqual(expect.objectContaining({ id: "123", state: "addressed" }))
+      expect(await $`git ls-remote --heads origin ${state.plan_branch}`.cwd(tmp.path).quiet().text()).toContain(state.plan_branch)
+    } finally {
+      process.env.PATH = previousPath
+    }
+  })
+
   test("in-scope review comments become response tasks with audit evidence", async () => {
     await using tmp = await tmpdir({ git: true })
 

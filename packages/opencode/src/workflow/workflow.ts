@@ -127,6 +127,7 @@ const execCommand = (command: string, args: readonly string[], cwd: string) =>
   Effect.gen(function* () {
     const proc = Bun.spawn([command, ...args], {
       cwd,
+      env: process.env,
       stdout: "pipe",
       stderr: "pipe",
     })
@@ -187,6 +188,8 @@ const githubRepo = (directory: string) =>
     if (result.exitCode === 0 && result.stdout.trim().length > 0) return result.stdout.trim()
     return undefined
   })
+
+const repoFromPullRequestUrl = (url?: string) => url?.match(/^https:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/\d+/)?.[1]
 
 const changedFiles = (directory: string, base: string) =>
   Effect.gen(function* () {
@@ -263,6 +266,55 @@ const planFeedbackBody = (state: WorkflowStateFile, instruction?: string) => {
         .filter((comment) => comment.length > 0)
   return feedback.length > 0 ? feedback.map((item) => `- ${item}`).join("\n") : "- Review feedback requested plan revision."
 }
+
+const formatReviewComments = (comments: readonly ReviewComment[]) =>
+  comments.length > 0
+    ? comments
+        .map((comment) =>
+          [
+            `- id: ${comment.id}`,
+            comment.url ? `  url: ${comment.url}` : undefined,
+            comment.author ? `  author: ${comment.author}` : undefined,
+            comment.path ? `  location: ${comment.path}${comment.line ? `:${comment.line}` : ""}` : undefined,
+            `  source: ${comment.source}`,
+            `  body: ${comment.body.trim()}`,
+          ]
+            .filter((line): line is string => line !== undefined)
+            .join("\n"),
+        )
+        .join("\n")
+    : "- No open plan comments are recorded."
+
+const planRevisionPrompt = (state: WorkflowStateFile, task: string, comments: readonly ReviewComment[], spec: string, tasks: string, impact: string) =>
+  [
+    "You are the plan reviewer for a GitHub-reviewed autonomous workflow.",
+    "",
+    `Workflow: ${state.workflow_id}`,
+    `Title: ${state.title}`,
+    `Artifact directory: ${state.artifact_dir}`,
+    `Task: ${task}`,
+    "",
+    "Resolve the open plan review feedback by editing only SPEC.md, TASKS.md, and IMPACT.md in the workflow artifact directory.",
+    "Do not edit product source code, install dependencies, or make implementation changes.",
+    "For each addressed comment, update the plan artifacts with concrete evidence: what changed, where it changed, and what validation should be used.",
+    "Keep any unresolved requested changes visible in TASKS.md as pending stop conditions with the GitHub comment URL.",
+    "",
+    "## Open Plan Comments",
+    "",
+    formatReviewComments(comments),
+    "",
+    "## SPEC.md",
+    "",
+    spec,
+    "",
+    "## TASKS.md",
+    "",
+    tasks,
+    "",
+    "## IMPACT.md",
+    "",
+    impact,
+  ].join("\n")
 
 const persist = (artifact: WorkflowArtifact.Interface, directory: string, state: WorkflowStateFile) =>
   Effect.all([artifact.writeState(directory, state), artifact.writeGithubSummary(directory, state)], { concurrency: 2 })
@@ -851,7 +903,19 @@ export const layer = Layer.effect(
       const branch = yield* currentBranch(input.directory)
       const specHash = yield* artifact.hashApprovedArtifacts(input.directory, input.workflowID)
 
-      const artifactFiles = WorkflowArtifact.ArtifactFiles.map((f) => `${WorkflowArtifact.relativeArtifactDir(input.workflowID)}/${f}`)
+      const artifactFiles = (
+        yield* Effect.all(
+          WorkflowArtifact.ArtifactFiles.map((file) =>
+            Effect.promise(async () => ({
+              file: `${WorkflowArtifact.relativeArtifactDir(input.workflowID)}/${file}`,
+              exists: await Bun.file(path.join(input.directory, WorkflowArtifact.relativeArtifactDir(input.workflowID), file)).exists(),
+            })),
+          ),
+          { concurrency: 7 },
+        )
+      )
+        .filter((file) => file.exists)
+        .map((file) => file.file)
       yield* runRequired("git", ["add", ...artifactFiles], input.directory)
       const diffResult = yield* execCommand("git", ["diff", "--cached", "--quiet"], input.directory)
       if (diffResult.exitCode !== 0) {
@@ -1024,6 +1088,7 @@ export const layer = Layer.effect(
       yield* guardEnabled()
       const state = yield* get(input.directory, input.workflowID)
       const task = input.instruction ?? "Address plan review feedback"
+      yield* checkoutBranch(input.directory, state.plan_branch)
       const feedback = planFeedbackBody(state, input.instruction)
       const stamp = WorkflowState.now()
       const [spec, tasks, impact] = yield* Effect.all(
@@ -1061,24 +1126,31 @@ export const layer = Layer.effect(
         { concurrency: 3 },
       )
       const sessionsOpt = yield* Effect.serviceOption(Session.Service)
+      const promptOpt = yield* Effect.serviceOption(SessionPrompt.Service)
       let planSessionId: string | undefined
       if (Option.isSome(sessionsOpt)) {
         const realSession = yield* sessionsOpt.value.create({
           title: task,
           agent: planReviewerAgent,
+          permission: plannerSessionPermission,
         })
         planSessionId = realSession.id
       }
+      const session = nextSession("plan_reviewer", task, input.githubCommentUrl, planReviewerAgent, planSessionId)
       const next = WorkflowState.upsertSession(
         WorkflowState.transitionOrCurrent(
           {
             ...state,
             current_task: task,
             user_input_needed: undefined,
+            plan_reapproval_required_at: WorkflowState.now(),
+            approved_spec_hash: undefined,
+            approved_plan_commit: undefined,
+            plan_approval: undefined,
           },
           "addressing_plan_comments",
         ),
-        nextSession("plan_reviewer", task, input.githubCommentUrl, planReviewerAgent, planSessionId),
+        session,
       )
       yield* persist(artifact, input.directory, next)
       yield* artifact.appendDecision(input.directory, input.workflowID, {
@@ -1089,7 +1161,109 @@ export const layer = Layer.effect(
         summary: task,
         github_comment_url: input.githubCommentUrl,
       })
-      return next
+
+      if (Option.isNone(promptOpt) || !planSessionId) return next
+
+      const [reviewSpec, reviewTasks, reviewImpact] = yield* Effect.all(
+        [
+          artifact.readArtifact(input.directory, input.workflowID, "SPEC.md"),
+          artifact.readArtifact(input.directory, input.workflowID, "TASKS.md"),
+          artifact.readArtifact(input.directory, input.workflowID, "IMPACT.md"),
+        ],
+        { concurrency: 3 },
+      )
+      const openPlanComments = next.plan_pull_request.comments.filter((comment) => comment.state === "open")
+
+      yield* promptOpt.value.prompt({
+        sessionID: SessionID.make(planSessionId),
+        agent: planReviewerAgent,
+        parts: [
+          {
+            type: "text",
+            text: planRevisionPrompt(next, task, openPlanComments, reviewSpec, reviewTasks, reviewImpact),
+          },
+        ],
+      })
+
+      const changed = yield* changedFiles(input.directory, `origin/${planPRBase}`).pipe(Effect.catch(() => Effect.succeed([] as readonly string[])))
+      yield* persist(
+        artifact,
+        input.directory,
+        WorkflowState.updateSession(yield* get(input.directory, input.workflowID), session.id, {
+          status: "completed",
+          files_touched: changed.filter((file) => file.startsWith(WorkflowArtifact.relativeArtifactDir(input.workflowID))),
+        }),
+      )
+
+      const submitted = yield* submitPlan({
+        directory: input.directory,
+        workflowID: input.workflowID,
+      })
+
+      const repo = repoFromPullRequestUrl(submitted.plan_pull_request.url)
+      const evidence = submitted.plan_pull_request.head_commit ?? (yield* headCommit(input.directory).pipe(Effect.catch(() => Effect.succeed(undefined))))
+      const reply = [
+        "Addressed in the revised plan artifacts and pushed to the plan branch.",
+        submitted.plan_pull_request.url ? `Plan PR: ${submitted.plan_pull_request.url}` : undefined,
+        evidence ? `Evidence: ${evidence}` : undefined,
+        `Artifacts: ${WorkflowArtifact.relativeArtifactDir(input.workflowID)}/SPEC.md, ${WorkflowArtifact.relativeArtifactDir(input.workflowID)}/TASKS.md, ${WorkflowArtifact.relativeArtifactDir(input.workflowID)}/IMPACT.md`,
+      ]
+        .filter((line): line is string => line !== undefined)
+        .join("\n")
+
+      yield* Effect.forEach(
+        openPlanComments,
+        (comment) =>
+          Effect.gen(function* () {
+            const prNumber = submitted.plan_pull_request.number
+            if (repo && prNumber) {
+              yield* (comment.source === "review_comment" && /^\d+$/.test(comment.id)
+                ? github.addReplyToComment(repo, prNumber, comment.id, reply).pipe(Effect.catch(() => github.addComment(repo, prNumber, reply)))
+                : github.addComment(repo, prNumber, reply)
+              ).pipe(
+                Effect.catch((error) =>
+                  artifact.appendDecision(input.directory, input.workflowID, {
+                    action: "workflow.plan_revision.reply_failed",
+                    previous_state: submitted.state,
+                    new_state: submitted.state,
+                    summary: `Failed to reply to plan comment ${comment.id}: ${String(error)}`,
+                    pull_request: submitted.plan_pull_request.number,
+                    github_comment_url: comment.url,
+                  }),
+                ),
+              )
+            }
+            yield* markComment({
+              directory: input.directory,
+              workflowID: input.workflowID,
+              pullRequest: "plan",
+              commentID: comment.id,
+              state: "addressed",
+              summary: `Addressed plan review comment ${comment.id}. ${evidence ? `Evidence: ${evidence}` : "Plan branch was resubmitted."}`,
+            })
+          }),
+        { concurrency: 3, discard: true },
+      )
+
+      const revised = yield* get(input.directory, input.workflowID)
+      if (revised.plan_pull_request.review_state === "changes_requested" && openCommentCount(revised.plan_pull_request.comments) > 0) {
+        const blocked = {
+          ...WorkflowState.transitionOrCurrent(revised, "addressing_plan_comments"),
+          user_input_needed: "Plan review still has unresolved requested changes. Revise the plan again before execution can continue.",
+          updated_at: WorkflowState.now(),
+        }
+        yield* persist(artifact, input.directory, blocked)
+        yield* artifact.appendDecision(input.directory, input.workflowID, {
+          action: "workflow.plan_revision.blocked",
+          previous_state: revised.state,
+          new_state: blocked.state,
+          summary: "Plan revision stopped because requested changes remain unresolved.",
+          pull_request: blocked.plan_pull_request.number,
+        })
+        return blocked
+      }
+
+      return revised
     })
 
     const runApprovedPlan = Effect.fn("Workflow.runApprovedPlan")(function* (input: RunInput) {
