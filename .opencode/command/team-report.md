@@ -1,0 +1,12 @@
+---
+description: Run the team_report tool for the active lead session.
+---
+
+Run the `team_report` tool for the current lead session.
+
+If arguments are provided, treat each whitespace-separated token as a baseline lead
+session ID and pass them as `compare_session_ids`.
+
+Examples:
+- `/team-report`
+- `/team-report abc123 def456`
