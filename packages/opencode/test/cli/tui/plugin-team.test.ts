@@ -1,13 +1,13 @@
 import { expect, spyOn, test } from "bun:test"
 import { createTuiPluginApi } from "../../fixture/tui-plugin"
 import { createTuiResolvedConfig } from "../../fixture/tui-runtime"
-import { INTERNAL_TUI_PLUGINS } from "../../../src/cli/cmd/tui/plugin/internal"
+import { internalTuiPlugins } from "../../../src/cli/cmd/tui/plugin/internal"
 
 const { TuiPluginRuntime } = await import("../../../src/cli/cmd/tui/plugin/runtime")
 const { TuiConfig } = await import("../../../src/cli/cmd/tui/config/tui")
 
 test("team sidebar plugin is registered as internal", () => {
-  const teamPlugin = INTERNAL_TUI_PLUGINS.find((p) => p.id === "internal:sidebar-team")
+  const teamPlugin = internalTuiPlugins({ experimentalEventSystem: false }).find((p) => p.id === "internal:sidebar-team")
   expect(teamPlugin).toBeDefined()
   expect(teamPlugin?.id).toBe("internal:sidebar-team")
   expect(teamPlugin?.tui).toBeTypeOf("function")
