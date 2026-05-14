@@ -175,6 +175,8 @@ import type {
   SyncStartResponses,
   SyncStealErrors,
   SyncStealResponses,
+  TeamEvalErrors,
+  TeamEvalResponses,
   TeamGetByIdErrors,
   TeamGetByIdResponses,
   TeamGetErrors,
@@ -4508,6 +4510,25 @@ export class Team extends HeyApiClient {
     const params = buildClientParams([parameters], [{ args: [{ in: "query", key: "sessionID" }] }])
     return (options?.client ?? this.client).get<TeamGetResponses, TeamGetErrors, ThrowOnError>({
       url: "/team",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get team evaluation report
+   *
+   * Build and return the evaluation report for a team.
+   */
+  public eval<ThrowOnError extends boolean = false>(
+    parameters: {
+      teamID: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "teamID" }] }])
+    return (options?.client ?? this.client).get<TeamEvalResponses, TeamEvalErrors, ThrowOnError>({
+      url: "/team/{teamID}/eval",
       ...options,
       ...params,
     })

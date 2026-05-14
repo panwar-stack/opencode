@@ -51,6 +51,91 @@ const TeamMessageSchema = Schema.Struct({
   time_updated: Schema.Number,
 }).annotate({ identifier: "TeamMessage" })
 
+const TeamEvalNodeTypeSchema = Schema.Literals([
+  "team",
+  "member",
+  "task",
+  "message",
+  "session_step",
+  "tool_call",
+  "result",
+])
+
+const TeamEvalEdgeTypeSchema = Schema.Literals([
+  "lead_to_member",
+  "depends_on",
+  "message_to",
+  "produces",
+  "contains",
+  "session_event",
+  "propagates_to",
+])
+
+const TeamEvalFindingSeveritySchema = Schema.Literals(["info", "warning", "error"])
+
+const TeamEvalFindingCategorySchema = Schema.Literals([
+  "planning.goal_or_decomposition",
+  "planning.missing_or_wrong_dependency",
+  "execution.unknown_agent",
+  "execution.cancelled_member",
+  "execution.empty_result",
+  "execution.stuck_or_blocked",
+  "messaging.pending_delivery",
+  "messaging.missing_progress",
+  "integration.context_loss",
+  "integration.premature_shutdown",
+  "structure.unexpected_or_missing_edge",
+])
+
+const TeamEvalMetadataSchema = Schema.Record(Schema.String, Schema.Unknown)
+
+const TeamEvalNodeSchema = Schema.Struct({
+  id: Schema.String,
+  type: TeamEvalNodeTypeSchema,
+  ref: Schema.String,
+  label: Schema.optionalKey(Schema.String),
+  status: Schema.optionalKey(Schema.String),
+  time_created: Schema.Number,
+  time_updated: Schema.optionalKey(Schema.Number),
+  metadata: Schema.optionalKey(TeamEvalMetadataSchema),
+}).annotate({ identifier: "TeamEvalNode" })
+
+const TeamEvalEdgeSchema = Schema.Struct({
+  id: Schema.String,
+  type: TeamEvalEdgeTypeSchema,
+  from: Schema.String,
+  to: Schema.String,
+  metadata: Schema.optional(Schema.UndefinedOr(TeamEvalMetadataSchema)),
+}).annotate({ identifier: "TeamEvalEdge" })
+
+const TeamEvalFindingSchema = Schema.Struct({
+  id: Schema.String,
+  severity: TeamEvalFindingSeveritySchema,
+  category: TeamEvalFindingCategorySchema,
+  node_id: Schema.String,
+  message: Schema.String,
+  time_created: Schema.Number,
+  root_cause: Schema.Boolean,
+  propagated_from: Schema.optionalKey(Schema.String),
+  metadata: Schema.optional(Schema.UndefinedOr(TeamEvalMetadataSchema)),
+}).annotate({ identifier: "TeamEvalFinding" })
+
+const TeamEvalReportSchema = Schema.Struct({
+  team_id: Schema.String,
+  generated_at: Schema.Number,
+  nodes: Schema.Array(TeamEvalNodeSchema),
+  edges: Schema.Array(TeamEvalEdgeSchema),
+  findings: Schema.Array(TeamEvalFindingSchema),
+  summary: Schema.Struct({
+    node_count: Schema.Number,
+    edge_count: Schema.Number,
+    root_cause_count: Schema.Number,
+    propagated_failure_count: Schema.Number,
+    structural_deviation_count: Schema.Number,
+    longest_dependency_chain: Schema.Number,
+  }),
+}).annotate({ identifier: "TeamEvalReport" })
+
 export const TeamPaths = {
   root: "/team",
 } as const
@@ -71,6 +156,17 @@ export const TeamApi = HttpApi.make("team").add(
           identifier: "team.get",
           summary: "Get team by lead session",
           description: "Get the active team for a given lead session ID.",
+        }),
+      ),
+      HttpApiEndpoint.get("getEval", `${TeamPaths.root}/:teamID/eval`, {
+        params: { teamID: Schema.String },
+        success: described(TeamEvalReportSchema, "Team evaluation report"),
+        error: HttpApiError.BadRequest,
+      }).annotateMerge(
+        OpenApi.annotations({
+          identifier: "team.eval",
+          summary: "Get team evaluation report",
+          description: "Build and return the evaluation report for a team.",
         }),
       ),
       HttpApiEndpoint.get("getByTeam", `${TeamPaths.root}/:teamID`, {
