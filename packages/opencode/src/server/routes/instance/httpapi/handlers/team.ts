@@ -1,3 +1,4 @@
+import { TeamEval } from "@/team/eval"
 import { Team } from "@/team/team"
 import { Effect, Option } from "effect"
 import { HttpApiBuilder, HttpApiError } from "effect/unstable/httpapi"
@@ -31,6 +32,12 @@ export const teamHandlers = HttpApiBuilder.group(InstanceHttpApi, "team", (handl
       return yield* team.getMessages(ctx.params.teamID)
     })
 
+    const getEval = Effect.fn("TeamHttpApi.getEval")(function* (ctx: { params: { teamID: string } }) {
+      return yield* TeamEval.build(ctx.params.teamID).pipe(
+        Effect.catchTag("TeamEval.NotFoundError", () => Effect.fail(new HttpApiError.BadRequest({}))),
+      )
+    })
+
     const shutdown = Effect.fn("TeamHttpApi.shutdown")(function* (ctx: { params: { teamID: string } }) {
       yield* team.shutdown(ctx.params.teamID)
       return true
@@ -39,6 +46,7 @@ export const teamHandlers = HttpApiBuilder.group(InstanceHttpApi, "team", (handl
     return handlers
       .handle("getBySession", getBySession)
       .handle("getByTeam", getByTeam)
+      .handle("getEval", getEval)
       .handle("getTasks", getTasks)
       .handle("getMessages", getMessages)
       .handle("shutdown", shutdown)
