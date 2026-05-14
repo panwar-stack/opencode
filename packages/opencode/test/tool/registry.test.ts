@@ -127,6 +127,7 @@ const teamToolIDs = [
   "team_plan_submit",
   "team_plan_decide",
   "team_shutdown",
+  "team_report",
 ]
 
 afterEach(async () => {
