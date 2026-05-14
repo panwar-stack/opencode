@@ -5,7 +5,7 @@ description: Generate a post-run agent-team effectiveness report and optional ba
 
 Use this when you want a repeatable end-of-session analysis for team-orchestrated work.
 
-- Run `team_report` as soon as the run reaches a meaningful end state (or before shutdown).
+- Run `team_report` as soon as the run reaches a meaningful end state. In the case of no active team, refer to last shutdown team in the current lead session.
 - The tool reads team, teammate, task, and message telemetry and returns:
   - throughput and completion signals
   - task progression distribution
