@@ -3,6 +3,7 @@ description: Run the team_report tool for the active lead session.
 ---
 
 Run the `team_report` tool for the current lead session.
+In the case of no active team, refer to last shutdown team in the current lead session
 
 If arguments are provided, treat each whitespace-separated token as a baseline lead
 session ID and pass them as `compare_session_ids`.
