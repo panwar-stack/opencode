@@ -1920,6 +1920,70 @@ export type TeamInfo = {
   time_updated: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
 }
 
+export type TeamEvalNode = {
+  id: string
+  type: "team" | "member" | "task" | "message" | "session_step" | "tool_call" | "result"
+  ref: string
+  label?: string
+  status?: string
+  time_created: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  time_updated?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  metadata?: {
+    [key: string]: unknown
+  }
+}
+
+export type TeamEvalEdge = {
+  id: string
+  type: "lead_to_member" | "depends_on" | "message_to" | "produces" | "contains" | "session_event" | "propagates_to"
+  from: string
+  to: string
+  metadata?: {
+    [key: string]: unknown
+  }
+}
+
+export type TeamEvalFinding = {
+  id: string
+  severity: "info" | "warning" | "error"
+  category:
+    | "planning.goal_or_decomposition"
+    | "planning.missing_or_wrong_dependency"
+    | "execution.unknown_agent"
+    | "execution.cancelled_member"
+    | "execution.empty_result"
+    | "execution.stuck_or_blocked"
+    | "messaging.pending_delivery"
+    | "messaging.missing_progress"
+    | "integration.context_loss"
+    | "integration.premature_shutdown"
+    | "structure.unexpected_or_missing_edge"
+  node_id: string
+  message: string
+  time_created: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  root_cause: boolean
+  propagated_from?: string
+  metadata?: {
+    [key: string]: unknown
+  }
+}
+
+export type TeamEvalReport = {
+  team_id: string
+  generated_at: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  nodes: Array<TeamEvalNode>
+  edges: Array<TeamEvalEdge>
+  findings: Array<TeamEvalFinding>
+  summary: {
+    node_count: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    edge_count: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    root_cause_count: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    propagated_failure_count: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    structural_deviation_count: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    longest_dependency_chain: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
 export type TeamTask = {
   id: string
   team_id: string
@@ -7704,6 +7768,33 @@ export type TeamGetResponses = {
 }
 
 export type TeamGetResponse = TeamGetResponses[keyof TeamGetResponses]
+
+export type TeamEvalData = {
+  body?: never
+  path: {
+    teamID: string
+  }
+  query?: never
+  url: "/team/{teamID}/eval"
+}
+
+export type TeamEvalErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type TeamEvalError = TeamEvalErrors[keyof TeamEvalErrors]
+
+export type TeamEvalResponses = {
+  /**
+   * Team evaluation report
+   */
+  200: TeamEvalReport
+}
+
+export type TeamEvalResponse = TeamEvalResponses[keyof TeamEvalResponses]
 
 export type TeamGetByIdData = {
   body?: never
