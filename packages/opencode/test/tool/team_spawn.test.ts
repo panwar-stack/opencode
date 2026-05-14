@@ -262,9 +262,9 @@ describe("tool.team_spawn", () => {
                 await release
                 return reply(
                   input,
-                  input.parts.some((part) => part.type === "text" && part.text.includes("routes"))
-                    ? "routes done"
-                    : "cli done",
+                  input.parts.some((part) => part.type === "text" && part.text.includes("Review workflow CLI"))
+                    ? "cli done"
+                    : "routes done",
                 )
               }),
           }
