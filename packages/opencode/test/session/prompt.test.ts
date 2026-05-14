@@ -49,7 +49,7 @@ import * as Database from "../../src/storage/db"
 import { Ripgrep } from "../../src/file/ripgrep"
 import { Format } from "../../src/format"
 import { Reference } from "../../src/reference/reference"
-import { provideTmpdirServer, TestInstance } from "../fixture/fixture"
+import { provideTmpdirInstance, provideTmpdirServer, TestInstance } from "../fixture/fixture"
 import { awaitWithTimeout, pollWithTimeout, testEffect } from "../lib/effect"
 import { reply, TestLLMServer } from "../lib/llm-server"
 import { SyncEvent } from "@/sync"
@@ -1216,7 +1216,7 @@ it.live(
   5_000,
 )
 
-it.live(
+it.instance(
   "cancel finalizes subtask tool state",
   () =>
     Effect.gen(function* () {

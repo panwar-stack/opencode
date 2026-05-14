@@ -60,7 +60,7 @@ import { BackgroundJob } from "@/background/job"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 
-export const AppLayer = Layer.mergeAll(
+const CoreLayer = Layer.mergeAll(
   Npm.defaultLayer,
   AppFileSystem.defaultLayer,
   Bus.defaultLayer,
@@ -81,6 +81,9 @@ export const AppLayer = Layer.mergeAll(
   Skill.defaultLayer,
   Discovery.defaultLayer,
   Question.defaultLayer,
+)
+
+const SessionLayer = Layer.mergeAll(
   Permission.defaultLayer,
   Team.defaultLayer,
   Todo.defaultLayer,
@@ -102,6 +105,9 @@ export const AppLayer = Layer.mergeAll(
   Command.defaultLayer,
   Truncate.defaultLayer,
   ToolRegistry.defaultLayer,
+)
+
+const FeatureLayer = Layer.mergeAll(
   Format.defaultLayer,
   Project.defaultLayer,
   Vcs.defaultLayer,
@@ -116,7 +122,12 @@ export const AppLayer = Layer.mergeAll(
   SyncEvent.defaultLayer,
   EventV2Bridge.defaultLayer,
   DataMigration.defaultLayer,
-).pipe(Layer.provideMerge(InstanceLayer.layer), Layer.provideMerge(Observability.layer))
+)
+
+export const AppLayer = Layer.mergeAll(CoreLayer, SessionLayer, FeatureLayer).pipe(
+  Layer.provideMerge(InstanceLayer.layer),
+  Layer.provideMerge(Observability.layer),
+)
 
 const rt = ManagedRuntime.make(AppLayer, { memoMap })
 type Runtime = Pick<typeof rt, "runSync" | "runPromise" | "runPromiseExit" | "runFork" | "runCallback" | "dispose">
