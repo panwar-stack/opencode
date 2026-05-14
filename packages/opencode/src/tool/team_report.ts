@@ -7,6 +7,7 @@ import DESCRIPTION from "./team_report.txt"
 import { Database } from "@/storage/db"
 import { TeamTable, TeamMessageRecipientTable } from "@/team/team.sql"
 import { SessionTable } from "@/session/session.sql"
+import { SessionID } from "@/session/schema"
 
 const Parameters = Schema.Struct({
   team_id: Schema.optional(Schema.String).annotate({
@@ -43,7 +44,7 @@ function median(values: number[]) {
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
 }
 
-export const TeamReportTool = Tool.define(
+export const TeamReportTool = Tool.define<typeof Parameters, Record<string, unknown>, Team.Service | Config.Service>(
   "team_report",
   Effect.gen(function* () {
     const team = yield* Team.Service
@@ -56,18 +57,19 @@ export const TeamReportTool = Tool.define(
         Effect.gen(function* () {
           const cfg = yield* config.get()
           if (!cfg.experimental?.agent_teams) {
-            return { title: "Team Report", output: "Agent teams are disabled." }
+            return { title: "Team Report", metadata: {}, output: "Agent teams are disabled." }
           }
 
           const context = yield* team.getContext(ctx.sessionID)
           const leadSessionID = params.lead_session_id ??
             (Option.isSome(context) ? context.value.team.lead_session_id : undefined)
-          const explicitTeam = params.team_id
+          const teamID = params.team_id
+          const explicitTeam = teamID
             ? Database.use(() =>
                 Database.Client()
                   .select()
                   .from(TeamTable)
-                  .where(eq(TeamTable.id, params.team_id))
+                  .where(eq(TeamTable.id, teamID))
                   .get(),
               )
             : undefined
@@ -89,6 +91,7 @@ export const TeamReportTool = Tool.define(
           if (!teams) {
             return {
               title: "Team Report",
+              metadata: {},
               output: [
                 "No team could be resolved from this session.",
                 "Pass team_id explicitly, or run this tool from a lead session with an active team.",
@@ -123,7 +126,7 @@ export const TeamReportTool = Tool.define(
                   Database.Client()
                     .select()
                     .from(SessionTable)
-                    .where(eq(SessionTable.id, sessionID))
+                    .where(eq(SessionTable.id, SessionID.make(sessionID)))
                     .get(),
                 ),
               ),
@@ -140,7 +143,7 @@ export const TeamReportTool = Tool.define(
                   Database.Client()
                     .select()
                     .from(SessionTable)
-                    .where(eq(SessionTable.id, sessionID))
+                    .where(eq(SessionTable.id, SessionID.make(sessionID)))
                     .get(),
                 ),
               ),

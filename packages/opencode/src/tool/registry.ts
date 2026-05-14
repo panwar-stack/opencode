@@ -78,12 +78,14 @@ export function webSearchEnabled(providerID: ProviderID, flags = { exa: false, p
 
 type TaskDef = Tool.InferDef<typeof TaskTool>
 type ReadDef = Tool.InferDef<typeof ReadTool>
+type TeamReportDef = Tool.InferDef<typeof TeamReportTool>
 
 type State = {
   custom: Tool.Def[]
   builtin: Tool.Def[]
   task: TaskDef
   read: ReadDef
+  teamReport: TeamReportDef
 }
 
 export interface Interface {
@@ -333,6 +335,7 @@ export const layer: Layer.Layer<
           ],
           task: tool.task,
           read: tool.read,
+          teamReport: tool.teamReport,
         }
       }),
     )
