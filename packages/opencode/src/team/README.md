@@ -30,6 +30,8 @@ So when you read the code, do not look for a central "team scheduler" that owns 
 - `src/tool/team_get_messages.ts`: explicit mailbox read tool.
 - `src/tool/team_plan_submit.ts`: teammate submits a plan to the lead.
 - `src/tool/team_plan_decide.ts`: lead approves or rejects a plan.
+- `src/tool/team_report.ts`: builds a human-readable team effectiveness report and includes eval metadata.
+- `src/team/eval.ts`: builds the team evaluation graph, summary counts, and findings.
 - `src/session/prompt.ts`: prompt loop integration that injects pending team messages.
 - `src/tool/registry.ts`: enables team tools when `experimental.agent_teams` is true.
 
@@ -285,11 +287,30 @@ The HTTP API is read-heavy:
 
 - `GET /team?sessionID=<session>`: get active team by lead session
 - `GET /team/:teamID`: get team by ID
+- `GET /team/:teamID/eval`: build the JSON evaluation report for a team
 - `GET /team/:teamID/tasks`: list tasks
 - `GET /team/:teamID/messages`: list messages
 - `POST /team/:teamID/shutdown`: shut down team
 
 Tool calls are still the primary way models create teams, spawn teammates, and coordinate.
+
+`GET /team?sessionID=<session>` only resolves active teams. For a closed historical team, pass `teamID` directly or recover it from a completed `team_create` / `team_report` tool part in the lead session transcript.
+
+`team_report` is a tool, not a direct HTTP endpoint. The formatted markdown report is stored in the completed tool part at `GET /session/:sessionID/message`; structured metadata includes the full eval report at `state.metadata.eval`.
+
+For local debugging, `script/fetch-team-report.sh` wraps the common flow:
+
+```bash
+LEAD_SESSION_ID=ses_... ./script/fetch-team-report.sh
+TEAM_ID=... RUN_SESSION_ID=ses_... ./script/fetch-team-report.sh
+GENERATE_REPORT=1 LEAD_SESSION_ID=ses_... ./script/fetch-team-report.sh
+```
+
+The script assumes an HTTP server is running, for example:
+
+```bash
+bun run dev serve --port 4096
+```
 
 ## Common Misreadings
 
