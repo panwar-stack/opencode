@@ -8,6 +8,7 @@ import { Database } from "@/storage/db"
 import { TeamTable, TeamMessageRecipientTable } from "@/team/team.sql"
 import { SessionTable } from "@/session/session.sql"
 import { SessionID } from "@/session/schema"
+import { TeamEval, type TeamEvalFindingSeverity } from "@/team/eval"
 
 const Parameters = Schema.Struct({
   team_id: Schema.optional(Schema.String).annotate({
@@ -42,6 +43,12 @@ function median(values: number[]) {
   const sorted = [...values].sort((a, b) => a - b)
   const mid = Math.floor(sorted.length / 2)
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
+}
+
+function severityRank(severity: TeamEvalFindingSeverity) {
+  if (severity === "error") return 2
+  if (severity === "warning") return 1
+  return 0
 }
 
 export const TeamReportTool = Tool.define<typeof Parameters, Record<string, unknown>, Team.Service | Config.Service>(
@@ -110,6 +117,7 @@ export const TeamReportTool = Tool.define<typeof Parameters, Record<string, unkn
           const members = yield* team.getMembers(teams.id)
           const tasks = yield* team.getTasks(teams.id)
           const messages = yield* team.getMessages(teams.id)
+          const evalReport = yield* TeamEval.build(teams.id)
           const recipients = Database.use(() =>
             Database.Client()
               .select()
@@ -253,6 +261,16 @@ export const TeamReportTool = Tool.define<typeof Parameters, Record<string, unkn
               `  child tokens: in ${childTokens.input}, out ${childTokens.output}, reasoning ${childTokens.reasoning}`,
             ].join("\n")
           })
+          const rootCauseFindings = evalReport.findings
+            .filter((finding) => finding.root_cause)
+            .sort((a, b) => severityRank(b.severity) - severityRank(a.severity) || a.time_created - b.time_created)
+            .slice(0, 3)
+          const rootCauseLines = rootCauseFindings.length === 0
+            ? ["- top root causes: none"]
+            : rootCauseFindings.map(
+                (finding) =>
+                  `- ${finding.severity} ${finding.category} on ${finding.node_id}: ${finding.message}`,
+              )
 
           const insights = [
             blockedMembers.length > 0
@@ -311,6 +329,17 @@ export const TeamReportTool = Tool.define<typeof Parameters, Record<string, unkn
             `- total tokens: in ${teamSessionTokens.input}, out ${teamSessionTokens.output}, reasoning ${teamSessionTokens.reasoning}`,
             `- cache tokens: read ${teamSessionTokens.cache_read}, write ${teamSessionTokens.cache_write}`,
             "",
+            "## Evaluation",
+            `- nodes: ${evalReport.summary.node_count}`,
+            `- edges: ${evalReport.summary.edge_count}`,
+            `- findings: ${evalReport.findings.length}`,
+            `- root causes: ${evalReport.summary.root_cause_count}`,
+            `- propagated failures: ${evalReport.summary.propagated_failure_count}`,
+            `- structural deviations: ${evalReport.summary.structural_deviation_count}`,
+            `- longest dependency chain: ${evalReport.summary.longest_dependency_chain}`,
+            "Top root-cause findings:",
+            ...rootCauseLines,
+            "",
             "## Insights",
             ...insights,
             "",
@@ -350,6 +379,7 @@ export const TeamReportTool = Tool.define<typeof Parameters, Record<string, unkn
                 cost: teamSessionCost,
                 tokens: teamSessionTokens,
               },
+              eval: evalReport,
             },
             output,
           }
