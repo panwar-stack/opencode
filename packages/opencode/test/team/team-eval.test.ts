@@ -224,6 +224,193 @@ describe("team eval", () => {
       }),
     ),
   )
+
+  it.live("reports no findings for completed independent teammate fixture", () =>
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const team = yield* Team.Service
+        const info = yield* team.create({ name: "eval-pr4-happy", goal: "Complete independent work", leadSessionID: "ses_eval_pr4_happy_lead" })
+        const first = yield* team.addMember({
+          teamID: info.id,
+          sessionID: "ses_eval_pr4_happy_first",
+          name: "first",
+          agentType: "general",
+          rolePrompt: "Complete first independent work",
+        })
+        const second = yield* team.addMember({
+          teamID: info.id,
+          sessionID: "ses_eval_pr4_happy_second",
+          name: "second",
+          agentType: "general",
+          rolePrompt: "Complete second independent work",
+        })
+
+        yield* team.updateMemberStatus(first.id, "completed", "first result")
+        yield* team.updateMemberStatus(second.id, "completed", "second result")
+
+        const report = yield* TeamEval.build(info.id)
+
+        expect(report.findings).toEqual([])
+        expect(report.summary.root_cause_count).toBe(0)
+        expect(report.edges).toContainEqual(
+          expect.objectContaining({ type: "lead_to_member", from: node("team", info.id), to: node("member", first.session_id) }),
+        )
+        expect(report.edges).toContainEqual(
+          expect.objectContaining({ type: "lead_to_member", from: node("team", info.id), to: node("member", second.session_id) }),
+        )
+      }),
+    ),
+  )
+
+  it.live("matches expected depends_on edge for dependent teammate fixture", () =>
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const team = yield* Team.Service
+        const info = yield* team.create({ name: "eval-pr4-dependency", goal: "Pass result context", leadSessionID: "ses_eval_pr4_dep_lead" })
+        const upstream = yield* team.addMember({
+          teamID: info.id,
+          sessionID: "ses_eval_pr4_dep_upstream",
+          name: "upstream",
+          agentType: "general",
+          rolePrompt: "Produce context",
+        })
+        const dependent = yield* team.addMember({
+          teamID: info.id,
+          sessionID: "ses_eval_pr4_dep_dependent",
+          name: "dependent",
+          agentType: "general",
+          rolePrompt: "Use upstream context",
+          dependencyIDs: [upstream.session_id],
+        })
+
+        yield* team.updateMemberStatus(upstream.id, "completed", "upstream result context")
+        yield* team.sendMessage({
+          teamID: info.id,
+          sender: upstream.session_id,
+          recipients: [dependent.session_id],
+          body: "Use upstream result context.",
+        })
+        yield* team.updateMemberStatus(dependent.id, "completed", "dependent used upstream result context")
+
+        const report = yield* TeamEval.build(info.id, {
+          expectedEdges: [
+            { type: "depends_on", from: node("member", upstream.session_id), to: node("member", dependent.session_id) },
+          ],
+        })
+
+        expect(report.summary.structural_deviation_count).toBe(0)
+        expect(report.findings).toEqual([])
+        expect(report.summary.root_cause_count).toBe(0)
+        expect(report.edges).toContainEqual(
+          expect.objectContaining({ type: "depends_on", from: node("member", upstream.session_id), to: node("member", dependent.session_id) }),
+        )
+        expect(report.edges).toContainEqual(
+          expect.objectContaining({ type: "message_to", from: node("member", upstream.session_id), to: node("member", dependent.session_id) }),
+        )
+      }),
+    ),
+  )
+
+  it.live("reports blocked dependent after completed dependency fixture", () =>
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const team = yield* Team.Service
+        const info = yield* team.create({ name: "eval-pr4-blocked", goal: "Detect stuck dependent", leadSessionID: "ses_eval_pr4_blocked_lead" })
+        const upstream = yield* team.addMember({
+          teamID: info.id,
+          sessionID: "ses_eval_pr4_blocked_upstream",
+          name: "upstream",
+          agentType: "general",
+          rolePrompt: "Complete before dependent",
+        })
+        const dependent = yield* team.addMember({
+          teamID: info.id,
+          sessionID: "ses_eval_pr4_blocked_dependent",
+          name: "dependent",
+          agentType: "general",
+          rolePrompt: "Should be unblocked",
+          dependencyIDs: [upstream.session_id],
+        })
+
+        yield* team.updateMemberStatus(upstream.id, "completed", "upstream result")
+        yield* team.updateMemberStatus(dependent.id, "blocked")
+
+        const report = yield* TeamEval.build(info.id)
+        const blocked = finding(report, "execution.stuck_or_blocked", node("member", dependent.session_id))
+
+        expect(blocked?.root_cause).toBe(true)
+        expect(blocked?.metadata?.dependency_ids).toEqual([upstream.session_id])
+      }),
+    ),
+  )
+
+  it.live("reports pending delivery for closed team fixture", () =>
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const team = yield* Team.Service
+        const info = yield* team.create({ name: "eval-pr4-pending", goal: "Detect pending delivery", leadSessionID: "ses_eval_pr4_pending_lead" })
+        const recipient = yield* team.addMember({
+          teamID: info.id,
+          sessionID: "ses_eval_pr4_pending_recipient",
+          name: "recipient",
+          agentType: "general",
+          rolePrompt: "Receive pending message",
+        })
+        const message = yield* team.sendMessage({
+          teamID: info.id,
+          sender: info.lead_session_id,
+          recipients: [recipient.session_id],
+          body: "Pending after close.",
+        })
+
+        yield* team.updateMemberStatus(recipient.id, "completed", "recipient completed before close")
+        closeTeam(info.id)
+
+        const report = yield* TeamEval.build(info.id)
+        const pending = finding(report, "messaging.pending_delivery", node("message", message.id))
+
+        expect(pending?.root_cause).toBe(true)
+        expect(pending?.metadata?.recipient).toBe(recipient.session_id)
+      }),
+    ),
+  )
+
+  it.live("propagates cancelled member to blocked dependent fixture", () =>
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const team = yield* Team.Service
+        const info = yield* team.create({ name: "eval-pr4-cancelled", goal: "Propagate cancellation", leadSessionID: "ses_eval_pr4_cancelled_lead" })
+        const upstream = yield* team.addMember({
+          teamID: info.id,
+          sessionID: "ses_eval_pr4_cancelled_upstream",
+          name: "upstream",
+          agentType: "general",
+          rolePrompt: "Cancel upstream",
+        })
+        const dependent = yield* team.addMember({
+          teamID: info.id,
+          sessionID: "ses_eval_pr4_cancelled_dependent",
+          name: "dependent",
+          agentType: "general",
+          rolePrompt: "Wait on cancelled upstream",
+          dependencyIDs: [upstream.session_id],
+        })
+
+        yield* team.updateMemberStatus(upstream.id, "cancelled")
+        yield* team.updateMemberStatus(dependent.id, "blocked")
+
+        const report = yield* TeamEval.build(info.id)
+        const blocked = finding(report, "execution.stuck_or_blocked", node("member", dependent.session_id))
+
+        expect(finding(report, "execution.cancelled_member", node("member", upstream.session_id))?.root_cause).toBe(true)
+        expect(blocked?.root_cause).toBe(false)
+        expect(blocked?.propagated_from).toBe(node("member", upstream.session_id))
+        expect(report.edges).toContainEqual(
+          expect.objectContaining({ type: "propagates_to", from: node("member", upstream.session_id), to: node("member", dependent.session_id) }),
+        )
+      }),
+    ),
+  )
 })
 
 function finding(report: TeamEvalReport, category: TeamEvalFindingCategory, nodeID?: string) {
