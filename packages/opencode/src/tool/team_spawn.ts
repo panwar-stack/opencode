@@ -54,6 +54,11 @@ const MemberToolsPlan = [
   "- team_plan_submit: Submit your plan to the lead for approval. You must do this before doing any implementation work.",
 ].join("\n")
 
+const NestedTeamTools = {
+  team_create: false,
+  team_spawn: false,
+}
+
 export const TeamSpawnTool = Tool.define(
   "team_spawn",
   Effect.gen(function* () {
@@ -282,7 +287,10 @@ export const TeamSpawnTool = Tool.define(
                   sessionID: member.session_id,
                   model: nextAgent.model,
                   agent: nextAgent.name,
-                  tools: member.plan_mode ? { bash: false, write: false, edit: false, apply_patch: false } : undefined,
+                  tools: {
+                    ...NestedTeamTools,
+                    ...(member.plan_mode ? { bash: false, write: false, edit: false, apply_patch: false } : {}),
+                  },
                   parts,
                 })
                 const current = yield* team.getMemberBySession(member.session_id)

@@ -13,6 +13,8 @@ import type { Agent } from "./agent"
  *    same forwarding the original code already did.
  * 3. Default `todowrite` and `task` denies if the subagent's own ruleset
  *    doesn't already permit them.
+ * 4. Hard `team_create` and `team_spawn` denies so subagents cannot become
+ *    nested team leads.
  */
 export function deriveSubagentSessionPermission(input: {
   parentSessionPermission: Permission.Ruleset
@@ -30,5 +32,7 @@ export function deriveSubagentSessionPermission(input: {
     ),
     ...(canTodo ? [] : [{ permission: "todowrite" as const, pattern: "*" as const, action: "deny" as const }]),
     ...(canTask ? [] : [{ permission: "task" as const, pattern: "*" as const, action: "deny" as const }]),
+    { permission: "team_create" as const, pattern: "*" as const, action: "deny" as const },
+    { permission: "team_spawn" as const, pattern: "*" as const, action: "deny" as const },
   ]
 }
