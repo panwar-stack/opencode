@@ -36,16 +36,18 @@ export const SkillTool = Tool.define(
             metadata: {},
           })
 
-          const dir = path.dirname(info.location)
-          const base = pathToFileURL(dir).href
+          const builtin = Skill.isBuiltinLocation(info.location)
+          const dir = builtin ? info.location : path.dirname(info.location)
           const limit = 10
-          const files = yield* rg.files({ cwd: dir, follow: false, hidden: true, signal: ctx.abort }).pipe(
-            Stream.filter((file) => !file.includes("SKILL.md")),
-            Stream.map((file) => path.resolve(dir, file)),
-            Stream.take(limit),
-            Stream.runCollect,
-            Effect.map((chunk) => [...chunk].map((file) => `<file>${file}</file>`).join("\n")),
-          )
+          const files = builtin
+            ? ""
+            : yield* rg.files({ cwd: dir, follow: false, hidden: true, signal: ctx.abort }).pipe(
+                Stream.filter((file) => !file.includes("SKILL.md")),
+                Stream.map((file) => path.resolve(dir, file)),
+                Stream.take(limit),
+                Stream.runCollect,
+                Effect.map((chunk) => [...chunk].map((file) => `<file>${file}</file>`).join("\n")),
+              )
 
           return {
             title: `Loaded skill: ${info.name}`,
@@ -55,13 +57,17 @@ export const SkillTool = Tool.define(
               "",
               info.content.trim(),
               "",
-              `Base directory for this skill: ${base}`,
-              "Relative paths in this skill (e.g., scripts/, reference/) are relative to this base directory.",
-              "Note: file list is sampled.",
-              "",
-              "<skill_files>",
-              files,
-              "</skill_files>",
+              ...(builtin
+                ? ["This is a built-in skill with no external skill directory."]
+                : [
+                    `Base directory for this skill: ${pathToFileURL(dir).href}`,
+                    "Relative paths in this skill (e.g., scripts/, reference/) are relative to this base directory.",
+                    "Note: file list is sampled.",
+                    "",
+                    "<skill_files>",
+                    files,
+                    "</skill_files>",
+                  ]),
               "</skill_content>",
             ].join("\n"),
             metadata: {
