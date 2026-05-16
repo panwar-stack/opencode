@@ -60,7 +60,7 @@ const registryLayer = (opts: RegistryLayerOptions = {}) =>
       Layer.provide(Skill.defaultLayer),
       Layer.provide(Agent.defaultLayer),
       Layer.provide(Session.defaultLayer),
-      Layer.provide(Layer.mergeAll(SessionStatus.defaultLayer, BackgroundJob.defaultLayer, Team.defaultLayer)),
+      Layer.provide(Layer.mergeAll(SessionStatus.defaultLayer, BackgroundJob.defaultLayer)),
       Layer.provide(Provider.defaultLayer),
       Layer.provide(Layer.mergeAll(Git.defaultLayer, RepositoryCache.defaultLayer)),
       Layer.provide(Reference.defaultLayer),
@@ -72,9 +72,12 @@ const registryLayer = (opts: RegistryLayerOptions = {}) =>
       Layer.provide(Format.defaultLayer),
       Layer.provide(node),
       Layer.provide(Ripgrep.defaultLayer),
-      Layer.provide(Truncate.defaultLayer),
     )
-    .pipe(Layer.provide(RuntimeFlags.layer(opts.flags ?? {})))
+    .pipe(
+      Layer.provide(Truncate.defaultLayer),
+      Layer.provide(Team.defaultLayer),
+      Layer.provide(RuntimeFlags.layer(opts.flags ?? {})),
+    )
 
 // Fake Plugin.Service that returns a single plugin whose `tool` map contains
 // one definition with `args: undefined`. Used to exercise the plugin entry
