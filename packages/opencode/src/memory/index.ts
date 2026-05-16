@@ -1,18 +1,32 @@
 import { Context, Effect, Layer } from "effect"
+import { MemoryIndex } from "./repo"
+import { queryEntries } from "./search"
+
+export interface Citation {
+  readonly label: string
+  readonly url: string
+}
 
 export interface Entry {
   readonly id: string
   readonly title: string
   readonly body: string
   readonly file?: string
+  readonly files?: readonly string[]
+  readonly citations?: readonly Citation[]
 }
 
 export interface QueryInput {
   readonly text: string
   readonly file?: string
+  readonly repo?: string
+  readonly limit?: number
 }
 
 export interface QueryResult extends Entry {
+  readonly provider?: string
+  readonly repo?: string
+  readonly confidence?: number
   readonly score: number
 }
 
@@ -30,26 +44,11 @@ export const layer = (entries: readonly Entry[] = []) =>
     }),
   )
 
-export const defaultLayer = layer()
-
-function queryEntries(entries: readonly Entry[], input: QueryInput) {
-  const terms = input.text
-    .toLowerCase()
-    .split(/[^a-z0-9_/-]+/)
-    .filter(Boolean)
-
-  if (terms.length === 0) return []
-
-  return entries
-    .filter((entry) => !input.file || entry.file === input.file)
-    .map((entry) => ({ ...entry, score: scoreEntry(entry, input.text.toLowerCase(), terms) }))
-    .filter((entry) => entry.score > 0)
-    .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
-}
-
-function scoreEntry(entry: Entry, query: string, terms: string[]) {
-  const searchable = [entry.title, entry.body, entry.file ?? ""].join("\n").toLowerCase()
-  return (searchable.includes(query) ? 10 : 0) + terms.filter((term) => searchable.includes(term)).length
-}
+export const defaultLayer = Layer.succeed(
+  Service,
+  Service.of({
+    query: MemoryIndex.query,
+  }),
+)
 
 export * as Memory from "."
