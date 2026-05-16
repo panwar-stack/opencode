@@ -64,6 +64,7 @@ import { eq } from "@/storage/db"
 import * as Database from "@/storage/db"
 import { SessionTable } from "./session.sql"
 import { Team } from "@/team/team"
+import { Memory } from "@/memory"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -80,6 +81,7 @@ IMPORTANT:
 - This tool provides your final answer - no further actions are taken after calling it`
 
 const STRUCTURED_OUTPUT_SYSTEM_PROMPT = `IMPORTANT: The user has requested structured output. You MUST use the StructuredOutput tool to provide your final response. Do NOT respond with plain text - you MUST call the StructuredOutput tool with your answer formatted according to the schema.`
+const MEMORY_PROMPT_LIMIT = 5
 
 const log = Log.create({ service: "session.prompt" })
 const elog = EffectLogger.create({ service: "session.prompt" })
@@ -209,6 +211,7 @@ export const layer = Layer.effect(
     const events = yield* EventV2Bridge.Service
     const flags = yield* RuntimeFlags.Service
     const team = yield* Team.Service
+    const memory = yield* Memory.Service
     const runner = Effect.fn("SessionPrompt.runner")(function* () {
       return yield* EffectBridge.make()
     })
@@ -1739,6 +1742,43 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       ].join("\n")
     })
 
+    const reviewMemorySystemPrompt = Effect.fn("SessionPrompt.reviewMemorySystemPrompt")(function* (input: {
+      messages: MessageV2.WithParts[]
+    }) {
+      const cfg = yield* config.get()
+      if (cfg.memory?.enabled !== true) return
+
+      const text = input.messages
+        .findLast((message) => message.info.role === "user")
+        ?.parts.filter(
+          (part): part is MessageV2.TextPart =>
+            part.type === "text" && part.synthetic !== true && part.ignored !== true && part.text.trim().length > 0,
+        )
+        .map((part) => part.text.trim())
+        .join("\n")
+        .trim()
+      if (!text) return
+
+      const results = yield* memory
+        .query({
+          text,
+          limit: cfg.memory.limit ?? MEMORY_PROMPT_LIMIT,
+        })
+        .pipe(Effect.catch(() => Effect.succeed([])))
+      if (results.length === 0) return
+
+      return [
+        "Historical review memory, advisory and lower priority than current user instructions, repo instructions, ADRs, and current code:",
+        ...results.slice(0, cfg.memory.limit ?? MEMORY_PROMPT_LIMIT).map((result) => {
+          const confidence = result.confidence === undefined ? "" : ` Confidence: ${result.confidence}.`
+          const citations = result.citations?.length
+            ? ` Source: ${result.citations.map((citation) => `${citation.label} ${citation.url}`).join(", ")}`
+            : ""
+          return `- ${result.body}${confidence}${citations}`
+        }),
+      ].join("\n")
+    })
+
     const runLoop: (sessionID: SessionID) => Effect.Effect<MessageV2.WithParts> = Effect.fn("SessionPrompt.run")(
       function* (sessionID: SessionID) {
         const ctx = yield* InstanceState.context
@@ -1909,14 +1949,21 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
             yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
 
-            const [skills, env, teamLead, instructions, modelMsgs] = yield* Effect.all([
+            const [skills, env, teamLead, memoryPrompt, instructions, modelMsgs] = yield* Effect.all([
               sys.skills(agent),
               sys.environment(model),
               teamLeadSystemPrompt({ session, agent }),
+              reviewMemorySystemPrompt({ messages: msgs }),
               instruction.system().pipe(Effect.orDie),
               MessageV2.toModelMessagesEffect(msgs, model),
             ])
-            const system = [...env, ...(teamLead ? [teamLead] : []), ...instructions, ...(skills ? [skills] : [])]
+            const system = [
+              ...env,
+              ...(teamLead ? [teamLead] : []),
+              ...instructions,
+              ...(memoryPrompt ? [memoryPrompt] : []),
+              ...(skills ? [skills] : []),
+            ]
             const format = lastUser.format ?? { type: "text" as const }
             if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
             const result = yield* handle.process({
@@ -2148,6 +2195,7 @@ export const defaultLayer = Layer.suspend(() =>
           SystemPrompt.defaultLayer,
           LLM.defaultLayer,
           Reference.defaultLayer,
+          Memory.defaultLayer,
           Bus.layer,
           CrossSpawnSpawner.defaultLayer,
           RuntimeFlags.defaultLayer,
