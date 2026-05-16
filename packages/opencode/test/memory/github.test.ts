@@ -125,6 +125,89 @@ describe("GitHub memory index provider", () => {
     }),
   )
 
+  it.effect("filters GitHub review comments by included and excluded authors", () =>
+    Effect.gen(function* () {
+      const result = yield* MemoryGithub.indexComments({
+        repo: "opencode/opencode",
+        include_authors: ["alice", "blocked"],
+        exclude_authors: ["bot", "blocked"],
+        comments: [
+          {
+            id: 1,
+            body: "Use readiness signals before assertions.",
+            html_url: "https://github.com/opencode/opencode/pull/1#discussion_r1",
+            pull_request_url: "https://api.github.com/repos/opencode/opencode/pulls/1",
+            updated_at: "2026-05-01T00:00:00Z",
+            user: { login: "Alice" },
+          },
+          {
+            id: 2,
+            body: "Bot comments should not become memory.",
+            html_url: "https://github.com/opencode/opencode/pull/1#discussion_r2",
+            updated_at: "2026-05-02T00:00:00Z",
+            user: { login: "bot" },
+          },
+          {
+            id: 3,
+            body: "Excluded authors win over included authors.",
+            html_url: "https://github.com/opencode/opencode/pull/1#discussion_r3",
+            updated_at: "2026-05-03T00:00:00Z",
+            user: { login: "blocked" },
+          },
+          {
+            id: 4,
+            body: "Unlisted authors should not become memory.",
+            html_url: "https://github.com/opencode/opencode/pull/1#discussion_r4",
+            updated_at: "2026-05-04T00:00:00Z",
+            user: { login: "carol" },
+          },
+        ],
+      })
+
+      expect(result).toMatchObject({ fetched: 4, indexed: 1, cursor: "2026-05-04T00:00:00Z" })
+      expect(Database.use((db) => db.select().from(MemorySourceItemTable).all()).map((row) => row.author)).toEqual([
+        "Alice",
+      ])
+      const memory = yield* Memory.Service
+      expect(yield* memory.query({ text: "readiness" })).toHaveLength(1)
+      expect(yield* memory.query({ text: "bot comments" })).toHaveLength(0)
+    }),
+  )
+
+  it.effect("filters GitHub review comments by max age", () =>
+    Effect.gen(function* () {
+      const result = yield* MemoryGithub.indexComments({
+        repo: "opencode/opencode",
+        max_age_days: 7,
+        comments: [
+          {
+            id: 1,
+            body: "Recent comments should become memory.",
+            html_url: "https://github.com/opencode/opencode/pull/1#discussion_r1",
+            updated_at: new Date().toISOString(),
+          },
+          {
+            id: 2,
+            body: "Old comments should not become memory.",
+            html_url: "https://github.com/opencode/opencode/pull/1#discussion_r2",
+            updated_at: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
+          },
+          {
+            id: 3,
+            body: "Undated comments should not become memory under max age.",
+            html_url: "https://github.com/opencode/opencode/pull/1#discussion_r3",
+          },
+        ],
+      })
+
+      expect(result).toMatchObject({ fetched: 3, indexed: 1 })
+      const memory = yield* Memory.Service
+      expect(yield* memory.query({ text: "recent" })).toHaveLength(1)
+      expect(yield* memory.query({ text: "old" })).toHaveLength(0)
+      expect(yield* memory.query({ text: "undated" })).toHaveLength(0)
+    }),
+  )
+
   it.effect("fetches through gh with stored checkpoints and preserves an empty incremental cursor", () =>
     Effect.gen(function* () {
       const calls: string[][] = []
