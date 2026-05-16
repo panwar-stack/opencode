@@ -10,6 +10,9 @@ export interface IndexInput {
   readonly repo: string
   readonly since?: string
   readonly limit?: number
+  readonly include_authors?: readonly string[]
+  readonly exclude_authors?: readonly string[]
+  readonly max_age_days?: number
 }
 
 export interface IndexResult {
@@ -57,8 +60,9 @@ export const index = Effect.fn("MemoryGithub.index")(function* (input: IndexInpu
 export const indexComments = Effect.fn("MemoryGithub.indexComments")(function* (
   input: IndexInput & { readonly comments: readonly ReviewComment[] },
 ) {
+  const comments = input.comments.filter(commentFilter(input))
   const indexed = yield* Effect.all(
-    input.comments.map((comment) => {
+    comments.map((comment) => {
       const constraint = toConstraint(input.repo, comment)
       if (!constraint) return Effect.succeed(undefined)
       return MemoryIndex.upsertConstraint(constraint).pipe(Effect.as(constraint))
@@ -72,7 +76,13 @@ export const indexComments = Effect.fn("MemoryGithub.indexComments")(function* (
     repo: input.repo,
     cursor,
     last_fetched_at: Date.now(),
-    fetch_options: { limit: input.limit, since: input.since },
+    fetch_options: {
+      limit: input.limit,
+      since: input.since,
+      include_authors: input.include_authors,
+      exclude_authors: input.exclude_authors,
+      max_age_days: input.max_age_days,
+    },
   })
 
   return {
@@ -199,6 +209,27 @@ function constraintText(input: string | undefined) {
 function confidence(comment: ReviewComment) {
   if (["OWNER", "MEMBER", "COLLABORATOR"].includes(comment.author_association ?? "")) return 0.75
   return 0.6
+}
+
+function commentFilter(input: IndexInput) {
+  const includeAuthors = authorSet(input.include_authors)
+  const excludeAuthors = authorSet(input.exclude_authors)
+  const minUpdatedAt =
+    input.max_age_days === undefined ? undefined : Date.now() - input.max_age_days * 24 * 60 * 60 * 1000
+
+  return (comment: ReviewComment) => {
+    const author = comment.user?.login?.toLowerCase()
+    if (excludeAuthors.size > 0 && author && excludeAuthors.has(author)) return false
+    if (includeAuthors.size > 0 && (!author || !includeAuthors.has(author))) return false
+    if (minUpdatedAt === undefined) return true
+
+    const updatedAt = timestamp(comment.updated_at ?? comment.created_at)
+    return updatedAt !== undefined && updatedAt >= minUpdatedAt
+  }
+}
+
+function authorSet(authors: readonly string[] | undefined) {
+  return new Set(authors?.map((author) => author.trim().toLowerCase()).filter(Boolean) ?? [])
 }
 
 function latestCursor(comments: readonly ReviewComment[]) {
