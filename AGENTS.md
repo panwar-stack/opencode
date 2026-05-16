@@ -21,7 +21,6 @@ Add these principles exactly in spirit, adjusting only formatting to match the t
 3. Surgical changes - Touch only what you must. Clean up only your own mess.
 4. Goal-driven execution - Define success criteria. Loop until verified.
 
-
 ### General Principles
 
 - Keep things in one function unless composable or reusable
