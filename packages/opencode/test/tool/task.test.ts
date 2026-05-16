@@ -418,6 +418,16 @@ describe("tool.task", () => {
             action: "deny",
           },
           {
+            permission: "team_create",
+            pattern: "*",
+            action: "deny",
+          },
+          {
+            permission: "team_spawn",
+            pattern: "*",
+            action: "deny",
+          },
+          {
             permission: "bash",
             pattern: "*",
             action: "allow",
@@ -430,6 +440,8 @@ describe("tool.task", () => {
         ])
         expect(seen?.tools).toEqual({
           todowrite: false,
+          team_create: false,
+          team_spawn: false,
           bash: false,
           read: false,
         })
