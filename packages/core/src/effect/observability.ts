@@ -95,11 +95,11 @@ const traces = async () => {
   }))
 }
 
-export const layer = !base
+export const layer: Layer.Layer<never> = !base
   ? EffectLogger.layer
   : Layer.unwrap(
       Effect.gen(function* () {
-        const trace = yield* Effect.promise(traces)
+        const trace = yield* Effect.promise(traces).pipe(Effect.orDie)
         return Layer.mergeAll(trace, logs())
       }),
     )
