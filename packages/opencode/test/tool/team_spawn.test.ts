@@ -146,6 +146,78 @@ describe("tool.team_spawn", () => {
     ),
   )
 
+  it.live("rejects direct calls from teammate sessions before creating nested teammates", () =>
+    provideTmpdirInstance(
+      () =>
+        Effect.gen(function* () {
+          const team = yield* Team.Service
+          const sessions = yield* Session.Service
+          const { lead, assistant, info } = yield* seed()
+          const teammate = yield* sessions.create({ parentID: lead.id, title: "Teammate" })
+          yield* team.addMember({
+            teamID: info.id,
+            sessionID: teammate.id,
+            name: "teammate",
+            agentType: "general",
+            rolePrompt: "Work",
+          })
+          const promptOps: TaskPromptOps = {
+            cancel: () => Effect.void,
+            resolvePromptParts: () => Effect.die(new Error("should not resolve prompt parts")),
+            loop: () => Effect.die(new Error("should not loop")),
+            prompt: () => Effect.die(new Error("should not prompt")),
+          }
+          const tool = yield* TeamSpawnTool
+          const def = yield* tool.init()
+
+          const result = yield* def.execute(
+            {
+              name: "nested",
+              agent_type: "general",
+              role_prompt: "Nested work",
+            },
+            context({ lead: teammate, assistant, promptOps }),
+          )
+
+          expect(result.title).toBe("Team Spawn Failed")
+          expect(result.output).toContain("Team members cannot spawn nested teammates")
+          expect(yield* team.getMembers(info.id)).toHaveLength(1)
+          expect(yield* sessions.children(teammate.id)).toHaveLength(0)
+        }),
+      { config: { experimental: { agent_teams: true } } },
+    ),
+  )
+
+  it.live("rejects direct calls from child sessions before resolving dependencies", () =>
+    provideTmpdirInstance(
+      () =>
+        Effect.gen(function* () {
+          const team = yield* Team.Service
+          const sessions = yield* Session.Service
+          const { lead, assistant, info } = yield* seed()
+          const child = yield* sessions.create({ parentID: lead.id, title: "Subagent" })
+          const tool = yield* TeamSpawnTool
+          const def = yield* tool.init()
+
+          const result = yield* def.execute(
+            {
+              name: "nested",
+              agent_type: "general",
+              role_prompt: "Nested work",
+              depends_on: ["missing"],
+            },
+            context({ lead: child, assistant }),
+          )
+
+          expect(result.title).toBe("Team Spawn Failed")
+          expect(result.output).toContain("Child sessions cannot spawn teammates")
+          expect(yield* team.getMembers(info.id)).toHaveLength(0)
+          expect(yield* sessions.children(child.id)).toHaveLength(0)
+        }),
+      { config: { experimental: { agent_teams: true } } },
+    ),
+  )
+
   it.live("starts blocked teammates when their dependency completes", () =>
     provideTmpdirInstance(
       () =>
