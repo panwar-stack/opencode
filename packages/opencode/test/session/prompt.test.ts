@@ -56,6 +56,7 @@ import { reply, TestLLMServer } from "../lib/llm-server"
 import { SyncEvent } from "@/sync"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { EventV2Bridge } from "@/event-v2-bridge"
+import { Memory } from "@/memory"
 
 void Log.init({ print: false })
 
@@ -165,7 +166,7 @@ const blockingProcessor = Layer.succeed(
   }),
 )
 
-function makePrompt(input?: { processor?: "blocking" }) {
+function makePrompt(input?: { processor?: "blocking"; memory?: readonly Memory.Entry[] }) {
   const deps = Layer.mergeAll(
     Session.defaultLayer,
     Snapshot.defaultLayer,
@@ -181,6 +182,7 @@ function makePrompt(input?: { processor?: "blocking" }) {
     mcp,
     AppFileSystem.defaultLayer,
     BackgroundJob.defaultLayer,
+    Memory.layer(input?.memory),
     Team.defaultLayer,
     status,
     SyncEvent.defaultLayer,
@@ -235,17 +237,30 @@ function makePrompt(input?: { processor?: "blocking" }) {
   )
 }
 
-function makeHttp(input?: { processor?: "blocking" }) {
+function makeHttp(input?: { processor?: "blocking"; memory?: readonly Memory.Entry[] }) {
   return Layer.mergeAll(TestLLMServer.layer, makePrompt(input))
 }
 
-function makeHttpNoLLMServer(input?: { processor?: "blocking" }) {
+function makeHttpNoLLMServer(input?: { processor?: "blocking"; memory?: readonly Memory.Entry[] }) {
   return makePrompt(input)
 }
 
 const it = testEffect(makeHttp())
 const noLLMServer = testEffect(makeHttpNoLLMServer())
 const raceNoLLMServer = testEffect(makeHttpNoLLMServer({ processor: "blocking" }))
+const reviewMemory = testEffect(
+  makeHttp({
+    memory: [
+      {
+        id: "review-memory-1",
+        title: "Effect services",
+        body: "Prefer Effect FileSystem over raw fs/promises in Effect services.",
+        confidence: 0.91,
+        citations: [{ label: "PR #123", url: "https://github.com/opencode-ai/opencode/pull/123#discussion_r1" }],
+      },
+    ],
+  }),
+)
 const unix = process.platform !== "win32" ? it.instance : it.instance.skip
 const unixNoLLMServer = process.platform !== "win32" ? noLLMServer.instance : noLLMServer.instance.skip
 
@@ -1048,6 +1063,70 @@ it.live("does not inject lead team guidance into teammate sessions", () =>
       config: (url) => ({
         ...providerCfg(url),
         experimental: { agent_teams: true },
+      }),
+    },
+  ),
+)
+
+reviewMemory.live("injects configured review memory into prompts", () =>
+  provideTmpdirServer(
+    Effect.fnUntraced(function* ({ llm }) {
+      const { prompt, chat } = yield* boot()
+      yield* llm.text("done")
+
+      yield* prompt.prompt({
+        sessionID: chat.id,
+        agent: "build",
+        model: ref,
+        parts: [{ type: "text", text: "update the Effect service filesystem usage" }],
+      })
+
+      const bodies = (yield* llm.inputs).map((input) => JSON.stringify(input))
+      expect(
+        bodies.some(
+          (body) =>
+            body.includes("Historical review memory") &&
+            body.includes("lower priority than current user instructions") &&
+            body.includes("Prefer Effect FileSystem over raw fs/promises") &&
+            body.includes("Confidence: 0.91") &&
+            body.includes("PR #123") &&
+            body.includes("https://github.com/opencode-ai/opencode/pull/123#discussion_r1"),
+        ),
+      ).toBe(true)
+    }),
+    {
+      git: true,
+      config: (url) => ({
+        ...providerCfg(url),
+        memory: { enabled: true },
+      }),
+    },
+  ),
+  10_000,
+)
+
+reviewMemory.live("does not inject review memory when config disables it", () =>
+  provideTmpdirServer(
+    Effect.fnUntraced(function* ({ llm }) {
+      const { prompt, chat } = yield* boot()
+      yield* llm.text("done")
+
+      yield* prompt.prompt({
+        sessionID: chat.id,
+        agent: "build",
+        model: ref,
+        parts: [{ type: "text", text: "update the Effect service filesystem usage" }],
+      })
+
+      const bodies = (yield* llm.inputs).map((input) => JSON.stringify(input))
+      expect(bodies.some((body) => body.includes("Historical review memory"))).toBe(false)
+      expect(bodies.some((body) => body.includes("Prefer Effect FileSystem over raw fs/promises"))).toBe(false)
+    }),
+    {
+      git: true,
+      config: (url) => ({
+        ...providerCfg(url),
+        memory: { enabled: false },
       }),
     },
   ),

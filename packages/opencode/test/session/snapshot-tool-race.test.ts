@@ -64,6 +64,7 @@ import { RepositoryCache } from "../../src/reference/repository-cache"
 import { SyncEvent } from "@/sync"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { EventV2Bridge } from "@/event-v2-bridge"
+import { Memory } from "@/memory"
 
 void Log.init({ print: false })
 
@@ -130,6 +131,7 @@ function makeHttp() {
     mcp,
     AppFileSystem.defaultLayer,
     BackgroundJob.defaultLayer,
+    Memory.layer(),
     Team.defaultLayer,
     status,
     SyncEvent.defaultLayer,

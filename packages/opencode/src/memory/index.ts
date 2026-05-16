@@ -11,6 +11,7 @@ export interface Entry {
   readonly id: string
   readonly title: string
   readonly body: string
+  readonly confidence?: number
   readonly file?: string
   readonly files?: readonly string[]
   readonly citations?: readonly Citation[]
@@ -26,7 +27,6 @@ export interface QueryInput {
 export interface QueryResult extends Entry {
   readonly provider?: string
   readonly repo?: string
-  readonly confidence?: number
   readonly score: number
 }
 

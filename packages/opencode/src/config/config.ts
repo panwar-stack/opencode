@@ -30,6 +30,7 @@ import { ConfigFormatter } from "./formatter"
 import { ConfigLayout } from "./layout"
 import { ConfigLSP } from "./lsp"
 import { ConfigManaged } from "./managed"
+import { ConfigMemory } from "./memory"
 import { ConfigMCP } from "./mcp"
 import { ConfigModelID } from "./model-id"
 import { ConfigParse } from "./parse"
@@ -148,6 +149,9 @@ export const Info = Schema.Struct({
   skills: Schema.optional(ConfigSkills.Info).annotate({ description: "Additional skill folder paths" }),
   reference: Schema.optional(ConfigReference.Info).annotate({
     description: "Named git or local directory references that can be mentioned as @alias or @alias/path",
+  }),
+  memory: Schema.optional(ConfigMemory.Info).annotate({
+    description: "Historical review memory configuration",
   }),
   watcher: Schema.optional(
     Schema.Struct({
