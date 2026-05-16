@@ -38,3 +38,18 @@ install_alias "$HOME/.bashrc"
 install_alias "$HOME/.bash_profile"
 
 printf '\nOpen a new terminal session, or run: source ~/.zshrc\n'
+
+
+# Recommended user-local install:
+# mkdir -p "$HOME/.local/bin"
+# ln -sf "/Users/srpanwar/Documents/workspace/brain/opencode/packages/opencode/dist/opencode-darwin-x64/bin/opencode" "$HOME/.local/bin/opencode"
+# Ensure ~/.local/bin is on your PATH:
+# echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+# source ~/.zshrc
+# Verify:
+# which opencode
+# opencode --version
+# Alternative system-wide install:
+# sudo ln -sf "/Users/srpanwar/Documents/workspace/brain/opencode/packages/opencode/dist/opencode-darwin-x64/bin/opencode" /usr/local/bin/opencode
+# Then run:
+# opencode
