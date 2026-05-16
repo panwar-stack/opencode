@@ -78,6 +78,26 @@ export const TeamSpawnTool = Tool.define(
             return { title: "Team Spawn", output: "Agent teams are not enabled.", metadata: {} as Metadata }
           }
 
+          const callerMember = yield* team.getMemberBySession(ctx.sessionID)
+          if (Option.isSome(callerMember)) {
+            const memberTeam = yield* team.get(callerMember.value.team_id)
+            if (Option.isSome(memberTeam) && memberTeam.value.status === "active") {
+              return {
+                title: "Team Spawn Failed",
+                output: "Team members cannot spawn nested teammates.",
+                metadata: {} as Metadata,
+              }
+            }
+          }
+          const parent = yield* sessions.get(ctx.sessionID)
+          if (parent.parentID) {
+            return {
+              title: "Team Spawn Failed",
+              output: "Child sessions cannot spawn teammates.",
+              metadata: {} as Metadata,
+            }
+          }
+
           const activeTeam = yield* team.getActive(ctx.sessionID)
           if (Option.isNone(activeTeam)) {
             return { title: "Team Spawn Failed", output: "No active team found.", metadata: {} as Metadata }
@@ -102,7 +122,6 @@ export const TeamSpawnTool = Tool.define(
             }
           }
 
-          const parent = yield* sessions.get(ctx.sessionID)
           const existingMembers = yield* team.getMembers(teamID)
           const requestedDependencies = [...new Set([...(params.depends_on ?? []), ...(params.wait_for ?? [])])]
           const dependencyIDs = requestedDependencies
