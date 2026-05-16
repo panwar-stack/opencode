@@ -1725,40 +1725,43 @@ export const layer = Layer.effect(
 )
 
 export const defaultLayer = Layer.suspend(() =>
-  layer.pipe(
-    Layer.provide(SessionRunState.defaultLayer),
-    Layer.provide(SessionStatus.defaultLayer),
-    Layer.provide(SessionCompaction.defaultLayer),
-    Layer.provide(SessionProcessor.defaultLayer),
-    Layer.provide(Command.defaultLayer),
-    Layer.provide(Permission.defaultLayer),
-    Layer.provide(MCP.defaultLayer),
-    Layer.provide(LSP.defaultLayer),
-    Layer.provide(ToolRegistry.defaultLayer),
-    Layer.provide(Team.defaultLayer),
-    Layer.provide(Truncate.defaultLayer),
-    Layer.provide(Provider.defaultLayer),
-    Layer.provide(Config.defaultLayer),
-    Layer.provide(Instruction.defaultLayer),
-    Layer.provide(AppFileSystem.defaultLayer),
-    Layer.provide(Plugin.defaultLayer),
-    Layer.provide(Session.defaultLayer),
-    Layer.provide(SessionRevert.defaultLayer),
-    Layer.provide(SessionSummary.defaultLayer),
-    Layer.provide(Image.defaultLayer),
-    Layer.provide(
-      Layer.mergeAll(
-        EventV2Bridge.defaultLayer,
-        Agent.defaultLayer,
-        SystemPrompt.defaultLayer,
-        LLM.defaultLayer,
-        Reference.defaultLayer,
-        Bus.layer,
-        CrossSpawnSpawner.defaultLayer,
-        RuntimeFlags.defaultLayer,
+  layer
+    .pipe(
+      Layer.provide(SessionRunState.defaultLayer),
+      Layer.provide(SessionStatus.defaultLayer),
+      Layer.provide(SessionCompaction.defaultLayer),
+      Layer.provide(SessionProcessor.defaultLayer),
+      Layer.provide(Command.defaultLayer),
+      Layer.provide(Permission.defaultLayer),
+      Layer.provide(MCP.defaultLayer),
+      Layer.provide(LSP.defaultLayer),
+      Layer.provide(ToolRegistry.defaultLayer),
+      Layer.provide(Team.defaultLayer),
+      Layer.provide(Truncate.defaultLayer),
+      Layer.provide(Provider.defaultLayer),
+      Layer.provide(Config.defaultLayer),
+      Layer.provide(Instruction.defaultLayer),
+      Layer.provide(AppFileSystem.defaultLayer),
+      Layer.provide(Plugin.defaultLayer),
+      Layer.provide(Session.defaultLayer),
+      Layer.provide(SessionRevert.defaultLayer),
+      Layer.provide(SessionSummary.defaultLayer),
+      Layer.provide(Image.defaultLayer),
+    )
+    .pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          EventV2Bridge.defaultLayer,
+          Agent.defaultLayer,
+          SystemPrompt.defaultLayer,
+          LLM.defaultLayer,
+          Reference.defaultLayer,
+          Bus.layer,
+          CrossSpawnSpawner.defaultLayer,
+          RuntimeFlags.defaultLayer,
+        ),
       ),
     ),
-  ),
 )
 const ModelRef = Schema.Struct({
   providerID: ProviderID,
