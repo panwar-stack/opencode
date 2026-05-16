@@ -75,6 +75,62 @@ const withHome = <A, E, R>(home: string, self: Effect.Effect<A, E, R>) =>
   )
 
 describe("skill", () => {
+  it.live("includes built-in skills", () =>
+    provideTmpdirInstance(
+      () =>
+        Effect.gen(function* () {
+          const skill = yield* Skill.Service
+          const builtins = (yield* skill.all()).filter((s) => Skill.isBuiltinLocation(s.location))
+          expect(builtins.map((s) => s.name).toSorted()).toEqual(["customize-opencode", "review-memory"])
+          expect(builtins.find((s) => s.name === "review-memory")?.content).toContain("opencode memory review")
+        }),
+      { git: true },
+    ),
+  )
+
+  it.live("allows disk skills to override built-in skills", () =>
+    provideTmpdirInstance(
+      (dir) =>
+        Effect.gen(function* () {
+          yield* Effect.promise(() =>
+            Bun.write(
+              path.join(dir, ".opencode", "skill", "review-memory", "SKILL.md"),
+              `---
+name: review-memory
+description: Project override.
+---
+
+# Project Review Memory
+`,
+            ),
+          )
+
+          const skill = yield* Skill.Service
+          const item = yield* skill.get("review-memory")
+          expect(item?.description).toBe("Project override.")
+          expect(item?.location).toContain(path.join("skill", "review-memory", "SKILL.md"))
+          expect(item?.content).toContain("Project Review Memory")
+        }),
+      { git: true },
+    ),
+  )
+
+  it.live("formats built-in skill locations as a sentinel", () =>
+    provideTmpdirInstance(
+      () =>
+        Effect.gen(function* () {
+          const skill = yield* Skill.Service
+          const output = Skill.fmt(
+            (yield* skill.all()).filter((s) => Skill.isBuiltinLocation(s.location)),
+            { verbose: true },
+          )
+          expect(output).toContain("<location><built-in></location>")
+          expect(output).not.toContain("%3Cbuilt-in%3E")
+        }),
+      { git: true },
+    ),
+  )
+
   it.live("discovers skills from .opencode/skill/ directory", () =>
     provideTmpdirInstance(
       (dir) =>

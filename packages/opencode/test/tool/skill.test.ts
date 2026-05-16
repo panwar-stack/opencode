@@ -130,4 +130,37 @@ Use this skill.
       }),
     ),
   )
+
+  it.live("execute returns built-in skill content without scanning files", () =>
+    provideTmpdirInstance(
+      (dir) =>
+        Effect.gen(function* () {
+          yield* Effect.promise(() => Bun.write(path.join(dir, "sentinel.txt"), "workspace file"))
+
+          const registry = yield* ToolRegistry.Service
+          const agent = { name: "build", mode: "primary" as const, permission: [], options: {} }
+          const tool = (yield* registry.tools({
+            providerID: "opencode" as any,
+            modelID: "gpt-5" as any,
+            agent,
+          })).find((tool) => tool.id === SkillTool.id)
+          if (!tool) throw new Error("Skill tool not found")
+
+          const ctx: Tool.Context = {
+            ...baseCtx,
+            ask: () => Effect.void,
+          }
+
+          const result = yield* tool.execute({ name: "review-memory" }, ctx)
+
+          expect(result.metadata.dir).toBe("<built-in>")
+          expect(result.output).toContain(`<skill_content name="review-memory">`)
+          expect(result.output).toContain("opencode memory review")
+          expect(result.output).toContain("This is a built-in skill with no external skill directory.")
+          expect(result.output).not.toContain("Base directory for this skill:")
+          expect(result.output).not.toContain("sentinel.txt")
+        }),
+      { git: true },
+    ),
+  )
 })
