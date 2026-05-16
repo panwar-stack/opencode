@@ -10,6 +10,7 @@ import { Git, type Item as GitItem } from "@/git"
 import { Memory } from "@/memory"
 import { MemoryGithub } from "@/memory/github"
 import { parseGitHubRemote, parseRepositoryReference } from "@/util/repository"
+import { Config } from "@/config/config"
 
 interface QueryArgs {
   readonly text: string
@@ -21,6 +22,12 @@ interface GithubIndexArgs {
   readonly repo?: string
   readonly since?: string
   readonly limit?: number
+}
+
+interface GithubProviderConfig {
+  readonly include_authors?: readonly string[]
+  readonly exclude_authors?: readonly string[]
+  readonly max_age_days?: number
 }
 
 interface ReviewArgs {
@@ -79,7 +86,8 @@ export const MemoryIndexGithubCommand = effectCmd({
     if (validation) return yield* fail(validation)
 
     const repo = yield* resolveGithubRepo(args.repo)
-    const result = yield* MemoryGithub.index(toGithubIndexInput(args, repo)).pipe(
+    const cfg = yield* Config.Service.use((config) => config.get())
+    const result = yield* MemoryGithub.index(toGithubIndexInput(args, repo, cfg.memory?.providers?.github)).pipe(
       Effect.provide(AppProcess.defaultLayer),
       Effect.catchTag("GithubMemoryIndexError", (error) => fail(error.message)),
     )
@@ -167,11 +175,18 @@ export function validateReviewArgs(args: ReviewArgs) {
   if (args.pr !== undefined && (!Number.isInteger(args.pr) || args.pr <= 0)) return "--pr must be a positive integer"
 }
 
-export function toGithubIndexInput(args: GithubIndexArgs, repo: string): MemoryGithub.IndexInput {
+export function toGithubIndexInput(
+  args: GithubIndexArgs,
+  repo: string,
+  githubConfig?: GithubProviderConfig,
+): MemoryGithub.IndexInput {
   return {
     repo,
     since: args.since,
     limit: args.limit,
+    include_authors: githubConfig?.include_authors,
+    exclude_authors: githubConfig?.exclude_authors,
+    max_age_days: githubConfig?.max_age_days,
   }
 }
 
