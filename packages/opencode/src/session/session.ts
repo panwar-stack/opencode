@@ -107,6 +107,7 @@ export function fromRow(row: SessionRow): Info {
       updated: row.time_updated,
       compacting: row.time_compacting ?? undefined,
       archived: row.time_archived ?? undefined,
+      processing: row.time_processing,
     },
   }
 }
@@ -135,6 +136,7 @@ export function toRow(info: Info) {
     tokens_reasoning: (info.tokens ?? EmptyTokens).reasoning,
     tokens_cache_read: (info.tokens ?? EmptyTokens).cache.read,
     tokens_cache_write: (info.tokens ?? EmptyTokens).cache.write,
+    time_processing: info.time.processing,
     revert: info.revert ?? null,
     permission: info.permission,
     time_created: info.time.created,
@@ -190,6 +192,7 @@ const Time = Schema.Struct({
   updated: NonNegativeInt,
   compacting: optionalOmitUndefined(NonNegativeInt),
   archived: optionalOmitUndefined(ArchivedTimestamp),
+  processing: NonNegativeInt,
 })
 
 const Revert = Schema.Struct({
@@ -302,6 +305,7 @@ const UpdatedTime = Schema.Struct({
   updated: Schema.optional(Schema.NullOr(NonNegativeInt)),
   compacting: Schema.optional(Schema.NullOr(NonNegativeInt)),
   archived: Schema.optional(Schema.NullOr(ArchivedTimestamp)),
+  processing: Schema.optional(Schema.NullOr(NonNegativeInt)),
 })
 
 const UpdatedInfo = Schema.Struct({
@@ -550,6 +554,7 @@ export const layer: Layer.Layer<
         time: {
           created: Date.now(),
           updated: Date.now(),
+          processing: 0,
         },
       }
       log.info("created", result)

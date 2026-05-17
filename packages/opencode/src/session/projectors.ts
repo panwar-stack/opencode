@@ -21,12 +21,12 @@ function foreign(err: unknown) {
 
 export type DeepPartial<T> = T extends object ? { [K in keyof T]?: DeepPartial<T[K]> | null } : T
 
-type Usage = Pick<MessageV2.StepFinishPart, "cost" | "tokens">
+type Usage = Pick<MessageV2.StepFinishPart, "cost" | "tokens"> & { duration: number }
 
 function usage(part: MessageV2.Part | (typeof PartTable.$inferSelect)["data"]): Usage | undefined {
   if (part.type !== "step-finish") return undefined
   if (!("cost" in part) || !("tokens" in part)) return undefined
-  return { cost: part.cost, tokens: part.tokens }
+  return { cost: part.cost, tokens: part.tokens, duration: part.duration ?? 0 }
 }
 
 function applyUsage(db: TxOrDb, sessionID: Session.Info["id"], value: Usage, sign = 1) {
@@ -38,6 +38,7 @@ function applyUsage(db: TxOrDb, sessionID: Session.Info["id"], value: Usage, sig
       tokens_reasoning: sql`${SessionTable.tokens_reasoning} + ${value.tokens.reasoning * sign}`,
       tokens_cache_read: sql`${SessionTable.tokens_cache_read} + ${value.tokens.cache.read * sign}`,
       tokens_cache_write: sql`${SessionTable.tokens_cache_write} + ${value.tokens.cache.write * sign}`,
+      time_processing: sql`${SessionTable.time_processing} + ${value.duration * sign}`,
       time_updated: sql`${SessionTable.time_updated}`,
     })
     .where(eq(SessionTable.id, sessionID))
@@ -85,6 +86,7 @@ export function toPartialRow(info: DeepPartial<Session.Info>) {
     tokens_reasoning: grab(info, "tokens", (v) => grab(v, "reasoning")),
     tokens_cache_read: grab(info, "tokens", (v) => grab(v, "cache", (cache) => grab(cache, "read"))),
     tokens_cache_write: grab(info, "tokens", (v) => grab(v, "cache", (cache) => grab(cache, "write"))),
+    time_processing: grab(info, "time", (v) => grab(v, "processing")),
     revert: grab(info, "revert"),
     permission: grab(info, "permission"),
     time_created: grab(info, "time", (v) => grab(v, "created")),
