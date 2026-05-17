@@ -120,11 +120,12 @@ export class GithubIndexError extends Schema.TaggedErrorClass<GithubIndexError>(
 }) {}
 
 export const index = Effect.fn("MemoryGithub.index")(function* (input: IndexInput) {
-  if (input.reset) yield* MemoryIndex.clearRepository({ provider, repo: input.repo })
+  if (input.reset) {
+    yield* MemoryIndex.clearRepository({ provider, repo: input.repo })
+    return { provider, repo: input.repo, fetched: 0, indexed: 0 } satisfies IndexResult
+  }
 
-  const checkpoint = input.since || input.reset
-    ? undefined
-    : yield* MemoryIndex.getSyncCheckpoint({ provider, repo: input.repo })
+  const checkpoint = input.since ? undefined : yield* MemoryIndex.getSyncCheckpoint({ provider, repo: input.repo })
   const since = input.since ?? checkpoint?.cursor ?? undefined
   const comments = yield* fetchReviewComments({ ...input, since })
   return yield* indexComments({ ...input, since, comments })

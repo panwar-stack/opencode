@@ -47,7 +47,7 @@ Use `src/cli/effect-cmd.ts` for command handlers so repo-scoped commands get `In
 Initial command shape:
 
 ```sh
-opencode memory index github [--repo owner/repo] [--since <date>] [--limit <n>]
+opencode memory index github [--repo owner/repo] [--since <date>] [--limit <n>] [--reset]
 opencode memory query <text> [--file <path>] [--json]
 opencode memory review [--base dev] [--pr <number>] [--json]
 ```
@@ -55,6 +55,7 @@ opencode memory review [--base dev] [--pr <number>] [--json]
 Behavior:
 
 - `memory index github` fetches and indexes GitHub PR review comments and threads using local `gh` or existing GitHub credentials.
+- `memory index github --reset` clears indexed GitHub memory for the selected repository without fetching or indexing GitHub data.
 - `memory query` returns ranked historical constraints for a task string and optional file path.
 - `memory review` retrieves memory relevant to the current diff, a base branch, or a PR number, then prints the constraints that should be checked before final response or PR creation.
 - `--json` emits machine-readable output for tests, scripts, and future TUI/API consumers.
@@ -230,12 +231,13 @@ Verification:
 
 ### PR 3: Add GitHub Index Provider
 
-- Add `memory index github [--repo owner/repo] [--since <date>] [--limit <n>]`.
+- Add `memory index github [--repo owner/repo] [--since <date>] [--limit <n>] [--reset]`.
 - Use local `gh` or existing GitHub credentials.
 - Fetch PR review comments and threads incrementally.
 - Normalize comments into source items and initial deterministic constraints.
 - Preserve citation URLs.
 - Store sync checkpoints so repeated indexing is incremental.
+- Support resetting indexed GitHub memory for a repository without re-indexing.
 
 Verification:
 
