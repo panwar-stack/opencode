@@ -72,6 +72,29 @@ interface PullRequestMetadata {
   readonly head_sha?: string
 }
 
+interface PullRequestCommit {
+  readonly sha?: string
+  readonly commit?: {
+    readonly message?: string
+    readonly author?: {
+      readonly name?: string
+      readonly date?: string
+    }
+  }
+}
+
+interface PullRequestCommitSummary {
+  readonly sha: string
+  readonly message: string
+  readonly author?: string
+  readonly authored_at?: string
+}
+
+interface PullRequestContext {
+  readonly pr: PullRequestMetadata
+  readonly commits?: PullRequestCommitSummary[]
+}
+
 export class GithubIndexError extends Schema.TaggedErrorClass<GithubIndexError>()("GithubMemoryIndexError", {
   message: Schema.String,
 }) {}
@@ -127,7 +150,7 @@ export const indexComments = Effect.fn("MemoryGithub.indexComments")(function* (
 export function toConstraint(
   repo: string,
   comment: ReviewComment,
-  pullRequest?: PullRequestMetadata,
+  pullRequest?: PullRequestContext,
 ): MemoryIndex.ConstraintInput | undefined {
   const text = constraintText(comment.body)
   if (!text || !comment.html_url) return
@@ -166,7 +189,7 @@ function fetchPullRequests(repo: string, comments: readonly ReviewComment[]) {
     )
 
     return new Map(
-      pullRequests.filter((item): item is readonly [number, PullRequestMetadata] => item[1] !== undefined),
+      pullRequests.filter((item): item is readonly [number, PullRequestContext] => item[1] !== undefined),
     )
   })
 }
@@ -183,9 +206,32 @@ function fetchPullRequest(repo: string, number: number) {
 
     if (!result || result.exitCode !== 0) return undefined
 
-    return yield* Effect.try({
+    const pr = yield* Effect.try({
       try: () => parsePullRequest(result.stdout.toString("utf8")),
       catch: () => new GithubIndexError({ message: "Failed to parse GitHub pull request JSON" }),
+    }).pipe(Effect.catch(() => Effect.succeed(undefined)))
+    if (!pr) return undefined
+
+    const commits = yield* fetchPullRequestCommits(repo, number)
+    return { pr, ...(commits && commits.length > 0 ? { commits } : {}) } satisfies PullRequestContext
+  })
+}
+
+function fetchPullRequestCommits(repo: string, number: number) {
+  return Effect.gen(function* () {
+    const appProcess = yield* AppProcess.Service
+    const result = yield* appProcess
+      .run(ChildProcess.make("gh", ["api", `repos/${repo}/pulls/${number}/commits`, "--paginate"]), {
+        maxOutputBytes: 5 * 1024 * 1024,
+        maxErrorBytes: 64 * 1024,
+      })
+      .pipe(Effect.catch(() => Effect.succeed(undefined)))
+
+    if (!result || result.exitCode !== 0) return undefined
+
+    return yield* Effect.try({
+      try: () => parsePullRequestCommits(result.stdout.toString("utf8")),
+      catch: () => new GithubIndexError({ message: "Failed to parse GitHub pull request commits JSON" }),
     }).pipe(Effect.catch(() => Effect.succeed(undefined)))
   })
 }
@@ -240,7 +286,7 @@ function toSourceItem(
   repo: string,
   comment: ReviewComment,
   text: string,
-  pullRequest: PullRequestMetadata | undefined,
+  pullRequest: PullRequestContext | undefined,
 ): SourceItemInput {
   return {
     provider,
@@ -261,7 +307,7 @@ function toSourceItem(
       author_association: comment.author_association,
       in_reply_to_id: comment.in_reply_to_id,
       pull_request_review_id: comment.pull_request_review_id,
-      ...(pullRequest ? { pr: pullRequest } : {}),
+      ...(pullRequest ?? {}),
     },
   }
 }
@@ -286,6 +332,27 @@ function parsePullRequest(text: string): PullRequestMetadata | undefined {
     ...(typeof item.head?.ref === "string" ? { head_ref: item.head.ref } : {}),
     ...(typeof item.head?.sha === "string" ? { head_sha: item.head.sha } : {}),
   }
+}
+
+function parsePullRequestCommits(text: string) {
+  const parsed = JSON.parse(text) as unknown
+  if (!Array.isArray(parsed)) return []
+  return parsed
+    .flatMap((item) => {
+      if (!item || typeof item !== "object") return []
+      const commit = item as PullRequestCommit
+      if (typeof commit.sha !== "string") return []
+      if (typeof commit.commit?.message !== "string") return []
+      return [
+        {
+          sha: commit.sha,
+          message: commit.commit.message.split(/\r?\n/, 1)[0] ?? "",
+          ...(typeof commit.commit.author?.name === "string" ? { author: commit.commit.author.name } : {}),
+          ...(typeof commit.commit.author?.date === "string" ? { authored_at: commit.commit.author.date } : {}),
+        } satisfies PullRequestCommitSummary,
+      ]
+    })
+    .slice(0, 50)
 }
 
 function constraintText(input: string | undefined) {
