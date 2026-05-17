@@ -44,6 +44,34 @@ export interface ReviewComment {
   }
 }
 
+interface PullRequest {
+  readonly number?: number
+  readonly title?: string
+  readonly state?: string
+  readonly merged?: boolean
+  readonly closed_at?: string | null
+  readonly merged_at?: string | null
+  readonly base?: {
+    readonly ref?: string
+  }
+  readonly head?: {
+    readonly ref?: string
+    readonly sha?: string
+  }
+}
+
+interface PullRequestMetadata {
+  readonly number: number
+  readonly title: string
+  readonly state: "open" | "closed"
+  readonly merged: boolean
+  readonly closed_at?: string
+  readonly merged_at?: string
+  readonly base_ref?: string
+  readonly head_ref?: string
+  readonly head_sha?: string
+}
+
 export class GithubIndexError extends Schema.TaggedErrorClass<GithubIndexError>()("GithubMemoryIndexError", {
   message: Schema.String,
 }) {}
@@ -61,9 +89,11 @@ export const indexComments = Effect.fn("MemoryGithub.indexComments")(function* (
   input: IndexInput & { readonly comments: readonly ReviewComment[] },
 ) {
   const comments = input.comments.filter(commentFilter(input))
+  const pullRequests = yield* fetchPullRequests(input.repo, comments)
   const indexed = yield* Effect.all(
     comments.map((comment) => {
-      const constraint = toConstraint(input.repo, comment)
+      const number = prNumber(comment)
+      const constraint = toConstraint(input.repo, comment, number === undefined ? undefined : pullRequests.get(number))
       if (!constraint) return Effect.succeed(undefined)
       return MemoryIndex.upsertConstraint(constraint).pipe(Effect.as(constraint))
     }),
@@ -94,11 +124,15 @@ export const indexComments = Effect.fn("MemoryGithub.indexComments")(function* (
   } satisfies IndexResult
 })
 
-export function toConstraint(repo: string, comment: ReviewComment): MemoryIndex.ConstraintInput | undefined {
+export function toConstraint(
+  repo: string,
+  comment: ReviewComment,
+  pullRequest?: PullRequestMetadata,
+): MemoryIndex.ConstraintInput | undefined {
   const text = constraintText(comment.body)
   if (!text || !comment.html_url) return
 
-  const source = toSourceItem(repo, comment, text)
+  const source = toSourceItem(repo, comment, text, pullRequest)
   return {
     provider,
     repo,
@@ -120,6 +154,40 @@ export function parseReviewComments(text: string) {
 
 function fetchReviewComments(input: IndexInput) {
   return fetchPage(input, 1, [])
+}
+
+function fetchPullRequests(repo: string, comments: readonly ReviewComment[]) {
+  return Effect.gen(function* () {
+    const pullRequests = yield* Effect.all(
+      uniquePrNumbers(comments).map((number) =>
+        fetchPullRequest(repo, number).pipe(Effect.map((metadata) => [number, metadata] as const)),
+      ),
+      { concurrency: 1 },
+    )
+
+    return new Map(
+      pullRequests.filter((item): item is readonly [number, PullRequestMetadata] => item[1] !== undefined),
+    )
+  })
+}
+
+function fetchPullRequest(repo: string, number: number) {
+  return Effect.gen(function* () {
+    const appProcess = yield* AppProcess.Service
+    const result = yield* appProcess
+      .run(ChildProcess.make("gh", ["api", `repos/${repo}/pulls/${number}`]), {
+        maxOutputBytes: 1024 * 1024,
+        maxErrorBytes: 64 * 1024,
+      })
+      .pipe(Effect.catch(() => Effect.succeed(undefined)))
+
+    if (!result || result.exitCode !== 0) return undefined
+
+    return yield* Effect.try({
+      try: () => parsePullRequest(result.stdout.toString("utf8")),
+      catch: () => new GithubIndexError({ message: "Failed to parse GitHub pull request JSON" }),
+    }).pipe(Effect.catch(() => Effect.succeed(undefined)))
+  })
 }
 
 function fetchPage(input: IndexInput, page: number, acc: readonly ReviewComment[]): Effect.Effect<ReviewComment[], GithubIndexError, AppProcess.Service> {
@@ -168,7 +236,12 @@ function fetchPage(input: IndexInput, page: number, acc: readonly ReviewComment[
   })
 }
 
-function toSourceItem(repo: string, comment: ReviewComment, text: string): SourceItemInput {
+function toSourceItem(
+  repo: string,
+  comment: ReviewComment,
+  text: string,
+  pullRequest: PullRequestMetadata | undefined,
+): SourceItemInput {
   return {
     provider,
     repo,
@@ -188,7 +261,30 @@ function toSourceItem(repo: string, comment: ReviewComment, text: string): Sourc
       author_association: comment.author_association,
       in_reply_to_id: comment.in_reply_to_id,
       pull_request_review_id: comment.pull_request_review_id,
+      ...(pullRequest ? { pr: pullRequest } : {}),
     },
+  }
+}
+
+function parsePullRequest(text: string): PullRequestMetadata | undefined {
+  const parsed = JSON.parse(text) as unknown
+  if (!parsed || typeof parsed !== "object") return undefined
+
+  const item = parsed as PullRequest
+  if (typeof item.number !== "number") return undefined
+  if (typeof item.title !== "string") return undefined
+  if (item.state !== "open" && item.state !== "closed") return undefined
+  if (typeof item.merged !== "boolean") return undefined
+  return {
+    number: item.number,
+    title: item.title,
+    state: item.state,
+    merged: item.merged,
+    ...(typeof item.closed_at === "string" ? { closed_at: item.closed_at } : {}),
+    ...(typeof item.merged_at === "string" ? { merged_at: item.merged_at } : {}),
+    ...(typeof item.base?.ref === "string" ? { base_ref: item.base.ref } : {}),
+    ...(typeof item.head?.ref === "string" ? { head_ref: item.head.ref } : {}),
+    ...(typeof item.head?.sha === "string" ? { head_sha: item.head.sha } : {}),
   }
 }
 
@@ -230,6 +326,10 @@ function commentFilter(input: IndexInput) {
 
 function authorSet(authors: readonly string[] | undefined) {
   return new Set(authors?.map((author) => author.trim().toLowerCase()).filter(Boolean) ?? [])
+}
+
+function uniquePrNumbers(comments: readonly ReviewComment[]) {
+  return [...new Set(comments.map(prNumber).filter((item): item is number => item !== undefined))]
 }
 
 function latestCursor(comments: readonly ReviewComment[]) {
