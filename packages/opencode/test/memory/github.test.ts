@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect } from "bun:test"
 import { AppProcess } from "@opencode-ai/core/process"
-import { Effect, Layer, Stream } from "effect"
+import { Effect, Fiber, Layer, Stream } from "effect"
+import * as TestClock from "effect/testing/TestClock"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { Memory } from "@/memory"
 import { MemoryGithub } from "@/memory/github"
@@ -557,6 +558,83 @@ describe("GitHub memory index provider", () => {
           cursor: "2026-05-01T00:00:00Z",
           fetch_options: { since: "2026-05-01T00:00:00Z" },
         },
+      ])
+    }),
+  )
+
+  it.live("reports progress while throttling paginated GitHub review comment fetches", () =>
+    Effect.gen(function* () {
+      const calls: string[][] = []
+      const progress: MemoryGithub.IndexProgress[] = []
+      const comments = Array.from({ length: 100 }, (_, index) => ({ id: index + 1 }))
+
+      const result = yield* MemoryGithub.index({
+        repo: "opencode/opencode",
+        throttle_ms: 1,
+        onProgress: (item) => progress.push(item),
+      }).pipe(
+        Effect.provide(mockGhLayer((cmd, args) => {
+          calls.push([cmd, ...args])
+          if (args.includes("page=1")) return JSON.stringify(comments)
+          return "[]"
+        })),
+      )
+
+      expect(result).toMatchObject({ fetched: 100, indexed: 0 })
+      expect(calls.map((call) => call.at(-1))).toEqual(["page=1", "page=2"])
+      expect(progress).toEqual([
+        {
+          type: "comments",
+          repo: "opencode/opencode",
+          page: 1,
+          fetched: 100,
+          total: 100,
+        },
+        {
+          type: "comments",
+          repo: "opencode/opencode",
+          page: 2,
+          fetched: 0,
+          total: 100,
+        },
+      ])
+    }),
+  )
+
+  it.effect("throttles between GitHub PR metadata and commit fetches", () =>
+    Effect.gen(function* () {
+      const calls: string[][] = []
+      const fiber = yield* MemoryGithub.indexComments({
+        repo: "opencode/opencode",
+        throttle_ms: 1000,
+        comments: [
+          {
+            id: 1,
+            body: "Prefer focused tests for throttle behavior.",
+            html_url: "https://github.com/opencode/opencode/pull/123#discussion_r1",
+            pull_request_url: "https://api.github.com/repos/opencode/opencode/pulls/123",
+          },
+        ],
+      }).pipe(
+        Effect.provide(mockGhLayer((cmd, args) => {
+          calls.push([cmd, ...args])
+          if (args.includes("repos/opencode/opencode/pulls/123")) {
+            return JSON.stringify({ number: 123, title: "Throttle PR", state: "open", merged: false })
+          }
+          return "[]"
+        })),
+        Effect.forkScoped,
+      )
+
+      while (calls.length < 1) yield* Effect.yieldNow
+      yield* TestClock.adjust("999 millis")
+      expect(calls.map((call) => call.at(-1))).toEqual(["repos/opencode/opencode/pulls/123"])
+
+      yield* TestClock.adjust("1 millis")
+      yield* Fiber.join(fiber)
+      expect(calls.map((call) => call.at(-2) ?? call.at(-1))).toEqual([
+        "api",
+        "repos/opencode/opencode/pulls/123/commits",
       ])
     }),
   )
