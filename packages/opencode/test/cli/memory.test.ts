@@ -324,6 +324,10 @@ describe("memory cli", () => {
             citations: [
               { label: "PR #12 review comment", url: "https://github.com/opencode/opencode/pull/12#discussion_r1" },
             ],
+            metadata: {
+              pr: { number: 12, state: "closed", merged: true },
+              commits: [{ sha: "abc123", message: "Add login signal wait" }],
+            },
             score: 11,
           },
         ],
@@ -336,8 +340,39 @@ describe("memory cli", () => {
         "",
         "1. [ ] Wait for the login signal before asserting auth state.",
         "   files: src/auth/login.ts",
+        "   PR #12 merged",
         "   confidence: 0.75",
         "   citations: PR #12 review comment https://github.com/opencode/opencode/pull/12#discussion_r1",
+      ].join(EOL),
+    )
+  })
+
+  test("omits commit history from review checklist text", () => {
+    expect(
+      formatReviewText({
+        base: "dev",
+        changes: [{ file: "src/auth/login.ts", status: "modified" }],
+        results: [
+          {
+            id: "auth-tests",
+            title: "Auth test flake",
+            body: "Wait for the login signal before asserting auth state.",
+            metadata: {
+              pr: { number: 12, state: "open", merged: false },
+              commits: [{ sha: "abc123", message: "Add login signal wait" }],
+            },
+            score: 11,
+          },
+        ],
+      }),
+    ).toBe(
+      [
+        "Review memory checklist for current repository",
+        "Scope: diff against dev",
+        "Changed files: 1",
+        "",
+        "1. [ ] Wait for the login signal before asserting auth state.",
+        "   PR #12 open",
       ].join(EOL),
     )
   })
@@ -373,6 +408,25 @@ describe("memory cli", () => {
               title: "Session list rendering",
               body: "Keep the table output compact for terminal review.",
               file: "src/session/list.ts",
+              metadata: {
+                pr: {
+                  number: 123,
+                  title: "Surface PR context",
+                  state: "closed",
+                  merged: true,
+                  closed_at: "2026-05-01T00:00:00Z",
+                  merged_at: "2026-05-01T00:01:00Z",
+                  base_ref: "dev",
+                },
+                commits: [
+                  {
+                    sha: "aaa111",
+                    message: "Add formatter support",
+                    author: "Alice",
+                    authored_at: "2026-05-01T00:00:00Z",
+                  },
+                ],
+              },
               score: 2,
             },
           ],
@@ -389,6 +443,17 @@ describe("memory cli", () => {
           title: "Session list rendering",
           body: "Keep the table output compact for terminal review.",
           file: "src/session/list.ts",
+          metadata: {
+            pr: {
+              number: 123,
+              title: "Surface PR context",
+              state: "closed",
+              merged: true,
+              closed_at: "2026-05-01T00:00:00Z",
+              merged_at: "2026-05-01T00:01:00Z",
+            },
+            commits: [{ sha: "aaa111", message: "Add formatter support" }],
+          },
           score: 2,
         },
       ],
