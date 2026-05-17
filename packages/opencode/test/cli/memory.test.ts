@@ -3,6 +3,7 @@ import { Effect } from "effect"
 import { EOL } from "os"
 import {
   formatGithubIndexText,
+  formatGithubIndexProgress,
   formatQueryJSON,
   formatQueryText,
   formatReviewJSON,
@@ -103,6 +104,7 @@ describe("memory cli", () => {
       repo: "opencode/opencode",
       since: "2026-05-01",
       limit: 50,
+      throttle_ms: 1000,
       include_authors: ["alice"],
       exclude_authors: ["bot"],
       max_age_days: 90,
@@ -137,6 +139,28 @@ describe("memory cli", () => {
         "Checkpoint: 2026-05-02T00:00:00Z",
       ].join(EOL),
     )
+  })
+
+  test("formats GitHub index progress", () => {
+    expect(
+      formatGithubIndexProgress({
+        type: "comments",
+        repo: "opencode/opencode",
+        page: 2,
+        fetched: 25,
+        total: 125,
+        limit: 200,
+      }),
+    ).toBe("Fetched 25 GitHub review comments from page 2 (125/200).")
+    expect(
+      formatGithubIndexProgress({
+        type: "pull_request",
+        repo: "opencode/opencode",
+        number: 123,
+        current: 2,
+        total: 5,
+      }),
+    ).toBe("Fetched GitHub PR metadata 2/5 (#123).")
   })
 
   test("validates review args", () => {

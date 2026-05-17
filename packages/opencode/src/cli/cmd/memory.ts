@@ -36,6 +36,8 @@ interface ReviewArgs {
   readonly json?: boolean
 }
 
+const githubIndexThrottleMs = 1_000
+
 export interface ReviewChange {
   readonly file: string
   readonly status: GitItem["status"]
@@ -87,7 +89,11 @@ export const MemoryIndexGithubCommand = effectCmd({
 
     const repo = yield* resolveGithubRepo(args.repo)
     const cfg = yield* Config.Service.use((config) => config.get())
-    const result = yield* MemoryGithub.index(toGithubIndexInput(args, repo, cfg.memory?.providers?.github)).pipe(
+    const result = yield* MemoryGithub.index(
+      toGithubIndexInput(args, repo, cfg.memory?.providers?.github, (progress) => {
+        console.log(formatGithubIndexProgress(progress))
+      }),
+    ).pipe(
       Effect.provide(AppProcess.defaultLayer),
       Effect.catchTag("GithubMemoryIndexError", (error) => fail(error.message)),
     )
@@ -179,11 +185,14 @@ export function toGithubIndexInput(
   args: GithubIndexArgs,
   repo: string,
   githubConfig?: GithubProviderConfig,
+  onProgress?: (progress: MemoryGithub.IndexProgress) => void,
 ): MemoryGithub.IndexInput {
   return {
     repo,
     since: args.since,
     limit: args.limit,
+    throttle_ms: githubIndexThrottleMs,
+    ...(onProgress ? { onProgress } : {}),
     include_authors: githubConfig?.include_authors,
     exclude_authors: githubConfig?.exclude_authors,
     max_age_days: githubConfig?.max_age_days,
@@ -291,6 +300,16 @@ export function formatGithubIndexText(result: MemoryGithub.IndexResult) {
   const lines = [`Indexed ${result.indexed} of ${result.fetched} GitHub review comments for ${result.repo}.`]
   if (result.cursor) lines.push(`Checkpoint: ${result.cursor}`)
   return lines.join(EOL)
+}
+
+export function formatGithubIndexProgress(progress: MemoryGithub.IndexProgress) {
+  if (progress.type === "comments") {
+    return [
+      `Fetched ${progress.fetched} GitHub review comments from page ${progress.page}`,
+      `(${progress.total}${progress.limit === undefined ? " total" : `/${progress.limit}`}).`,
+    ].join(" ")
+  }
+  return `Fetched GitHub PR metadata ${progress.current}/${progress.total} (#${progress.number}).`
 }
 
 export function formatQueryText(results: readonly Memory.QueryResult[]) {
