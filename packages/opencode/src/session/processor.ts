@@ -78,6 +78,7 @@ interface ProcessorContext extends Input {
   blocked: boolean
   needsCompaction: boolean
   currentText: MessageV2.TextPart | undefined
+  currentStepStarted: number | undefined
   reasoningMap: Record<string, MessageV2.ReasoningPart>
 }
 
@@ -118,6 +119,7 @@ export const layer = Layer.effect(
         blocked: false,
         needsCompaction: false,
         currentText: undefined,
+        currentStepStarted: undefined,
         reasoningMap: {},
       }
       let aborted = false
@@ -525,6 +527,7 @@ export const layer = Layer.effect(
             throw new Error(value.message)
 
           case "step-start":
+            ctx.currentStepStarted = Date.now()
             if (!ctx.snapshot) ctx.snapshot = yield* snapshot.track()
             if (!ctx.assistantMessage.summary) {
               // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
@@ -552,6 +555,8 @@ export const layer = Layer.effect(
             return
 
           case "step-finish": {
+            const duration = ctx.currentStepStarted === undefined ? 0 : Date.now() - ctx.currentStepStarted
+            ctx.currentStepStarted = undefined
             const completedSnapshot = yield* snapshot.track()
             yield* Effect.forEach(Object.keys(ctx.reasoningMap), finishReasoning)
             const usage = Session.getUsage({
@@ -584,6 +589,7 @@ export const layer = Layer.effect(
               type: "step-finish",
               tokens: usage.tokens,
               cost: usage.cost,
+              duration: Number.isFinite(duration) ? Math.max(0, Math.floor(duration)) : 0,
             })
             yield* session.updateMessage(ctx.assistantMessage)
             if (ctx.snapshot) {
@@ -688,6 +694,7 @@ export const layer = Layer.effect(
       })
 
       const cleanup = Effect.fn("SessionProcessor.cleanup")(function* () {
+        ctx.currentStepStarted = undefined
         if (ctx.snapshot) {
           const patch = yield* snapshot.patch(ctx.snapshot)
           if (patch.files.length) {
@@ -784,6 +791,7 @@ export const layer = Layer.effect(
         return yield* Effect.gen(function* () {
           yield* Effect.gen(function* () {
             ctx.currentText = undefined
+            ctx.currentStepStarted = undefined
             ctx.reasoningMap = {}
             yield* status.set(ctx.sessionID, { type: "busy" })
             const stream = llm.stream(streamInput)

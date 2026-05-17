@@ -105,11 +105,12 @@ describe("session.created event", () => {
 
 describe("step-finish token propagation via Bus event", () => {
   it.instance(
-    "non-zero tokens propagate through PartUpdated event",
+    "non-zero tokens and duration propagate through PartUpdated event",
     () =>
       Effect.gen(function* () {
         const session = yield* SessionNs.Service
         const info = yield* session.create({})
+        expect((yield* session.get(info.id)).time.processing).toBe(0)
 
         const messageID = MessageID.ascending()
         yield* session.updateMessage({
@@ -147,6 +148,7 @@ describe("step-finish token propagation via Bus event", () => {
           type: "step-finish" as const,
           reason: "stop",
           cost: 0.005,
+          duration: 1234,
           tokens,
         }
 
@@ -162,7 +164,29 @@ describe("step-finish token propagation via Bus event", () => {
         expect(finish.tokens.cache.read).toBe(100)
         expect(finish.tokens.cache.write).toBe(50)
         expect(finish.cost).toBe(0.005)
+        expect(finish.duration).toBe(1234)
         expect(receivedPart).not.toBe(partInput)
+        expect((yield* session.get(info.id)).time.processing).toBe(1234)
+
+        yield* session.updatePart({ ...partInput, duration: 2000 })
+        expect((yield* session.get(info.id)).time.processing).toBe(2000)
+
+        yield* session.updatePart({
+          id: partInput.id,
+          messageID,
+          sessionID: info.id,
+          type: "step-finish",
+          reason: "stop",
+          cost: 0.005,
+          tokens,
+        })
+        expect((yield* session.get(info.id)).time.processing).toBe(0)
+
+        yield* session.updatePart({ ...partInput, duration: 500 })
+        expect((yield* session.get(info.id)).time.processing).toBe(500)
+
+        yield* session.removePart({ sessionID: info.id, messageID, partID: partInput.id })
+        expect((yield* session.get(info.id)).time.processing).toBe(0)
 
         yield* session.remove(info.id)
       }),

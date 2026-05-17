@@ -22,6 +22,7 @@ const info = {
     updated: 2,
     compacting: undefined,
     archived: undefined,
+    processing: 0,
   },
   permission: undefined,
   revert: undefined,
@@ -36,6 +37,7 @@ describe("Session schema", () => {
     }
     expect(Object.hasOwn(encoded.time as Record<string, unknown>, "compacting")).toBe(false)
     expect(Object.hasOwn(encoded.time as Record<string, unknown>, "archived")).toBe(false)
+    expect((encoded.time as Record<string, unknown>).processing).toBe(0)
     expect(JSON.stringify(encoded)).not.toContain("parentID")
   })
 
