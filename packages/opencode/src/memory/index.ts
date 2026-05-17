@@ -15,6 +15,7 @@ export interface Entry {
   readonly file?: string
   readonly files?: readonly string[]
   readonly citations?: readonly Citation[]
+  readonly metadata?: Record<string, unknown>
 }
 
 export interface QueryInput {

@@ -62,6 +62,7 @@ export interface SyncCheckpoint extends SyncCheckpointInput {
 
 type ConstraintRow = typeof MemoryConstraintTable.$inferSelect
 type RepositoryRow = typeof MemoryRepositoryTable.$inferSelect
+type SourceMetadata = Record<string, unknown>
 
 export const upsertRepository = Effect.fn("MemoryIndex.upsertRepository")((input: RepositoryInput) =>
   Effect.sync(() =>
@@ -207,7 +208,13 @@ export const upsertConstraint = Effect.fn("MemoryIndex.upsertConstraint")((input
           .run()
       }
 
-      return toQueryResult(repository, constraint, citations([constraint.id]).get(constraint.id) ?? [], 0)
+      return toQueryResult(
+        repository,
+        constraint,
+        citations([constraint.id]).get(constraint.id) ?? [],
+        sourceMetadata([constraint.id]).get(constraint.id),
+        0,
+      )
     }),
   ),
 )
@@ -274,6 +281,7 @@ export const query = Effect.fn("MemoryIndex.query")((input: QueryInput) =>
         .all()
 
       const citationByConstraint = citations(rows.map((row) => row.constraint.id))
+      const metadataByConstraint = sourceMetadata(rows.map((row) => row.constraint.id))
 
       return queryEntries(
         rows.map((row) =>
@@ -281,6 +289,7 @@ export const query = Effect.fn("MemoryIndex.query")((input: QueryInput) =>
             row.repository,
             row.constraint,
             citationByConstraint.get(row.constraint.id) ?? [],
+            metadataByConstraint.get(row.constraint.id),
             0,
           ),
         ),
@@ -355,10 +364,33 @@ function citations(constraintIDs: readonly string[]) {
   }, new Map<string, Citation[]>())
 }
 
+function sourceMetadata(constraintIDs: readonly string[]) {
+  if (constraintIDs.length === 0) return new Map<string, SourceMetadata>()
+
+  return Database.use((db) =>
+    db
+      .select({
+        constraint_id: MemoryConstraintSourceTable.constraint_id,
+        metadata: MemorySourceItemTable.metadata,
+      })
+      .from(MemoryConstraintSourceTable)
+      .innerJoin(MemorySourceItemTable, eq(MemoryConstraintSourceTable.source_item_id, MemorySourceItemTable.id))
+      .where(inArray(MemoryConstraintSourceTable.constraint_id, [...constraintIDs]))
+      .all(),
+  ).reduce((acc, row) => {
+    if (!row.metadata) return acc
+    const current = acc.get(row.constraint_id)
+    if (current && prStateWeight(current) >= prStateWeight(row.metadata)) return acc
+    acc.set(row.constraint_id, row.metadata)
+    return acc
+  }, new Map<string, SourceMetadata>())
+}
+
 function toQueryResult(
   repository: RepositoryRow,
   constraint: ConstraintRow,
   citations: readonly Citation[],
+  metadata: SourceMetadata | undefined,
   score: number,
 ): QueryResult {
   return {
@@ -371,8 +403,19 @@ function toQueryResult(
     files: constraint.files,
     confidence: constraint.confidence,
     citations,
+    ...(metadata ? { metadata } : {}),
     score,
   }
+}
+
+function prStateWeight(metadata: SourceMetadata | undefined) {
+  const pr = metadata?.pr
+  if (!pr || typeof pr !== "object") return 0
+  if (!("state" in pr) || pr.state !== "closed") return 0
+  if (!("merged" in pr)) return 0
+  if (pr.merged === true) return 30
+  if (pr.merged === false) return 15
+  return 0
 }
 
 function titleFromText(text: string) {
