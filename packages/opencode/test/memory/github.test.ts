@@ -119,6 +119,7 @@ describe("GitHub memory index provider", () => {
       }).pipe(
         Effect.provide(mockGhLayer((cmd, args) => {
           calls.push([cmd, ...args])
+          if (args[1] === "repos/opencode/opencode/pulls/123/commits") return "[]"
           return JSON.stringify({
             number: 123,
             title: "Index PR state",
@@ -132,7 +133,10 @@ describe("GitHub memory index provider", () => {
         })),
       )
 
-      expect(calls).toEqual([["gh", "api", "repos/opencode/opencode/pulls/123"]])
+      expect(calls).toEqual([
+        ["gh", "api", "repos/opencode/opencode/pulls/123"],
+        ["gh", "api", "repos/opencode/opencode/pulls/123/commits", "--paginate"],
+      ])
       expect(Database.use((db) => db.select().from(MemorySourceItemTable).all()).map((row) => row.metadata)).toEqual([
         {
           pr: {
@@ -161,6 +165,162 @@ describe("GitHub memory index provider", () => {
           },
         },
       ])
+    }),
+  )
+
+  it.effect("stores pull request commit summaries in order", () =>
+    Effect.gen(function* () {
+      yield* MemoryGithub.indexComments({
+        repo: "opencode/opencode",
+        comments: [
+          {
+            id: 1,
+            body: "Commit context should be available for review memory.",
+            html_url: "https://github.com/opencode/opencode/pull/123#discussion_r1",
+            pull_request_url: "https://api.github.com/repos/opencode/opencode/pulls/123",
+            updated_at: "2026-05-02T00:00:00Z",
+          },
+        ],
+      }).pipe(
+        Effect.provide(mockGhLayer((_, args) => {
+          if (args[1] === "repos/opencode/opencode/pulls/123/commits") {
+            return JSON.stringify([
+              {
+                sha: "aaa111",
+                commit: { message: "First commit", author: { name: "Alice", date: "2026-05-01T00:00:00Z" } },
+              },
+              {
+                sha: "bbb222",
+                commit: { message: "Second commit", author: { name: "Bob", date: "2026-05-02T00:00:00Z" } },
+              },
+            ])
+          }
+          return JSON.stringify({
+            number: 123,
+            title: "Add commit context",
+            state: "closed",
+            merged: true,
+            head: { sha: "bbb222" },
+          })
+        })),
+      )
+
+      expect(Database.use((db) => db.select().from(MemorySourceItemTable).all()).map((row) => row.metadata)).toEqual([
+        {
+          pr: {
+            number: 123,
+            title: "Add commit context",
+            state: "closed",
+            merged: true,
+            head_sha: "bbb222",
+          },
+          commits: [
+            { sha: "aaa111", message: "First commit", author: "Alice", authored_at: "2026-05-01T00:00:00Z" },
+            { sha: "bbb222", message: "Second commit", author: "Bob", authored_at: "2026-05-02T00:00:00Z" },
+          ],
+        },
+      ])
+    }),
+  )
+
+  it.effect("stores only the first line of multiline commit messages", () =>
+    Effect.gen(function* () {
+      yield* MemoryGithub.indexComments({
+        repo: "opencode/opencode",
+        comments: [
+          {
+            id: 1,
+            body: "Multiline commits should stay compact.",
+            html_url: "https://github.com/opencode/opencode/pull/123#discussion_r1",
+            pull_request_url: "https://api.github.com/repos/opencode/opencode/pulls/123",
+            updated_at: "2026-05-02T00:00:00Z",
+          },
+        ],
+      }).pipe(
+        Effect.provide(mockGhLayer((_, args) => {
+          if (args[1] === "repos/opencode/opencode/pulls/123/commits") {
+            return JSON.stringify([{ sha: "aaa111", commit: { message: "Add memory context\n\nLong body" } }])
+          }
+          return JSON.stringify({ number: 123, title: "Add commit context", state: "closed", merged: true })
+        })),
+      )
+
+      expect(
+        Database.use((db) => db.select().from(MemorySourceItemTable).all()).map((row) => row.metadata),
+      ).toMatchObject([{ commits: [{ sha: "aaa111", message: "Add memory context" }] }])
+    }),
+  )
+
+  it.effect("caps pull request commit history at 50 entries", () =>
+    Effect.gen(function* () {
+      yield* MemoryGithub.indexComments({
+        repo: "opencode/opencode",
+        comments: [
+          {
+            id: 1,
+            body: "Large pull request histories should stay bounded.",
+            html_url: "https://github.com/opencode/opencode/pull/123#discussion_r1",
+            pull_request_url: "https://api.github.com/repos/opencode/opencode/pulls/123",
+            updated_at: "2026-05-02T00:00:00Z",
+          },
+        ],
+      }).pipe(
+        Effect.provide(mockGhLayer((_, args) => {
+          if (args[1] === "repos/opencode/opencode/pulls/123/commits") {
+            return JSON.stringify(
+              Array.from({ length: 51 }, (_, index) => ({
+                sha: `sha-${index + 1}`,
+                commit: { message: `Commit ${index + 1}` },
+              })),
+            )
+          }
+          return JSON.stringify({
+            number: 123,
+            title: "Large history",
+            state: "closed",
+            merged: true,
+            head: { sha: "final-sha" },
+          })
+        })),
+      )
+
+      expect(Database.use((db) => db.select().from(MemorySourceItemTable).all()).map((row) => row.metadata)).toEqual([
+        {
+          pr: { number: 123, title: "Large history", state: "closed", merged: true, head_sha: "final-sha" },
+          commits: Array.from({ length: 50 }, (_, index) => ({
+            sha: `sha-${index + 1}`,
+            message: `Commit ${index + 1}`,
+          })),
+        },
+      ])
+    }),
+  )
+
+  it.effect("omits commit metadata when commit fetch fails", () =>
+    Effect.gen(function* () {
+      yield* MemoryGithub.indexComments({
+        repo: "opencode/opencode",
+        comments: [
+          {
+            id: 1,
+            body: "Still index the review memory when commits fail.",
+            html_url: "https://github.com/opencode/opencode/pull/123#discussion_r1",
+            pull_request_url: "https://api.github.com/repos/opencode/opencode/pulls/123",
+            updated_at: "2026-05-02T00:00:00Z",
+          },
+        ],
+      }).pipe(
+        Effect.provide(mockGhLayer((_, args) => {
+          if (args[1] === "repos/opencode/opencode/pulls/123/commits") return { exitCode: 1, stderr: "not found" }
+          return JSON.stringify({ number: 123, title: "Add commit context", state: "closed", merged: true })
+        })),
+      )
+
+      expect(Database.use((db) => db.select().from(MemorySourceItemTable).all()).map((row) => row.metadata)).toEqual([
+        { pr: { number: 123, title: "Add commit context", state: "closed", merged: true } },
+      ])
+      const memory = yield* Memory.Service
+      expect(yield* memory.query({ text: "review memory" })).toHaveLength(1)
     }),
   )
 
