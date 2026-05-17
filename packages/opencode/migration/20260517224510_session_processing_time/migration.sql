@@ -1,0 +1,1 @@
+ALTER TABLE `session` ADD `time_processing` integer DEFAULT 0 NOT NULL;

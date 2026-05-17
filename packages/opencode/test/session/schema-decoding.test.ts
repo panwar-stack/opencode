@@ -41,7 +41,7 @@ describe("Session.Info", () => {
       directory: "/tmp/proj",
       title: "First session",
       version: "0.1.0",
-      time: { created: 1, updated: 2 },
+      time: { created: 1, updated: 2, processing: 0 },
     }
     expect(decode(input)).toEqual(input)
   })
@@ -64,7 +64,7 @@ describe("Session.Info", () => {
       share: { url: "https://share.example.com/s/1" },
       title: "Full session",
       version: "1.0.0",
-      time: { created: 100, updated: 200, compacting: 150, archived: 300 },
+      time: { created: 100, updated: 200, compacting: 150, archived: 300, processing: 400 },
       permission: [{ action: "allow" as const, pattern: "*", permission: "read" }],
       revert: {
         messageID,
@@ -90,7 +90,7 @@ describe("Session.Info", () => {
         files: 1,
         diffs: [{ additions: 1, deletions: 0 }],
       },
-      time: { created: 1, updated: 2 },
+      time: { created: 1, updated: 2, processing: 0 },
     }
     expect(decode(input)).toEqual(input)
   })
@@ -128,7 +128,7 @@ describe("Session.GlobalInfo", () => {
       directory: "/tmp/proj",
       title: "global",
       version: "0",
-      time: { created: 0, updated: 0 },
+      time: { created: 0, updated: 0, processing: 0 },
       project: null,
     }
     expect(decode(input)).toEqual(input)
@@ -142,7 +142,7 @@ describe("Session.GlobalInfo", () => {
       directory: "/tmp/proj",
       title: "global",
       version: "0",
-      time: { created: 0, updated: 0 },
+      time: { created: 0, updated: 0, processing: 0 },
       project: { id: projectID, worktree: "/tmp/wt", name: "alpha" },
     }
     expect(decode(input)).toEqual(input)
