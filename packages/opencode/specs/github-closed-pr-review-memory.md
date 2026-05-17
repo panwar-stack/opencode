@@ -1,5 +1,12 @@
 # GitHub Review Memory From Closed PRs
 
+## Feature Highlights
+
+- Prefer review memory from merged PRs first, then closed-unmerged PRs, then open PRs.
+- Store PR state metadata with indexed GitHub review comments without requiring a database migration.
+- Enrich review memory with best-effort PR commit summaries so future guidance can reflect the accepted final state.
+- Surface PR state in review-memory output while keeping text output compact.
+
 ## Goal
 
 Make GitHub-backed review memory prefer review comments from closed PRs, especially merged PRs, before using comments from open or abandoned work. When PR commit history is available, index enough commit context to understand how the PR evolved into the final approved version so future review guidance reflects the accepted outcome, not just an intermediate review remark.
