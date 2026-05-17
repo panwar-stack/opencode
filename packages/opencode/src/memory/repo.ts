@@ -307,6 +307,16 @@ export const clear = Effect.fn("MemoryIndex.clear")(() =>
   ).pipe(Effect.asVoid),
 )
 
+export const clearRepository = Effect.fn("MemoryIndex.clearRepository")((input: RepositoryInput) =>
+  Effect.sync(() =>
+    Database.transaction((db) => {
+      db.delete(MemoryRepositoryTable)
+        .where(and(eq(MemoryRepositoryTable.provider, input.provider), eq(MemoryRepositoryTable.repo, input.repo)))
+        .run()
+    }),
+  ).pipe(Effect.asVoid),
+)
+
 function upsertRepositorySync(input: RepositoryInput) {
   Database.use((db) =>
     db

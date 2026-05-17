@@ -27,6 +27,7 @@ export interface IndexInput {
   readonly repo: string
   readonly since?: string
   readonly limit?: number
+  readonly reset?: boolean
   readonly throttle_ms?: number
   readonly onProgress?: (progress: IndexProgress) => void
   readonly include_authors?: readonly string[]
@@ -119,7 +120,9 @@ export class GithubIndexError extends Schema.TaggedErrorClass<GithubIndexError>(
 }) {}
 
 export const index = Effect.fn("MemoryGithub.index")(function* (input: IndexInput) {
-  const checkpoint = input.since
+  if (input.reset) yield* MemoryIndex.clearRepository({ provider, repo: input.repo })
+
+  const checkpoint = input.since || input.reset
     ? undefined
     : yield* MemoryIndex.getSyncCheckpoint({ provider, repo: input.repo })
   const since = input.since ?? checkpoint?.cursor ?? undefined
