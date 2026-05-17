@@ -197,7 +197,7 @@ export function parseGithubIndexRepo(input: string) {
 }
 
 export function formatQueryJSON(results: readonly Memory.QueryResult[]) {
-  return JSON.stringify(results, null, 2)
+  return JSON.stringify(results.map(publicQueryResult), null, 2)
 }
 
 export function toReviewQueryInput(input: { readonly repo?: string; readonly changes: readonly ReviewChange[] }) {
@@ -216,7 +216,7 @@ export function formatReviewJSON(report: ReviewReport) {
       ...(report.pr ? { pr: report.pr } : {}),
       files: report.changes.map((change) => change.file),
       changes: report.changes,
-      results: report.results,
+      results: report.results.map(publicQueryResult),
     },
     null,
     2,
@@ -259,9 +259,18 @@ export function rankReviewResults(
   changes: readonly ReviewChange[],
 ): Memory.QueryResult[] {
   return [...results]
-    .sort(
-      (a, b) => reviewRank(b, changes) - reviewRank(a, changes) || b.score - a.score || a.id.localeCompare(b.id),
-    )
+    .sort((a, b) => {
+      const rankA = reviewRank(a, changes)
+      const rankB = reviewRank(b, changes)
+      return (
+        rankB.exact - rankA.exact ||
+        rankB.directory - rankA.directory ||
+        rankB.prState - rankA.prState ||
+        rankB.shape - rankA.shape ||
+        b.score - a.score ||
+        a.id.localeCompare(b.id)
+      )
+    })
     .slice(0, 20)
 }
 
@@ -411,7 +420,27 @@ function reviewRank(result: Memory.QueryResult, changes: readonly ReviewChange[]
   const directoryOverlap = changes.filter((change) => resultDirs.has(directory(change.file))).length
   const searchable = `${result.title} ${result.body}`.toLowerCase()
   const shape = changes.filter((change) => searchable.includes(change.status)).length
-  return exact * 1000 + directoryOverlap * 100 + shape * 10 + result.score
+  return {
+    exact,
+    directory: directoryOverlap,
+    prState: prStateWeight(result.metadata),
+    shape,
+  }
+}
+
+function prStateWeight(metadata: Record<string, unknown> | undefined) {
+  const pr = metadata?.pr
+  if (!pr || typeof pr !== "object") return 0
+  if (!("state" in pr) || pr.state !== "closed") return 0
+  if (!("merged" in pr)) return 0
+  if (pr.merged === true) return 30
+  if (pr.merged === false) return 15
+  return 0
+}
+
+function publicQueryResult(result: Memory.QueryResult): Memory.QueryResult {
+  const { metadata: _, ...rest } = result
+  return rest
 }
 
 function reviewStatus(input: string | undefined): ReviewChange["status"] {

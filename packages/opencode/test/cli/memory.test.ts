@@ -205,6 +205,109 @@ describe("memory cli", () => {
     ).toEqual(["exact-file", "same-directory", "general-high-score"])
   })
 
+  test("ranks merged PR results ahead of open PR results for the same file", () => {
+    expect(
+      rankReviewResults(
+        [
+          {
+            id: "open-pr",
+            title: "Open PR guidance",
+            body: "Keep login changes small.",
+            file: "src/auth/login.ts",
+            metadata: { pr: { number: 2, state: "open", merged: false } },
+            score: 99,
+          },
+          {
+            id: "merged-pr",
+            title: "Merged PR guidance",
+            body: "Keep login changes focused.",
+            file: "src/auth/login.ts",
+            metadata: { pr: { number: 1, state: "closed", merged: true } },
+            score: 1,
+          },
+        ],
+        [{ file: "src/auth/login.ts", status: "modified" }],
+      ).map((result) => result.id),
+    ).toEqual(["merged-pr", "open-pr"])
+  })
+
+  test("ranks merged PR results ahead of closed-unmerged PR results for the same directory", () => {
+    expect(
+      rankReviewResults(
+        [
+          {
+            id: "closed-unmerged-pr",
+            title: "Closed PR guidance",
+            body: "Keep auth changes small.",
+            file: "src/auth/logout.ts",
+            metadata: { pr: { number: 2, state: "closed", merged: false } },
+            score: 99,
+          },
+          {
+            id: "merged-pr",
+            title: "Merged PR guidance",
+            body: "Keep auth changes focused.",
+            file: "src/auth/session.ts",
+            metadata: { pr: { number: 1, state: "closed", merged: true } },
+            score: 1,
+          },
+        ],
+        [{ file: "src/auth/login.ts", status: "modified" }],
+      ).map((result) => result.id),
+    ).toEqual(["merged-pr", "closed-unmerged-pr"])
+  })
+
+  test("ranks exact file open PR results ahead of directory-only merged PR results", () => {
+    expect(
+      rankReviewResults(
+        [
+          {
+            id: "directory-merged-pr",
+            title: "Merged PR guidance",
+            body: "Keep auth changes focused.",
+            file: "src/auth/logout.ts",
+            metadata: { pr: { number: 1, state: "closed", merged: true } },
+            score: 99,
+          },
+          {
+            id: "exact-open-pr",
+            title: "Open PR guidance",
+            body: "Keep login changes small.",
+            file: "src/auth/login.ts",
+            metadata: { pr: { number: 2, state: "open", merged: false } },
+            score: 1,
+          },
+        ],
+        [{ file: "src/auth/login.ts", status: "modified" }],
+      ).map((result) => result.id),
+    ).toEqual(["exact-open-pr", "directory-merged-pr"])
+  })
+
+  test("ranks review results with missing PR metadata without throwing", () => {
+    expect(() =>
+      rankReviewResults(
+        [
+          {
+            id: "missing-metadata",
+            title: "General guidance",
+            body: "Keep login changes small.",
+            file: "src/auth/login.ts",
+            score: 1,
+          },
+          {
+            id: "malformed-metadata",
+            title: "Malformed guidance",
+            body: "Keep login changes focused.",
+            file: "src/auth/login.ts",
+            metadata: { pr: "unknown" },
+            score: 2,
+          },
+        ],
+        [{ file: "src/auth/login.ts", status: "modified" }],
+      ),
+    ).not.toThrow()
+  })
+
   test("formats review checklist text", () => {
     expect(
       formatReviewText({
