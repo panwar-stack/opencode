@@ -125,6 +125,34 @@ describe("memory index", () => {
     }),
   )
 
+  it.effect("returns source metadata for internal ranking without exposing it in query JSON", () =>
+    Effect.gen(function* () {
+      yield* MemoryIndex.upsertConstraint({
+        provider: "github",
+        repo: "opencode/opencode",
+        title: "Accepted review guidance",
+        text: "Prefer accepted review guidance from merged pull requests.",
+        files: ["src/cli/cmd/memory.ts"],
+        source_items: [
+          {
+            provider: "github",
+            repo: "opencode/opencode",
+            source_id: "discussion_r2",
+            source_kind: "review_comment",
+            url: "https://github.com/opencode/opencode/pull/2#discussion_r2",
+            metadata: { pr: { number: 2, state: "closed", merged: true } },
+          },
+        ],
+      })
+
+      const memory = yield* Memory.Service
+      const results = yield* memory.query({ text: "accepted", file: "src/cli/cmd/memory.ts" })
+
+      expect(results[0]?.metadata).toEqual({ pr: { number: 2, state: "closed", merged: true } })
+      expect(JSON.parse(formatQueryJSON(results))[0].metadata).toBeUndefined()
+    }),
+  )
+
   it.effect("stores sync checkpoints for future incremental providers", () =>
     Effect.gen(function* () {
       yield* MemoryIndex.upsertSyncCheckpoint({
