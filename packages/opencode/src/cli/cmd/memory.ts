@@ -216,7 +216,7 @@ export function formatReviewJSON(report: ReviewReport) {
       ...(report.pr ? { pr: report.pr } : {}),
       files: report.changes.map((change) => change.file),
       changes: report.changes,
-      results: report.results.map(publicQueryResult),
+      results: report.results.map(publicReviewResult),
     },
     null,
     2,
@@ -243,6 +243,7 @@ export function formatReviewText(report: ReviewReport) {
           : result.file
             ? `   file: ${result.file}`
             : undefined,
+        reviewPrState(result.metadata),
         result.confidence === undefined ? undefined : `   confidence: ${result.confidence}`,
         result.citations?.length
           ? `   citations: ${result.citations.map((citation) => `${citation.label} ${citation.url}`).join(", ")}`
@@ -441,6 +442,56 @@ function prStateWeight(metadata: Record<string, unknown> | undefined) {
 function publicQueryResult(result: Memory.QueryResult): Memory.QueryResult {
   const { metadata: _, ...rest } = result
   return rest
+}
+
+function publicReviewResult(result: Memory.QueryResult): Memory.QueryResult {
+  const metadata = publicReviewMetadata(result.metadata)
+  if (!metadata) return publicQueryResult(result)
+  return { ...publicQueryResult(result), metadata }
+}
+
+function publicReviewMetadata(metadata: Record<string, unknown> | undefined) {
+  const pr = publicReviewPr(metadata)
+  const commits = publicReviewCommits(metadata)
+  if (!pr && !commits) return
+  return {
+    ...(pr ? { pr } : {}),
+    ...(commits ? { commits } : {}),
+  }
+}
+
+function reviewPrState(metadata: Record<string, unknown> | undefined) {
+  const pr = publicReviewPr(metadata)
+  if (!pr) return
+  return `   PR #${pr.number} ${pr.state === "closed" && pr.merged ? "merged" : pr.state}`
+}
+
+function publicReviewPr(metadata: Record<string, unknown> | undefined) {
+  const pr = metadata?.pr
+  if (!pr || typeof pr !== "object") return
+  if (!("number" in pr) || typeof pr.number !== "number") return
+  if (!("state" in pr) || (pr.state !== "open" && pr.state !== "closed")) return
+  if (!("merged" in pr) || typeof pr.merged !== "boolean") return
+  return {
+    number: pr.number,
+    state: pr.state,
+    merged: pr.merged,
+    ...("closed_at" in pr && typeof pr.closed_at === "string" ? { closed_at: pr.closed_at } : {}),
+    ...("merged_at" in pr && typeof pr.merged_at === "string" ? { merged_at: pr.merged_at } : {}),
+    ...("title" in pr && typeof pr.title === "string" ? { title: pr.title } : {}),
+  }
+}
+
+function publicReviewCommits(metadata: Record<string, unknown> | undefined) {
+  if (!Array.isArray(metadata?.commits)) return
+  const commits = metadata.commits.flatMap((commit) => {
+    if (!commit || typeof commit !== "object") return []
+    if (!("sha" in commit) || typeof commit.sha !== "string") return []
+    if (!("message" in commit) || typeof commit.message !== "string") return []
+    return [{ sha: commit.sha, message: commit.message }]
+  })
+  if (commits.length === 0) return
+  return commits
 }
 
 function reviewStatus(input: string | undefined): ReviewChange["status"] {
