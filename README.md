@@ -114,6 +114,42 @@ Subagents are specialized agent types that a primary agent can invoke for a task
 
 Learn more about [agents](https://opencode.ai/docs/agents).
 
+### Feature Highlights
+
+#### Agent Teams (Experimental)
+
+Agent teams let one lead session coordinate multiple background teammate sessions for work that can be split across specialists.
+
+- Enable with `"experimental": { "agent_teams": true }` in `opencode.json`
+- Spawn teammates with their own agent type, model, role prompt, dependencies, and optional plan approval
+- Coordinate through mailbox messages, broadcasts, shared task lists, and automatic dependency unblocking
+- Use the TUI team panel to inspect teammate status, pending questions, shared tasks, messages, and shutdown controls
+- Generate post-run effectiveness reports with `team_report` or `/team-report`, including throughput, lifecycle, dependency, messaging, cost, token, and evaluation summaries
+- Inspect teams through the HTTP API and generated JavaScript SDK, including `/team/{teamID}/eval` for deterministic DAG-based evaluation findings
+
+Subagents cannot create nested agent teams, and team tools stay scoped to lead and teammate sessions.
+
+Learn more in the [agent teams docs](https://opencode.ai/docs/agent-teams).
+
+#### Historical Review Memory
+
+OpenCode can index past review feedback and surface compact, cited constraints while you work.
+
+```bash
+opencode memory index github --repo owner/repo
+opencode memory query "config schema conventions" --file packages/opencode/src/config/config.ts
+opencode memory review --base dev
+opencode memory review --pr 123
+```
+
+The memory service is provider-oriented, with GitHub PR review comments as the first built-in provider and a local SQLite index for ranked retrieval. Configure it with `memory.enabled`, `memory.limit`, and `memory.providers.github` options such as `repo`, `max_age_days`, `include_authors`, and `exclude_authors`.
+
+A built-in `review-memory` skill and prompt injection can use indexed memories automatically when enabled. Historical review memory is advisory and lower priority than current user instructions, repo instructions, ADRs, and the current code.
+
+#### Session Export
+
+`opencode export` now includes child sessions recursively, so exported JSON captures subagent and teammate work along with the lead session.
+
 ### Documentation
 
 For more info on how to configure OpenCode, [**head over to our docs**](https://opencode.ai/docs).
@@ -121,6 +157,13 @@ For more info on how to configure OpenCode, [**head over to our docs**](https://
 ### Contributing
 
 If you're interested in contributing to OpenCode, please read our [contributing docs](./CONTRIBUTING.md) before submitting a pull request.
+
+Useful contributor helpers:
+
+- `bun run dev:build` builds the OpenCode package with the single-binary build shortcut
+- `/spec-planner` drafts repo-style implementation specs with verification slices
+- `/init-repo` runs init and adds the repo's required coding principles
+- `/team-report` runs the team report tool for the active or most recent team session
 
 ### Building on OpenCode
 
