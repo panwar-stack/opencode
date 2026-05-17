@@ -95,7 +95,7 @@ describe("memory cli", () => {
 
   test("builds GitHub index input from command args", () => {
     expect(
-      toGithubIndexInput({ since: "2026-05-01", limit: 50 }, "opencode/opencode", {
+      toGithubIndexInput({ since: "2026-05-01", limit: 50, reset: true }, "opencode/opencode", {
         include_authors: ["alice"],
         exclude_authors: ["bot"],
         max_age_days: 90,
@@ -104,6 +104,7 @@ describe("memory cli", () => {
       repo: "opencode/opencode",
       since: "2026-05-01",
       limit: 50,
+      reset: true,
       throttle_ms: 1000,
       include_authors: ["alice"],
       exclude_authors: ["bot"],

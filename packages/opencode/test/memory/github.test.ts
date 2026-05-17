@@ -562,6 +562,41 @@ describe("GitHub memory index provider", () => {
     }),
   )
 
+  it.effect("resets repository memory before fetching GitHub comments", () =>
+    Effect.gen(function* () {
+      const calls: string[][] = []
+      yield* MemoryIndex.upsertConstraint({
+        provider: "github",
+        repo: "opencode/opencode",
+        title: "Old review memory",
+        text: "Old GitHub review memory should be reset.",
+      })
+      yield* MemoryIndex.upsertSyncCheckpoint({
+        provider: "github",
+        repo: "opencode/opencode",
+        cursor: "2026-05-01T00:00:00Z",
+      })
+
+      const result = yield* MemoryGithub.index({ repo: "opencode/opencode", reset: true }).pipe(
+        Effect.provide(mockGhLayer((cmd, args) => {
+          calls.push([cmd, ...args])
+          return "[]"
+        })),
+      )
+
+      expect(result).toEqual({
+        provider: "github",
+        repo: "opencode/opencode",
+        fetched: 0,
+        indexed: 0,
+        cursor: undefined,
+      })
+      expect(calls[0]).not.toContain("since=2026-05-01T00:00:00Z")
+      const memory = yield* Memory.Service
+      expect(yield* memory.query({ text: "old", repo: "opencode/opencode" })).toEqual([])
+    }),
+  )
+
   it.live("reports progress while throttling paginated GitHub review comment fetches", () =>
     Effect.gen(function* () {
       const calls: string[][] = []

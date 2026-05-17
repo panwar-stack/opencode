@@ -182,4 +182,66 @@ describe("memory index", () => {
       ])
     }),
   )
+
+  it.effect("clears indexed memory for one repository", () =>
+    Effect.gen(function* () {
+      yield* MemoryIndex.upsertConstraint({
+        provider: "github",
+        repo: "opencode/opencode",
+        title: "Reset target",
+        text: "Old GitHub review guidance should be reset.",
+        citations: [{ label: "PR #123", url: "https://github.com/opencode/opencode/pull/123#discussion_r1" }],
+        source_items: [
+          {
+            provider: "github",
+            repo: "opencode/opencode",
+            source_id: "discussion_r1",
+            source_kind: "review_comment",
+            url: "https://github.com/opencode/opencode/pull/123#discussion_r1",
+          },
+        ],
+      })
+      yield* MemoryIndex.upsertSyncCheckpoint({
+        provider: "github",
+        repo: "opencode/opencode",
+        cursor: "2026-05-01T00:00:00Z",
+      })
+      yield* MemoryIndex.upsertConstraint({
+        provider: "github",
+        repo: "opencode/other",
+        title: "Other repo",
+        text: "Other repository guidance should remain.",
+        citations: [{ label: "PR #456", url: "https://github.com/opencode/other/pull/456#discussion_r1" }],
+        source_items: [
+          {
+            provider: "github",
+            repo: "opencode/other",
+            source_id: "discussion_r2",
+            source_kind: "review_comment",
+            url: "https://github.com/opencode/other/pull/456#discussion_r1",
+          },
+        ],
+      })
+      yield* MemoryIndex.upsertSyncCheckpoint({
+        provider: "github",
+        repo: "opencode/other",
+        cursor: "2026-05-02T00:00:00Z",
+      })
+
+      yield* MemoryIndex.clearRepository({ provider: "github", repo: "opencode/opencode" })
+
+      const memory = yield* Memory.Service
+      expect(yield* memory.query({ text: "reset", repo: "opencode/opencode" })).toEqual([])
+      expect(yield* memory.query({ text: "remain", repo: "opencode/other" })).toHaveLength(1)
+      expect(Database.use((db) => db.select().from(MemorySourceItemTable).all())).toHaveLength(1)
+      expect(Database.use((db) => db.select().from(MemoryCitationTable).all())).toHaveLength(1)
+      expect(Database.use((db) => db.select().from(MemorySyncCheckpointTable).all())).toMatchObject([
+        {
+          provider: "github",
+          repo: "opencode/other",
+          cursor: "2026-05-02T00:00:00Z",
+        },
+      ])
+    }),
+  )
 })

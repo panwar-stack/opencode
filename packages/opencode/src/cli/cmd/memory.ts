@@ -22,6 +22,7 @@ interface GithubIndexArgs {
   readonly repo?: string
   readonly since?: string
   readonly limit?: number
+  readonly reset?: boolean
 }
 
 interface GithubProviderConfig {
@@ -82,6 +83,10 @@ export const MemoryIndexGithubCommand = effectCmd({
       .option("limit", {
         describe: "maximum number of comments to fetch",
         type: "number",
+      })
+      .option("reset", {
+        describe: "clear indexed GitHub memory for this repository before indexing",
+        type: "boolean",
       }),
   handler: Effect.fn("Cli.memory.index.github")(function* (args) {
     const validation = validateGithubIndexArgs(args)
@@ -191,6 +196,7 @@ export function toGithubIndexInput(
     repo,
     since: args.since,
     limit: args.limit,
+    ...(args.reset ? { reset: true } : {}),
     throttle_ms: githubIndexThrottleMs,
     ...(onProgress ? { onProgress } : {}),
     include_authors: githubConfig?.include_authors,
