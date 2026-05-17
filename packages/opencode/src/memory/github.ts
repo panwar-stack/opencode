@@ -6,10 +6,29 @@ import { MemoryIndex, type SourceItemInput } from "./repo"
 const provider = "github"
 const pageSize = 100
 
+export type IndexProgress =
+  | {
+      readonly type: "comments"
+      readonly repo: string
+      readonly page: number
+      readonly fetched: number
+      readonly total: number
+      readonly limit?: number
+    }
+  | {
+      readonly type: "pull_request"
+      readonly repo: string
+      readonly number: number
+      readonly current: number
+      readonly total: number
+    }
+
 export interface IndexInput {
   readonly repo: string
   readonly since?: string
   readonly limit?: number
+  readonly throttle_ms?: number
+  readonly onProgress?: (progress: IndexProgress) => void
   readonly include_authors?: readonly string[]
   readonly exclude_authors?: readonly string[]
   readonly max_age_days?: number
@@ -112,7 +131,7 @@ export const indexComments = Effect.fn("MemoryGithub.indexComments")(function* (
   input: IndexInput & { readonly comments: readonly ReviewComment[] },
 ) {
   const comments = input.comments.filter(commentFilter(input))
-  const pullRequests = yield* fetchPullRequests(input.repo, comments)
+  const pullRequests = yield* fetchPullRequests(input, comments)
   const indexed = yield* Effect.all(
     comments.map((comment) => {
       const number = prNumber(comment)
@@ -179,11 +198,23 @@ function fetchReviewComments(input: IndexInput) {
   return fetchPage(input, 1, [])
 }
 
-function fetchPullRequests(repo: string, comments: readonly ReviewComment[]) {
+function fetchPullRequests(input: IndexInput, comments: readonly ReviewComment[]) {
   return Effect.gen(function* () {
+    const numbers = uniquePrNumbers(comments)
     const pullRequests = yield* Effect.all(
-      uniquePrNumbers(comments).map((number) =>
-        fetchPullRequest(repo, number).pipe(Effect.map((metadata) => [number, metadata] as const)),
+      numbers.map((number, index) =>
+        Effect.gen(function* () {
+          if (index > 0) yield* throttle(input)
+          const metadata = yield* fetchPullRequest(input, number)
+          yield* reportProgress(input, {
+            type: "pull_request",
+            repo: input.repo,
+            number,
+            current: index + 1,
+            total: numbers.length,
+          })
+          return [number, metadata] as const
+        }),
       ),
       { concurrency: 1 },
     )
@@ -194,11 +225,11 @@ function fetchPullRequests(repo: string, comments: readonly ReviewComment[]) {
   })
 }
 
-function fetchPullRequest(repo: string, number: number) {
+function fetchPullRequest(input: IndexInput, number: number) {
   return Effect.gen(function* () {
     const appProcess = yield* AppProcess.Service
     const result = yield* appProcess
-      .run(ChildProcess.make("gh", ["api", `repos/${repo}/pulls/${number}`]), {
+      .run(ChildProcess.make("gh", ["api", `repos/${input.repo}/pulls/${number}`]), {
         maxOutputBytes: 1024 * 1024,
         maxErrorBytes: 64 * 1024,
       })
@@ -212,7 +243,8 @@ function fetchPullRequest(repo: string, number: number) {
     }).pipe(Effect.catch(() => Effect.succeed(undefined)))
     if (!pr) return undefined
 
-    const commits = yield* fetchPullRequestCommits(repo, number)
+    yield* throttle(input)
+    const commits = yield* fetchPullRequestCommits(input.repo, number)
     return { pr, ...(commits && commits.length > 0 ? { commits } : {}) } satisfies PullRequestContext
   })
 }
@@ -277,9 +309,28 @@ function fetchPage(input: IndexInput, page: number, acc: readonly ReviewComment[
       catch: () => new GithubIndexError({ message: "Failed to parse GitHub review comments JSON" }),
     })
     const next = [...acc, ...pageComments]
+    yield* reportProgress(input, {
+      type: "comments",
+      repo: input.repo,
+      page,
+      fetched: pageComments.length,
+      total: input.limit === undefined ? next.length : Math.min(next.length, input.limit),
+      ...(input.limit === undefined ? {} : { limit: input.limit }),
+    })
     if (pageComments.length < pageSize) return input.limit === undefined ? next : next.slice(0, input.limit)
+    yield* throttle(input)
     return yield* fetchPage(input, page + 1, next)
   })
+}
+
+function reportProgress(input: IndexInput, progress: IndexProgress) {
+  if (!input.onProgress) return Effect.void
+  return Effect.sync(() => input.onProgress?.(progress))
+}
+
+function throttle(input: IndexInput) {
+  if (!input.throttle_ms || input.throttle_ms <= 0) return Effect.void
+  return Effect.sleep(`${input.throttle_ms} millis`)
 }
 
 function toSourceItem(
