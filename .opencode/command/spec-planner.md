@@ -55,6 +55,10 @@ Verification:
 - `<exact command>`
 - `<exact command>`
 
+Review:
+
+<Use this section to outline the review process for the implementation slice.>
+
 ### PR 2: <Next Deliverable>
 
 - <Implementation task.>
@@ -62,6 +66,10 @@ Verification:
 Verification:
 
 - `<exact command>`
+
+Review:
+
+<Use this section to outline the review process for the implementation slice.>
 
 ## Future Work
 

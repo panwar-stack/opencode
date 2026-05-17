@@ -362,6 +362,20 @@ export function Prompt(props: PromptProps) {
       cost: cost > 0 ? money.format(cost) : undefined,
     }
   })
+  const [now, setNow] = createSignal(Date.now())
+  onMount(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+
+    onCleanup(() => {
+      clearInterval(timer)
+    })
+  })
+  const elapsed = createMemo(() => {
+    if (!props.sessionID) return
+    const created = sync.session.get(props.sessionID)?.time.created
+    if (created === undefined) return
+    return formatDuration(Math.floor(Math.max(0, now() - created) / 1000)) || "0s"
+  })
 
   const [store, setStore] = createStore<{
     prompt: PromptInfo
@@ -1769,6 +1783,13 @@ export function Prompt(props: PromptProps) {
               </Show>
               <Switch>
                 <Match when={store.mode === "normal"}>
+                  <Show when={elapsed()}>
+                    {(value) => (
+                      <text fg={theme.textMuted} wrapMode="none">
+                        {value()}
+                      </text>
+                    )}
+                  </Show>
                   <Switch>
                     <Match when={usage()}>
                       {(item) => (
