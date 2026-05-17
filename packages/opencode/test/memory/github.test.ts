@@ -562,7 +562,7 @@ describe("GitHub memory index provider", () => {
     }),
   )
 
-  it.effect("resets repository memory before fetching GitHub comments", () =>
+  it.effect("resets repository memory without fetching GitHub comments", () =>
     Effect.gen(function* () {
       const calls: string[][] = []
       yield* MemoryIndex.upsertConstraint({
@@ -589,9 +589,8 @@ describe("GitHub memory index provider", () => {
         repo: "opencode/opencode",
         fetched: 0,
         indexed: 0,
-        cursor: undefined,
       })
-      expect(calls[0]).not.toContain("since=2026-05-01T00:00:00Z")
+      expect(calls).toEqual([])
       const memory = yield* Memory.Service
       expect(yield* memory.query({ text: "old", repo: "opencode/opencode" })).toEqual([])
     }),

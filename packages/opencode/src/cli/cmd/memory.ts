@@ -85,7 +85,7 @@ export const MemoryIndexGithubCommand = effectCmd({
         type: "number",
       })
       .option("reset", {
-        describe: "clear indexed GitHub memory for this repository before indexing",
+        describe: "clear indexed GitHub memory for this repository without fetching",
         type: "boolean",
       }),
   handler: Effect.fn("Cli.memory.index.github")(function* (args) {
@@ -102,7 +102,7 @@ export const MemoryIndexGithubCommand = effectCmd({
       Effect.provide(AppProcess.defaultLayer),
       Effect.catchTag("GithubMemoryIndexError", (error) => fail(error.message)),
     )
-    console.log(formatGithubIndexText(result))
+    console.log(args.reset ? formatGithubResetText(repo) : formatGithubIndexText(result))
   }),
 })
 
@@ -306,6 +306,10 @@ export function formatGithubIndexText(result: MemoryGithub.IndexResult) {
   const lines = [`Indexed ${result.indexed} of ${result.fetched} GitHub review comments for ${result.repo}.`]
   if (result.cursor) lines.push(`Checkpoint: ${result.cursor}`)
   return lines.join(EOL)
+}
+
+export function formatGithubResetText(repo: string) {
+  return `Cleared indexed GitHub memory for ${repo}.`
 }
 
 export function formatGithubIndexProgress(progress: MemoryGithub.IndexProgress) {

@@ -4,6 +4,7 @@ import { EOL } from "os"
 import {
   formatGithubIndexText,
   formatGithubIndexProgress,
+  formatGithubResetText,
   formatQueryJSON,
   formatQueryText,
   formatReviewJSON,
@@ -140,6 +141,10 @@ describe("memory cli", () => {
         "Checkpoint: 2026-05-02T00:00:00Z",
       ].join(EOL),
     )
+  })
+
+  test("formats GitHub reset result", () => {
+    expect(formatGithubResetText("opencode/opencode")).toBe("Cleared indexed GitHub memory for opencode/opencode.")
   })
 
   test("formats GitHub index progress", () => {
