@@ -77,6 +77,30 @@ function createTextMessage(sessionID: SessionIDType, text: string) {
   })
 }
 
+function createStepFinishPart(sessionID: SessionIDType, duration: number) {
+  return Effect.gen(function* () {
+    const svc = yield* Session.Service
+    const info = yield* svc.updateMessage({
+      id: MessageID.ascending(),
+      role: "user",
+      sessionID,
+      agent: "build",
+      model: { providerID: ProviderID.make("test"), modelID: ModelID.make("test") },
+      time: { created: Date.now() },
+    })
+    return yield* svc.updatePart({
+      id: PartID.ascending(),
+      sessionID,
+      messageID: info.id,
+      type: "step-finish",
+      reason: "stop",
+      cost: 0,
+      duration,
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    })
+  })
+}
+
 const localAdapter = (directory: string): WorkspaceAdapter => ({
   name: "Local Test",
   description: "Create a local test workspace",
@@ -276,18 +300,25 @@ describe("session HttpApi", () => {
         const listed = yield* requestJson<Session.Info[]>(`${SessionPaths.list}?roots=true`, { headers })
         expect(listed.map((item) => item.id)).toContain(parent.id)
         expect(Object.hasOwn(listed[0]!, "parentID")).toBe(false)
+        expect(listed.find((item) => item.id === parent.id)?.time.processing).toBe(0)
 
         expect(yield* requestJson<Record<string, unknown>>(SessionPaths.status, { headers })).toEqual({})
 
         expect(
           yield* requestJson<Session.Info>(pathFor(SessionPaths.get, { sessionID: parent.id }), { headers }),
-        ).toMatchObject({ id: parent.id, title: "parent" })
+        ).toMatchObject({ id: parent.id, title: "parent", time: { processing: 0 } })
+
+        const children = yield* requestJson<Session.Info[]>(pathFor(SessionPaths.children, { sessionID: parent.id }), {
+          headers,
+        })
+        expect(children.map((item) => item.id)).toEqual([child.id])
+        expect(children[0]?.time.processing).toBe(0)
 
         expect(
-          (yield* requestJson<Session.Info[]>(pathFor(SessionPaths.children, { sessionID: parent.id }), {
+          (yield* requestJson<{ items: Session.Info[] }>(`/api/session`, {
             headers,
-          })).map((item) => item.id),
-        ).toEqual([child.id])
+          })).items.find((item) => item.id === parent.id)?.time.processing,
+        ).toBe(0)
 
         expect(
           yield* requestJson<unknown[]>(pathFor(SessionPaths.todo, { sessionID: parent.id }), { headers }),
@@ -329,6 +360,39 @@ describe("session HttpApi", () => {
           (yield* requestJson<{ items: SessionMessage.Message[] }>(`/api/session/${parent.id}/message`, { headers }))
             .items,
         ).toMatchObject([{ type: "assistant" }])
+      }),
+    { git: true, config: { formatter: false, lsp: false } },
+  )
+
+  it.instance(
+    "serves accumulated processing time on read routes",
+    () =>
+      Effect.gen(function* () {
+        const test = yield* TestInstance
+        const headers = { "x-opencode-directory": test.directory }
+        const parent = yield* createSession({ title: "parent" })
+        const child = yield* createSession({ title: "child", parentID: parent.id })
+        yield* createStepFinishPart(child.id, 1234)
+
+        expect(
+          yield* requestJson<Session.Info>(pathFor(SessionPaths.get, { sessionID: child.id }), { headers }),
+        ).toMatchObject({ id: child.id, time: { processing: 1234 } })
+
+        expect(
+          (yield* requestJson<Session.Info[]>(SessionPaths.list, { headers })).find((item) => item.id === child.id)?.time
+            .processing,
+        ).toBe(1234)
+
+        expect(
+          (yield* requestJson<Session.Info[]>(pathFor(SessionPaths.children, { sessionID: parent.id }), { headers }))[0]
+            ?.time.processing,
+        ).toBe(1234)
+
+        expect(
+          (yield* requestJson<{ items: Session.Info[] }>(`/api/session`, { headers })).items.find(
+            (item) => item.id === child.id,
+          )?.time.processing,
+        ).toBe(1234)
       }),
     { git: true, config: { formatter: false, lsp: false } },
   )
