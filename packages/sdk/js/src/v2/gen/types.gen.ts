@@ -788,6 +788,7 @@ export type Session = {
     updated: number
     compacting?: number
     archived?: number
+    processing: number
   }
   permission?: PermissionRuleset
   revert?: {
@@ -1538,6 +1539,7 @@ export type GlobalSession = {
     updated: number
     compacting?: number
     archived?: number
+    processing: number
   }
   permission?: PermissionRuleset
   revert?: {
@@ -2195,6 +2197,7 @@ export type SyncEventSessionUpdated = {
         updated?: number | null
         compacting?: number | null
         archived?: number | null
+        processing?: number | null
       }
       permission?: PermissionRuleset | null
       revert?: {
@@ -3585,6 +3588,7 @@ export type SessionInfo = {
     created: number
     updated: number
     archived?: number
+    processing: number
   }
   title: string
 }

@@ -9,7 +9,7 @@ import type { Prompt } from "@opencode-ai/core/session-prompt"
 import { ProjectID } from "@/project/schema"
 import { SessionEvent } from "@opencode-ai/core/session-event"
 import { V2Schema } from "@opencode-ai/core/v2-schema"
-import { optionalOmitUndefined } from "@opencode-ai/core/schema"
+import { NonNegativeInt, optionalOmitUndefined } from "@opencode-ai/core/schema"
 import { EventV2 } from "@opencode-ai/core/event"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { ModelV2 } from "@opencode-ai/core/model"
@@ -44,6 +44,7 @@ export class Info extends Schema.Class<Info>("Session.Info")({
     created: V2Schema.DateTimeUtcFromMillis,
     updated: V2Schema.DateTimeUtcFromMillis,
     archived: optionalOmitUndefined(V2Schema.DateTimeUtcFromMillis),
+    processing: NonNegativeInt,
   }),
   title: Schema.String,
   /*
@@ -183,6 +184,7 @@ export const layer = Layer.effect(
           created: DateTime.makeUnsafe(row.time_created),
           updated: DateTime.makeUnsafe(row.time_updated),
           archived: row.time_archived ? DateTime.makeUnsafe(row.time_archived) : undefined,
+          processing: row.time_processing,
         },
       })
     }
