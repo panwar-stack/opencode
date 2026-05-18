@@ -7,7 +7,7 @@ description: Convert rough user requirements, feature ideas, bug themes, or impl
 
 ## Overview
 
-Turn an underspecified requirement into an implementation-ready Markdown spec. Favor concrete repo facts, explicit constraints, incremental delivery slices, and verifiable outcomes over broad product prose.
+Turn an underspecified requirement into an implementation-ready Markdown spec. Favor concrete repo facts, explicit constraints, incremental delivery slices, and verifiable outcomes over broad product prose. Delivery slices should be small enough for human reviewer without cognitive overload
 
 ## Workflow
 
