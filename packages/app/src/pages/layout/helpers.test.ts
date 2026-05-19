@@ -24,7 +24,7 @@ const session = (input: Partial<Session> & Pick<Session, "id" | "directory">) =>
     parentID: undefined,
     messageCount: 0,
     permissions: { session: {}, share: {} },
-    time: { created: 0, updated: 0, archived: undefined },
+    time: { created: 0, updated: 0, archived: undefined, processing: 0 },
     ...input,
   }) as Session
 
@@ -126,7 +126,9 @@ describe("layout workspace helpers", () => {
       [
         {
           path: { directory: "/root" },
-          session: [session({ id: "root", directory: "/root", time: { created: 1, updated: 1, archived: undefined } })],
+          session: [
+            session({ id: "root", directory: "/root", time: { created: 1, updated: 1, archived: undefined, processing: 0 } }),
+          ],
         },
         {
           path: { directory: "/workspace" },
@@ -134,7 +136,7 @@ describe("layout workspace helpers", () => {
             session({
               id: "workspace",
               directory: "/workspace",
-              time: { created: 2, updated: 2, archived: undefined },
+              time: { created: 2, updated: 2, archived: undefined, processing: 0 },
             }),
           ],
         },
@@ -177,18 +179,18 @@ describe("layout workspace helpers", () => {
             session({
               id: "archived",
               directory: "/workspace",
-              time: { created: 10, updated: 10, archived: 10 },
+              time: { created: 10, updated: 10, archived: 10, processing: 0 },
             }),
             session({
               id: "child",
               directory: "/workspace",
               parentID: "parent",
-              time: { created: 20, updated: 20, archived: undefined },
+              time: { created: 20, updated: 20, archived: undefined, processing: 0 },
             }),
             session({
               id: "root",
               directory: "/workspace",
-              time: { created: 30, updated: 30, archived: undefined },
+              time: { created: 30, updated: 30, archived: undefined, processing: 0 },
             }),
           ],
         },
