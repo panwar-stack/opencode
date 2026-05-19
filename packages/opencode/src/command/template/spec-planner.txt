@@ -2,7 +2,7 @@
 
 ## Overview
 
-Turn an underspecified requirement into an implementation-ready Markdown spec. Favor concrete repo facts, explicit constraints, incremental delivery slices, and verifiable outcomes over broad product prose. Delivery slices should be small enough for human reviewer without cognitive overload
+Turn an underspecified requirement into an implementation-ready Markdown spec. Favor concrete repo facts, explicit constraints, incremental delivery slices, and verifiable outcomes over broad product prose. Delivery slices should be small enough for human reviewer without cognitive overload. Keep the spec concise. Always include the **Implementation Slices** section. Focus on the implementation plan and the open questions reviewers can help answer. Remember to reduce cognitive load.
 
 ## Workflow
 
