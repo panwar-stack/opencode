@@ -53,7 +53,7 @@ const created = Date.now() - 62_000
 const sessionPayload = {
   id: sessionID,
   title: "Prompt footer",
-  time: { created, updated: created },
+  time: { created, updated: created, processing: 62_000 },
   version: "1.0.0",
   directory,
   project_id: "proj_test",

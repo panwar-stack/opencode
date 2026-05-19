@@ -274,7 +274,7 @@ describe("OpenAI Responses route", () => {
     Effect.gen(function* () {
       const prepared = yield* LLMClient.prepare<OpenAIResponses.OpenAIResponsesBody>(
         LLM.request({
-          model: OpenAI.model("gpt-5.2", { baseURL: "https://api.openai.test/v1/" }),
+          model: OpenAI.model("gpt-5.2", { baseURL: "https://api.openai.test/v1/", apiKey: "test" }),
           prompt: "think",
           providerOptions: {
             openai: {
@@ -301,6 +301,7 @@ describe("OpenAI Responses route", () => {
         LLM.request({
           model: OpenAI.model("gpt-4.1-mini", {
             baseURL: "https://api.openai.test/v1/",
+            apiKey: "test",
             providerOptions: { openai: { promptCacheKey: "model_cache" } },
           }),
           prompt: "no cache",

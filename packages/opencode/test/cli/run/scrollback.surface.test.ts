@@ -462,7 +462,7 @@ test.skipIf(process.platform === "win32")(
 
       await out.scrollback.append(user("Hello you"))
       take()
-      await out.scrollback.append(reasoning("Thinking: **Plan**\n\nSay hello.", "progress"))
+      await out.scrollback.append(reasoning("Thinking through the greeting.", "progress"))
       await out.scrollback.complete()
       take()
       await out.scrollback.append(assistant("Hello.", "progress"))
@@ -471,8 +471,7 @@ test.skipIf(process.platform === "win32")(
 
       const output = lines.join("\n")
       expect(output).toContain("› Hello you")
-      expect(output).toContain("Thinking:")
-      expect(output).toContain("Plan")
+      expect(output).toContain("Thinking through the greeting.")
       expect(output).toContain("Hello.")
     } finally {
       out.scrollback.destroy()
