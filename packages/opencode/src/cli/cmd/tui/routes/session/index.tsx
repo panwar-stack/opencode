@@ -180,9 +180,20 @@ const context = createContext<{
 export function SessionRootsCommand() {
   const route = useRoute()
   const dialog = useDialog()
+  const sdk = useSDK()
   const sync = useSync()
+  const local = useLocal()
+  const project = useProject()
   const toast = useToast()
   const sessionID = createMemo(() => (route.data.type === "session" ? route.data.sessionID : undefined))
+  let creatingSession = false
+
+  const openRoots = (id: string) => {
+    void sync.session
+      .refreshRoots(id)
+      .catch((error) => toast.show({ message: errorMessage(error), variant: "error" }))
+      .finally(() => dialog.replace(() => <DialogRoots sessionID={id} />))
+  }
 
   const rootsCommands = createMemo(() => [
     {
@@ -192,14 +203,48 @@ export function SessionRootsCommand() {
       category: "Session",
       slashName: "roots",
       slashAliases: ["cwd", "dirs"],
-      enabled: sessionID() !== undefined,
+      enabled: route.data.type === "home" || sessionID() !== undefined,
       run: () => {
         const id = sessionID()
-        if (!id) return
-        void sync.session
-          .refreshRoots(id)
+        if (id) {
+          openRoots(id)
+          return
+        }
+        if (route.data.type !== "home") return
+        if (creatingSession) return
+        const agent = local.agent.current()
+        if (!agent) {
+          toast.show({ message: "No agent selected", variant: "error" })
+          return
+        }
+        const selectedModel = local.model.current()
+        if (!selectedModel) {
+          toast.show({ message: "Connect a provider to manage roots", variant: "warning" })
+          return
+        }
+        creatingSession = true
+        void sdk.client.session
+          .create({
+            workspace: project.workspace.current(),
+            agent: agent.name,
+            model: {
+              providerID: selectedModel.providerID,
+              id: selectedModel.modelID,
+              variant: local.model.variant.current(),
+            },
+          })
+          .then((result) => {
+            if (result.error || !result.data?.id) {
+              toast.show({ message: errorMessage(result.error ?? new Error("Creating a session failed")), variant: "error" })
+              return
+            }
+            route.navigate({ type: "session", sessionID: result.data.id })
+            openRoots(result.data.id)
+          })
           .catch((error) => toast.show({ message: errorMessage(error), variant: "error" }))
-          .finally(() => dialog.replace(() => <DialogRoots sessionID={id} />))
+          .finally(() => {
+            creatingSession = false
+          })
       },
     },
   ])
