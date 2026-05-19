@@ -24,3 +24,12 @@ export const PartID = Schema.String.check(Schema.isStartsWith("prt")).pipe(
 )
 
 export type PartID = Schema.Schema.Type<typeof PartID>
+
+export const SessionRootID = Schema.String.check(Schema.isStartsWith("sesroot")).pipe(
+  Schema.brand("SessionRootID"),
+  withStatics((s) => ({
+    ascending: (id?: string) => s.make(Identifier.ascending("sessionRoot", id)),
+  })),
+)
+
+export type SessionRootID = Schema.Schema.Type<typeof SessionRootID>

@@ -21,6 +21,7 @@ import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder, HttpApiError, HttpApiSchema } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
 import {
+  AddRootPayload,
   CommandPayload,
   DiffQuery,
   ForkPayload,
@@ -32,10 +33,12 @@ import {
   RevertPayload,
   ShellPayload,
   SummarizePayload,
+  UpdateRootPayload,
   UpdatePayload,
 } from "../groups/session"
 import { PermissionNotFoundError } from "../errors"
 import * as SessionError from "./session-errors"
+import type { SessionRootID } from "@/session/schema"
 
 const tryParseJson = (text: string) =>
   Effect.try({
@@ -81,6 +84,35 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
 
     const get = Effect.fn("SessionHttpApi.get")(function* (ctx: { params: { sessionID: SessionID } }) {
       return yield* requireSession(ctx.params.sessionID)
+    })
+
+    const listRoots = Effect.fn("SessionHttpApi.listRoots")(function* (ctx: { params: { sessionID: SessionID } }) {
+      return yield* SessionError.mapStorageNotFound(session.listRoots(ctx.params.sessionID))
+    })
+
+    const addRoot = Effect.fn("SessionHttpApi.addRoot")(function* (ctx: {
+      params: { sessionID: SessionID }
+      payload: typeof AddRootPayload.Type
+    }) {
+      return yield* SessionError.mapRootMutation(session.addRoot({ sessionID: ctx.params.sessionID, ...ctx.payload }))
+    })
+
+    const updateRoot = Effect.fn("SessionHttpApi.updateRoot")(function* (ctx: {
+      params: { sessionID: SessionID; rootID: SessionRootID }
+      payload: typeof UpdateRootPayload.Type
+    }) {
+      return yield* SessionError.mapStorageNotFound(
+        session.updateRoot({ sessionID: ctx.params.sessionID, rootID: ctx.params.rootID, ...ctx.payload }),
+      )
+    })
+
+    const removeRoot = Effect.fn("SessionHttpApi.removeRoot")(function* (ctx: {
+      params: { sessionID: SessionID; rootID: SessionRootID }
+    }) {
+      yield* SessionError.mapRootMutation(
+        session.removeRoot({ sessionID: ctx.params.sessionID, rootID: ctx.params.rootID }),
+      )
+      return true
     })
 
     const children = Effect.fn("SessionHttpApi.children")(function* (ctx: { params: { sessionID: SessionID } }) {
@@ -407,6 +439,10 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       .handle("list", list)
       .handle("status", status)
       .handle("get", get)
+      .handle("listRoots", listRoots)
+      .handle("addRoot", addRoot)
+      .handle("updateRoot", updateRoot)
+      .handle("removeRoot", removeRoot)
       .handle("children", children)
       .handle("todo", todo)
       .handle("diff", diff)

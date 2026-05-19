@@ -8,7 +8,7 @@ import { SessionRevert } from "@/session/revert"
 import { SessionStatus } from "@/session/status"
 import { SessionSummary } from "@/session/summary"
 import { Todo } from "@/session/todo"
-import { MessageID, PartID, SessionID } from "@/session/schema"
+import { MessageID, PartID, SessionID, SessionRootID } from "@/session/schema"
 import { Snapshot } from "@/snapshot"
 import { Schema, Struct } from "effect"
 import { HttpApi, HttpApiEndpoint, HttpApiError, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi"
@@ -52,6 +52,14 @@ export const UpdatePayload = Schema.Struct({
     }),
   ),
 })
+export const AddRootPayload = Schema.Struct({
+  directory: Schema.String,
+  name: Schema.optional(Schema.String),
+})
+export const UpdateRootPayload = Schema.Struct({
+  name: Schema.optional(Schema.String),
+  primary: Schema.optional(Schema.Boolean),
+})
 export const ForkPayload = Schema.Struct(Struct.omit(Session.ForkInput.fields, ["sessionID"]))
 export const InitPayload = Schema.Struct({
   modelID: ModelID,
@@ -75,6 +83,8 @@ export const SessionPaths = {
   list: root,
   status: `${root}/status`,
   get: `${root}/:sessionID`,
+  roots: `${root}/:sessionID/root`,
+  root: `${root}/:sessionID/root/:rootID`,
   children: `${root}/:sessionID/children`,
   todo: `${root}/:sessionID/todo`,
   diff: `${root}/:sessionID/diff`,
@@ -135,6 +145,56 @@ export const SessionApi = HttpApi.make("session")
             identifier: "session.get",
             summary: "Get session",
             description: "Retrieve detailed information about a specific OpenCode session.",
+          }),
+        ),
+        HttpApiEndpoint.get("listRoots", SessionPaths.roots, {
+          params: { sessionID: SessionID },
+          query: WorkspaceRoutingQuery,
+          success: described(Schema.Array(Session.RootInfo), "List of session roots"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.root.list",
+            summary: "List session roots",
+            description: "Retrieve all registered working directories for a session.",
+          }),
+        ),
+        HttpApiEndpoint.post("addRoot", SessionPaths.roots, {
+          params: { sessionID: SessionID },
+          query: WorkspaceRoutingQuery,
+          payload: AddRootPayload,
+          success: described(Session.RootInfo, "Successfully added session root"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.root.add",
+            summary: "Add session root",
+            description: "Register another working directory for a session.",
+          }),
+        ),
+        HttpApiEndpoint.patch("updateRoot", SessionPaths.root, {
+          params: { sessionID: SessionID, rootID: SessionRootID },
+          query: WorkspaceRoutingQuery,
+          payload: UpdateRootPayload,
+          success: described(Session.RootInfo, "Successfully updated session root"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.root.update",
+            summary: "Update session root",
+            description: "Rename a session root or make it the primary root.",
+          }),
+        ),
+        HttpApiEndpoint.delete("removeRoot", SessionPaths.root, {
+          params: { sessionID: SessionID, rootID: SessionRootID },
+          query: WorkspaceRoutingQuery,
+          success: described(Schema.Boolean, "Successfully deleted session root"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.root.delete",
+            summary: "Delete session root",
+            description: "Remove a registered working directory from a session.",
           }),
         ),
         HttpApiEndpoint.get("children", SessionPaths.children, {
