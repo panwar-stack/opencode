@@ -1068,40 +1068,42 @@ it.live("does not inject lead team guidance into teammate sessions", () =>
   ),
 )
 
-reviewMemory.live("injects configured review memory into prompts", () =>
-  provideTmpdirServer(
-    Effect.fnUntraced(function* ({ llm }) {
-      const { prompt, chat } = yield* boot()
-      yield* llm.text("done")
+reviewMemory.live(
+  "injects configured review memory into prompts",
+  () =>
+    provideTmpdirServer(
+      Effect.fnUntraced(function* ({ llm }) {
+        const { prompt, chat } = yield* boot()
+        yield* llm.text("done")
 
-      yield* prompt.prompt({
-        sessionID: chat.id,
-        agent: "build",
-        model: ref,
-        parts: [{ type: "text", text: "update the Effect service filesystem usage" }],
-      })
+        yield* prompt.prompt({
+          sessionID: chat.id,
+          agent: "build",
+          model: ref,
+          parts: [{ type: "text", text: "update the Effect service filesystem usage" }],
+        })
 
-      const bodies = (yield* llm.inputs).map((input) => JSON.stringify(input))
-      expect(
-        bodies.some(
-          (body) =>
-            body.includes("Historical review memory") &&
-            body.includes("lower priority than current user instructions") &&
-            body.includes("Prefer Effect FileSystem over raw fs/promises") &&
-            body.includes("Confidence: 0.91") &&
-            body.includes("PR #123") &&
-            body.includes("https://github.com/opencode-ai/opencode/pull/123#discussion_r1"),
-        ),
-      ).toBe(true)
-    }),
-    {
-      git: true,
-      config: (url) => ({
-        ...providerCfg(url),
-        memory: { enabled: true },
+        const bodies = (yield* llm.inputs).map((input) => JSON.stringify(input))
+        expect(
+          bodies.some(
+            (body) =>
+              body.includes("Historical review memory") &&
+              body.includes("lower priority than current user instructions") &&
+              body.includes("Prefer Effect FileSystem over raw fs/promises") &&
+              body.includes("Confidence: 0.91") &&
+              body.includes("PR #123") &&
+              body.includes("https://github.com/opencode-ai/opencode/pull/123#discussion_r1"),
+          ),
+        ).toBe(true)
       }),
-    },
-  ),
+      {
+        git: true,
+        config: (url) => ({
+          ...providerCfg(url),
+          memory: { enabled: true },
+        }),
+      },
+    ),
   10_000,
 )
 

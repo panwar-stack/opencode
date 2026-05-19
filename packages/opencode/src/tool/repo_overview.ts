@@ -99,7 +99,11 @@ function commonEntrypoints(files: Set<string>) {
   ].filter((file) => files.has(file))
 }
 
-export const RepoOverviewTool = Tool.define<typeof Parameters, Metadata, AppFileSystem.Service | Git.Service | Session.Service>(
+export const RepoOverviewTool = Tool.define<
+  typeof Parameters,
+  Metadata,
+  AppFileSystem.Service | Git.Service | Session.Service
+>(
   "repo_overview",
   Effect.gen(function* () {
     const fs = yield* AppFileSystem.Service

@@ -68,26 +68,16 @@ export const TeamReportTool = Tool.define<typeof Parameters, Record<string, unkn
           }
 
           const context = yield* team.getContext(ctx.sessionID)
-          const leadSessionID = params.lead_session_id ??
-            (Option.isSome(context) ? context.value.team.lead_session_id : undefined)
+          const leadSessionID =
+            params.lead_session_id ?? (Option.isSome(context) ? context.value.team.lead_session_id : undefined)
           const teamID = params.team_id
           const explicitTeam = teamID
-            ? Database.use(() =>
-                Database.Client()
-                  .select()
-                  .from(TeamTable)
-                  .where(eq(TeamTable.id, teamID))
-                  .get(),
-              )
+            ? Database.use(() => Database.Client().select().from(TeamTable).where(eq(TeamTable.id, teamID)).get())
             : undefined
           const latestTeamForLead = leadSessionID
             ? (() => {
                 const rows = Database.use(() =>
-                  Database.Client()
-                    .select()
-                    .from(TeamTable)
-                    .where(eq(TeamTable.lead_session_id, leadSessionID))
-                    .all(),
+                  Database.Client().select().from(TeamTable).where(eq(TeamTable.lead_session_id, leadSessionID)).all(),
                 )
                 rows.sort((a, b) => b.time_updated - a.time_updated)
                 return rows[0]
@@ -164,11 +154,7 @@ export const TeamReportTool = Tool.define<typeof Parameters, Record<string, unkn
             (row) =>
               Effect.sync(() =>
                 Database.use(() =>
-                  Database.Client()
-                    .select()
-                    .from(SessionTable)
-                    .where(eq(SessionTable.parent_id, row.id))
-                    .all(),
+                  Database.Client().select().from(SessionTable).where(eq(SessionTable.parent_id, row.id)).all(),
                 ),
               ),
             { concurrency: "unbounded" },
@@ -188,8 +174,10 @@ export const TeamReportTool = Tool.define<typeof Parameters, Record<string, unkn
           const startedMembers = members.filter((member) => member.status === "starting")
           const completedRuntime = completedMembers.map((member) => member.time_updated - member.time_created)
           const memberRuntimeP50 = median(completedRuntime)
-          const memberRuntimeAvg = completedRuntime.length === 0 ? 0 : completedRuntime.reduce((acc, item) => acc + item, 0) /
-            completedRuntime.length
+          const memberRuntimeAvg =
+            completedRuntime.length === 0
+              ? 0
+              : completedRuntime.reduce((acc, item) => acc + item, 0) / completedRuntime.length
           const parallelism = teamWindowMs === 0 ? 0 : totalMemberRuntime / teamWindowMs
 
           const completedTasks = tasks.filter((item) => item.status === "completed")
@@ -209,12 +197,16 @@ export const TeamReportTool = Tool.define<typeof Parameters, Record<string, unkn
               if (!created) return []
               return [recipient.time_updated - created]
             })
-          const messageDeliveryAvg = messageDeliveryMs.length === 0
-            ? 0
-            : messageDeliveryMs.reduce((acc, item) => acc + item, 0) / messageDeliveryMs.length
+          const messageDeliveryAvg =
+            messageDeliveryMs.length === 0
+              ? 0
+              : messageDeliveryMs.reduce((acc, item) => acc + item, 0) / messageDeliveryMs.length
           const messageDeliveryP50 = median(messageDeliveryMs)
 
-          const teamSessionRuntime = teamSessionRows.reduce((acc, session) => acc + (session.time_updated - session.time_created), 0)
+          const teamSessionRuntime = teamSessionRows.reduce(
+            (acc, session) => acc + (session.time_updated - session.time_created),
+            0,
+          )
           const teamSessionCost = teamSessionRows.reduce((acc, session) => acc + session.cost, 0)
           const teamSessionTokens = teamSessionRows.reduce(
             (acc, session) => ({
@@ -265,12 +257,12 @@ export const TeamReportTool = Tool.define<typeof Parameters, Record<string, unkn
             .filter((finding) => finding.root_cause)
             .sort((a, b) => severityRank(b.severity) - severityRank(a.severity) || a.time_created - b.time_created)
             .slice(0, 3)
-          const rootCauseLines = rootCauseFindings.length === 0
-            ? ["- top root causes: none"]
-            : rootCauseFindings.map(
-                (finding) =>
-                  `- ${finding.severity} ${finding.category} on ${finding.node_id}: ${finding.message}`,
-              )
+          const rootCauseLines =
+            rootCauseFindings.length === 0
+              ? ["- top root causes: none"]
+              : rootCauseFindings.map(
+                  (finding) => `- ${finding.severity} ${finding.category} on ${finding.node_id}: ${finding.message}`,
+                )
 
           const insights = [
             blockedMembers.length > 0
@@ -344,7 +336,9 @@ export const TeamReportTool = Tool.define<typeof Parameters, Record<string, unkn
             ...insights,
             "",
             "## Comparison sessions (optional baselines)",
-            ...(comparison.length === 0 ? ["No comparison sessions supplied. Pass compare_session_ids to benchmark direct or subagent-only runs."] : comparison),
+            ...(comparison.length === 0
+              ? ["No comparison sessions supplied. Pass compare_session_ids to benchmark direct or subagent-only runs."]
+              : comparison),
           ].join("\n")
 
           return {
