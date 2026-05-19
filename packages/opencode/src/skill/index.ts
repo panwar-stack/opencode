@@ -16,6 +16,7 @@ import * as Log from "@opencode-ai/core/util/log"
 import { Discovery } from "./discovery"
 import CUSTOMIZE_OPENCODE_SKILL_BODY from "./prompt/customize-opencode.md" with { type: "text" }
 import REVIEW_MEMORY_SKILL_BODY from "./prompt/review-memory.md" with { type: "text" }
+import SPEC_PLANNER_SKILL_BODY from "./prompt/spec-planner.md" with { type: "text" }
 import { isRecord } from "@/util/record"
 
 const log = Log.create({ service: "skill" })
@@ -36,6 +37,9 @@ const CUSTOMIZE_OPENCODE_SKILL_DESCRIPTION =
 const REVIEW_MEMORY_SKILL_NAME = "review-memory"
 const REVIEW_MEMORY_SKILL_DESCRIPTION =
   "Use when coding or reviewing changes in a repository with historical review memory, especially before final response or PR review, to query opencode memory and apply cited advisory constraints."
+const SPEC_PLANNER_SKILL_NAME = "spec-planner"
+const SPEC_PLANNER_SKILL_DESCRIPTION =
+  "Convert rough user requirements, feature ideas, bug themes, or implementation goals into concrete engineering specs. Use when Codex needs to draft a Markdown spec, implementation plan, PR breakdown, acceptance criteria, verification plan, or repo-ready proposal similar to opencode specs such as packages/opencode/specs/agent-team-evaluation.md."
 const BUILTIN_LOCATION = "<built-in>"
 
 export const Info = Schema.Struct({
@@ -58,6 +62,12 @@ const BUILTIN_SKILLS = [
     description: REVIEW_MEMORY_SKILL_DESCRIPTION,
     location: BUILTIN_LOCATION,
     content: REVIEW_MEMORY_SKILL_BODY,
+  },
+  {
+    name: SPEC_PLANNER_SKILL_NAME,
+    description: SPEC_PLANNER_SKILL_DESCRIPTION,
+    location: BUILTIN_LOCATION,
+    content: SPEC_PLANNER_SKILL_BODY,
   },
 ] satisfies Info[]
 

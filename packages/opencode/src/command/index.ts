@@ -7,8 +7,10 @@ import { Effect, Layer, Context, Schema } from "effect"
 import { Config } from "@/config/config"
 import { MCP } from "../mcp"
 import { Skill } from "../skill"
+import PROMPT_IMPLEMENT_SPEC_PR from "./template/implement-spec-pr.txt"
 import PROMPT_INITIALIZE from "./template/initialize.txt"
 import PROMPT_REVIEW from "./template/review.txt"
+import PROMPT_SPEC_PLANNER from "./template/spec-planner.txt"
 
 type State = {
   commands: Record<string, Info>
@@ -51,8 +53,10 @@ export function hints(template: string) {
 }
 
 export const Default = {
+  IMPLEMENT_SPEC_PR: "implement-spec-pr",
   INIT: "init",
   REVIEW: "review",
+  SPEC_PLANNER: "spec-planner",
 } as const
 
 export interface Interface {
@@ -92,6 +96,25 @@ export const layer = Layer.effect(
         },
         subtask: true,
         hints: hints(PROMPT_REVIEW),
+      }
+      commands[Default.SPEC_PLANNER] = {
+        name: Default.SPEC_PLANNER,
+        description:
+          "Convert rough requirements, feature ideas, bug themes, or implementation goals into concrete engineering specs.",
+        source: "command",
+        get template() {
+          return PROMPT_SPEC_PLANNER
+        },
+        hints: hints(PROMPT_SPEC_PLANNER),
+      }
+      commands[Default.IMPLEMENT_SPEC_PR] = {
+        name: Default.IMPLEMENT_SPEC_PR,
+        description: "Understand a specification thoroughly and implement only the requested PR slice.",
+        source: "command",
+        get template() {
+          return PROMPT_IMPLEMENT_SPEC_PR
+        },
+        hints: hints(PROMPT_IMPLEMENT_SPEC_PR),
       }
 
       for (const [name, command] of Object.entries(cfg.command ?? {})) {
