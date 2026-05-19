@@ -1,0 +1,7 @@
+# Implement Spec PR
+
+Understand the specification thoroughly at `$1`.
+
+Implement only the work required for PR `#$2`.
+
+Do not implement unrelated PRs, future phases, or adjacent improvements unless they are strictly necessary to complete PR `#$2`.

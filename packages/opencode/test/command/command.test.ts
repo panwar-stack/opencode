@@ -23,4 +23,34 @@ describe("command", () => {
       { git: true },
     ),
   )
+
+  it.live("includes internal spec planning commands", () =>
+    provideTmpdirInstance(
+      () =>
+        Effect.gen(function* () {
+          const command = yield* Command.Service
+          const specPlanner = yield* command.get("spec-planner")
+          if (!specPlanner) throw new Error("spec-planner command not found")
+
+          expect(specPlanner.source).toBe("command")
+          expect(specPlanner.description).toContain("concrete engineering specs")
+          expect(yield* Effect.promise(() => Promise.resolve(specPlanner.template))).toContain(
+            "Requirements To Spec",
+          )
+
+          const implementSpecPr = yield* command.get("implement-spec-pr")
+          if (!implementSpecPr) throw new Error("implement-spec-pr command not found")
+
+          expect(implementSpecPr.source).toBe("command")
+          expect(implementSpecPr.description).toBe(
+            "Understand a specification thoroughly and implement only the requested PR slice.",
+          )
+          expect(implementSpecPr.hints).toEqual(["$1", "$2"])
+          expect(yield* Effect.promise(() => Promise.resolve(implementSpecPr.template))).toContain(
+            "Implement only the work required for PR `#$2`.",
+          )
+        }),
+      { git: true },
+    ),
+  )
 })

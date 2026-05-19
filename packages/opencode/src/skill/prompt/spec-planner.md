@@ -1,7 +1,9 @@
----
-name: spec-planner
-description: Convert rough user requirements, feature ideas, bug themes, or implementation goals into concrete engineering specs. Use when Codex needs to draft a Markdown spec, implementation plan, PR breakdown, acceptance criteria, verification plan, or repo-ready proposal similar to opencode specs such as packages/opencode/specs/agent-team-evaluation.md.
----
+<!--
+  Built-in skill. Name and description are registered in code at
+  packages/opencode/src/skill/index.ts (see SPEC_PLANNER_SKILL_NAME
+  and SPEC_PLANNER_SKILL_DESCRIPTION). The body below becomes the
+  skill's content.
+-->
 
 # Requirements To Spec
 
