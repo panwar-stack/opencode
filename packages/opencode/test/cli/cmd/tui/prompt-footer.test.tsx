@@ -130,6 +130,8 @@ const fetchForPrompt = (async (input: RequestInfo | URL) => {
       return json([sessionPayload])
     case `/session/${sessionID}`:
       return json(sessionPayload)
+    case `/session/${sessionID}/root`:
+      return json([])
     case `/session/${sessionID}/message`:
       return json(messagesPayload)
     case `/session/${sessionID}/todo`:

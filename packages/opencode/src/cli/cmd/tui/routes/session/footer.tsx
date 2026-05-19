@@ -5,6 +5,8 @@ import { useDirectory } from "../../context/directory"
 import { useConnected } from "../../component/use-connected"
 import { createStore } from "solid-js/store"
 import { useRoute } from "../../context/route"
+import { Global } from "@opencode-ai/core/global"
+import type { Session, SessionRoot } from "@opencode-ai/sdk/v2"
 
 export function Footer() {
   const { theme } = useTheme()
@@ -18,6 +20,14 @@ export function Footer() {
     return sync.data.permission[route.data.sessionID] ?? []
   })
   const directory = useDirectory()
+  const rootDirectory = createMemo(() => {
+    if (route.data.type !== "session") return directory()
+    return rootDirectoryLabel({
+      fallback: directory(),
+      roots: sync.data.session_root[route.data.sessionID] ?? [],
+      session: sync.session.get(route.data.sessionID),
+    })
+  })
   const connected = useConnected()
 
   const [store, setStore] = createStore({
@@ -51,7 +61,7 @@ export function Footer() {
 
   return (
     <box flexDirection="row" justifyContent="space-between" gap={1} flexShrink={0}>
-      <text fg={theme.textMuted}>{directory()}</text>
+      <text fg={theme.textMuted}>{rootDirectory()}</text>
       <box gap={2} flexDirection="row" flexShrink={0}>
         <Switch>
           <Match when={store.welcome}>
@@ -88,4 +98,11 @@ export function Footer() {
       </box>
     </box>
   )
+}
+
+export function rootDirectoryLabel(input: { fallback: string; roots: SessionRoot[]; session?: Session }) {
+  const primary = input.roots.find((root) => root.primary)
+  const result = (primary?.directory ?? input.session?.directory ?? input.fallback).replace(Global.Path.home, "~")
+  const extra = input.roots.length > 1 ? ` +${input.roots.length - 1} roots` : ""
+  return `${result}${extra}`
 }
