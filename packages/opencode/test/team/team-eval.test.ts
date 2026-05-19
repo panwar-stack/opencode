@@ -63,7 +63,11 @@ describe("team eval", () => {
           }),
         )
         expect(report.edges).toContainEqual(
-          expect.objectContaining({ type: "depends_on", from: node("task", firstTask.id), to: node("task", secondTask.id) }),
+          expect.objectContaining({
+            type: "depends_on",
+            from: node("task", firstTask.id),
+            to: node("task", secondTask.id),
+          }),
         )
         expect(report.edges).toContainEqual(
           expect.objectContaining({
@@ -73,7 +77,11 @@ describe("team eval", () => {
           }),
         )
         expect(report.edges).toContainEqual(
-          expect.objectContaining({ type: "produces", from: node("member", first.session_id), to: node("result", first.session_id) }),
+          expect.objectContaining({
+            type: "produces",
+            from: node("member", first.session_id),
+            to: node("result", first.session_id),
+          }),
         )
         expect(report.summary.longest_dependency_chain).toBe(1)
       }),
@@ -84,7 +92,11 @@ describe("team eval", () => {
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
         const team = yield* Team.Service
-        const info = yield* team.create({ name: "eval-findings", goal: "Find deterministic failures", leadSessionID: "ses_eval_lead_findings" })
+        const info = yield* team.create({
+          name: "eval-findings",
+          goal: "Find deterministic failures",
+          leadSessionID: "ses_eval_lead_findings",
+        })
         const empty = yield* team.addMember({
           teamID: info.id,
           sessionID: "ses_eval_empty_result",
@@ -110,7 +122,9 @@ describe("team eval", () => {
 
         const report = yield* TeamEval.build(info.id)
 
-        expect(categories(report).filter((category) => category === "planning.missing_or_wrong_dependency").length).toBe(2)
+        expect(
+          categories(report).filter((category) => category === "planning.missing_or_wrong_dependency").length,
+        ).toBe(2)
         expect(categories(report)).toContain("execution.empty_result")
         expect(finding(report, "execution.empty_result")?.root_cause).toBe(true)
         expect(report.summary.root_cause_count).toBe(3)
@@ -122,7 +136,11 @@ describe("team eval", () => {
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
         const team = yield* Team.Service
-        const info = yield* team.create({ name: "eval-propagation", goal: "Propagate failures", leadSessionID: "ses_eval_lead_propagation" })
+        const info = yield* team.create({
+          name: "eval-propagation",
+          goal: "Propagate failures",
+          leadSessionID: "ses_eval_lead_propagation",
+        })
         const upstream = yield* team.addMember({
           teamID: info.id,
           sessionID: "ses_eval_cancelled_upstream",
@@ -145,7 +163,9 @@ describe("team eval", () => {
         const report = yield* TeamEval.build(info.id)
         const blocked = finding(report, "execution.stuck_or_blocked", node("member", dependent.session_id))
 
-        expect(finding(report, "execution.cancelled_member", node("member", upstream.session_id))?.root_cause).toBe(true)
+        expect(finding(report, "execution.cancelled_member", node("member", upstream.session_id))?.root_cause).toBe(
+          true,
+        )
         expect(blocked?.root_cause).toBe(false)
         expect(blocked?.propagated_from).toBe(node("member", upstream.session_id))
         expect(report.edges).toContainEqual(
@@ -163,7 +183,11 @@ describe("team eval", () => {
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
         const team = yield* Team.Service
-        const info = yield* team.create({ name: "eval-local-failures", goal: "Keep local failures local", leadSessionID: "ses_eval_lead_local" })
+        const info = yield* team.create({
+          name: "eval-local-failures",
+          goal: "Keep local failures local",
+          leadSessionID: "ses_eval_lead_local",
+        })
         const active = yield* team.addMember({
           teamID: info.id,
           sessionID: "ses_eval_active_at_close",
@@ -186,8 +210,12 @@ describe("team eval", () => {
         const report = yield* TeamEval.build(info.id)
 
         expect(finding(report, "integration.premature_shutdown", node("team", info.id))?.root_cause).toBe(true)
-        expect(finding(report, "execution.cancelled_member", node("member", cancelled.session_id))?.root_cause).toBe(true)
-        expect(finding(report, "execution.cancelled_member", node("member", cancelled.session_id))?.propagated_from).toBeUndefined()
+        expect(finding(report, "execution.cancelled_member", node("member", cancelled.session_id))?.root_cause).toBe(
+          true,
+        )
+        expect(
+          finding(report, "execution.cancelled_member", node("member", cancelled.session_id))?.propagated_from,
+        ).toBeUndefined()
       }),
     ),
   )
@@ -196,7 +224,11 @@ describe("team eval", () => {
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
         const team = yield* Team.Service
-        const info = yield* team.create({ name: "eval-closed-message", goal: "Find pending messages", leadSessionID: "ses_eval_lead_pending" })
+        const info = yield* team.create({
+          name: "eval-closed-message",
+          goal: "Find pending messages",
+          leadSessionID: "ses_eval_lead_pending",
+        })
         const member = yield* team.addMember({
           teamID: info.id,
           sessionID: "ses_eval_pending_recipient",
@@ -229,7 +261,11 @@ describe("team eval", () => {
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
         const team = yield* Team.Service
-        const info = yield* team.create({ name: "eval-pr4-happy", goal: "Complete independent work", leadSessionID: "ses_eval_pr4_happy_lead" })
+        const info = yield* team.create({
+          name: "eval-pr4-happy",
+          goal: "Complete independent work",
+          leadSessionID: "ses_eval_pr4_happy_lead",
+        })
         const first = yield* team.addMember({
           teamID: info.id,
           sessionID: "ses_eval_pr4_happy_first",
@@ -253,10 +289,18 @@ describe("team eval", () => {
         expect(report.findings).toEqual([])
         expect(report.summary.root_cause_count).toBe(0)
         expect(report.edges).toContainEqual(
-          expect.objectContaining({ type: "lead_to_member", from: node("team", info.id), to: node("member", first.session_id) }),
+          expect.objectContaining({
+            type: "lead_to_member",
+            from: node("team", info.id),
+            to: node("member", first.session_id),
+          }),
         )
         expect(report.edges).toContainEqual(
-          expect.objectContaining({ type: "lead_to_member", from: node("team", info.id), to: node("member", second.session_id) }),
+          expect.objectContaining({
+            type: "lead_to_member",
+            from: node("team", info.id),
+            to: node("member", second.session_id),
+          }),
         )
       }),
     ),
@@ -266,7 +310,11 @@ describe("team eval", () => {
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
         const team = yield* Team.Service
-        const info = yield* team.create({ name: "eval-pr4-dependency", goal: "Pass result context", leadSessionID: "ses_eval_pr4_dep_lead" })
+        const info = yield* team.create({
+          name: "eval-pr4-dependency",
+          goal: "Pass result context",
+          leadSessionID: "ses_eval_pr4_dep_lead",
+        })
         const upstream = yield* team.addMember({
           teamID: info.id,
           sessionID: "ses_eval_pr4_dep_upstream",
@@ -302,10 +350,18 @@ describe("team eval", () => {
         expect(report.findings).toEqual([])
         expect(report.summary.root_cause_count).toBe(0)
         expect(report.edges).toContainEqual(
-          expect.objectContaining({ type: "depends_on", from: node("member", upstream.session_id), to: node("member", dependent.session_id) }),
+          expect.objectContaining({
+            type: "depends_on",
+            from: node("member", upstream.session_id),
+            to: node("member", dependent.session_id),
+          }),
         )
         expect(report.edges).toContainEqual(
-          expect.objectContaining({ type: "message_to", from: node("member", upstream.session_id), to: node("member", dependent.session_id) }),
+          expect.objectContaining({
+            type: "message_to",
+            from: node("member", upstream.session_id),
+            to: node("member", dependent.session_id),
+          }),
         )
       }),
     ),
@@ -315,7 +371,11 @@ describe("team eval", () => {
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
         const team = yield* Team.Service
-        const info = yield* team.create({ name: "eval-pr4-blocked", goal: "Detect stuck dependent", leadSessionID: "ses_eval_pr4_blocked_lead" })
+        const info = yield* team.create({
+          name: "eval-pr4-blocked",
+          goal: "Detect stuck dependent",
+          leadSessionID: "ses_eval_pr4_blocked_lead",
+        })
         const upstream = yield* team.addMember({
           teamID: info.id,
           sessionID: "ses_eval_pr4_blocked_upstream",
@@ -348,7 +408,11 @@ describe("team eval", () => {
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
         const team = yield* Team.Service
-        const info = yield* team.create({ name: "eval-pr4-pending", goal: "Detect pending delivery", leadSessionID: "ses_eval_pr4_pending_lead" })
+        const info = yield* team.create({
+          name: "eval-pr4-pending",
+          goal: "Detect pending delivery",
+          leadSessionID: "ses_eval_pr4_pending_lead",
+        })
         const recipient = yield* team.addMember({
           teamID: info.id,
           sessionID: "ses_eval_pr4_pending_recipient",
@@ -379,7 +443,11 @@ describe("team eval", () => {
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
         const team = yield* Team.Service
-        const info = yield* team.create({ name: "eval-pr4-cancelled", goal: "Propagate cancellation", leadSessionID: "ses_eval_pr4_cancelled_lead" })
+        const info = yield* team.create({
+          name: "eval-pr4-cancelled",
+          goal: "Propagate cancellation",
+          leadSessionID: "ses_eval_pr4_cancelled_lead",
+        })
         const upstream = yield* team.addMember({
           teamID: info.id,
           sessionID: "ses_eval_pr4_cancelled_upstream",
@@ -402,11 +470,17 @@ describe("team eval", () => {
         const report = yield* TeamEval.build(info.id)
         const blocked = finding(report, "execution.stuck_or_blocked", node("member", dependent.session_id))
 
-        expect(finding(report, "execution.cancelled_member", node("member", upstream.session_id))?.root_cause).toBe(true)
+        expect(finding(report, "execution.cancelled_member", node("member", upstream.session_id))?.root_cause).toBe(
+          true,
+        )
         expect(blocked?.root_cause).toBe(false)
         expect(blocked?.propagated_from).toBe(node("member", upstream.session_id))
         expect(report.edges).toContainEqual(
-          expect.objectContaining({ type: "propagates_to", from: node("member", upstream.session_id), to: node("member", dependent.session_id) }),
+          expect.objectContaining({
+            type: "propagates_to",
+            from: node("member", upstream.session_id),
+            to: node("member", dependent.session_id),
+          }),
         )
       }),
     ),

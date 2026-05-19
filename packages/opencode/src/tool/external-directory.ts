@@ -55,6 +55,9 @@ export const assertExternalDirectoryWithSession = Effect.fn("Tool.assertExternal
 
 export async function assertExternalDirectory(ctx: Tool.Context, target?: string, options?: Options) {
   return Effect.runPromise(
-    assertExternalDirectoryEffect(ctx, target, options).pipe(Effect.provide(Session.defaultLayer), Effect.provide(EffectLogger.layer)),
+    assertExternalDirectoryEffect(ctx, target, options).pipe(
+      Effect.provide(Session.defaultLayer),
+      Effect.provide(EffectLogger.layer),
+    ),
   )
 }

@@ -34,9 +34,7 @@ describe("command", () => {
 
           expect(specPlanner.source).toBe("command")
           expect(specPlanner.description).toContain("concrete engineering specs")
-          expect(yield* Effect.promise(() => Promise.resolve(specPlanner.template))).toContain(
-            "Requirements To Spec",
-          )
+          expect(yield* Effect.promise(() => Promise.resolve(specPlanner.template))).toContain("Requirements To Spec")
 
           const implementSpecPr = yield* command.get("implement-spec-pr")
           if (!implementSpecPr) throw new Error("implement-spec-pr command not found")

@@ -231,7 +231,9 @@ function reportFromRows(
       (task.dependency_ids ?? []).flatMap((dependencyID) => {
         const dependency = taskByID.get(dependencyID)
         if (!dependency) return []
-        return [edge("depends_on", nodeID("task", dependency.id), nodeID("task", task.id), { dependency_id: dependencyID })]
+        return [
+          edge("depends_on", nodeID("task", dependency.id), nodeID("task", task.id), { dependency_id: dependencyID }),
+        ]
       }),
     ),
     ...messages.flatMap((message) =>
@@ -249,7 +251,9 @@ function reportFromRows(
         ]
       }),
     ),
-    ...resultMembers.map((member) => edge("produces", nodeID("member", member.session_id), nodeID("result", member.session_id))),
+    ...resultMembers.map((member) =>
+      edge("produces", nodeID("member", member.session_id), nodeID("result", member.session_id)),
+    ),
   ])
   const structuralDeviation = structuralDeviationCount(edges, expectedEdges)
   const rawFindings = deterministicFindings(team, members, tasks, messages, recipients, structuralDeviation)
@@ -314,7 +318,11 @@ function deterministicFindings(
           ? finding("execution.stuck_or_blocked", "warning", nodeID("member", member.session_id), member.time_updated, {
               message: `Member ${member.name} is blocked by cancelled dependencies.`,
               suffix: "blocked-by-cancelled-dependency",
-              metadata: { session_id: member.session_id, dependency_ids: dependencyIDs, cancelled_dependencies: cancelledDependencies },
+              metadata: {
+                session_id: member.session_id,
+                dependency_ids: dependencyIDs,
+                cancelled_dependencies: cancelledDependencies,
+              },
             })
           : undefined,
         member.status === "completed" && !hasResult(member)
@@ -325,11 +333,17 @@ function deterministicFindings(
             })
           : undefined,
         ...missingDependencies.map((dependencyID) =>
-          finding("planning.missing_or_wrong_dependency", "error", nodeID("member", member.session_id), member.time_created, {
-            message: `Member ${member.name} depends on missing session ${dependencyID}.`,
-            suffix: `missing-member-dependency:${dependencyID}`,
-            metadata: { session_id: member.session_id, dependency_id: dependencyID },
-          }),
+          finding(
+            "planning.missing_or_wrong_dependency",
+            "error",
+            nodeID("member", member.session_id),
+            member.time_created,
+            {
+              message: `Member ${member.name} depends on missing session ${dependencyID}.`,
+              suffix: `missing-member-dependency:${dependencyID}`,
+              metadata: { session_id: member.session_id, dependency_id: dependencyID },
+            },
+          ),
         ),
       ].filter(isDefined)
     }),
@@ -355,15 +369,21 @@ function deterministicFindings(
       ? recipients
           .filter((recipient) => recipient.delivery_status === "pending")
           .map((recipient) =>
-            finding("messaging.pending_delivery", "warning", nodeID("message", recipient.message_id), recipient.time_updated, {
-              message: `Message ${recipient.message_id} still has pending delivery to ${recipient.recipient}.`,
-              suffix: `pending-recipient:${recipient.id}`,
-              metadata: {
-                message_id: recipient.message_id,
-                recipient: recipient.recipient,
-                sender: messageByID.get(recipient.message_id)?.sender,
+            finding(
+              "messaging.pending_delivery",
+              "warning",
+              nodeID("message", recipient.message_id),
+              recipient.time_updated,
+              {
+                message: `Message ${recipient.message_id} still has pending delivery to ${recipient.recipient}.`,
+                suffix: `pending-recipient:${recipient.id}`,
+                metadata: {
+                  message_id: recipient.message_id,
+                  recipient: recipient.recipient,
+                  sender: messageByID.get(recipient.message_id)?.sender,
+                },
               },
-            }),
+            ),
           )
       : []),
     structuralDeviation > 0
@@ -396,8 +416,9 @@ function attributeFindings(
     if (finding.severity === "info") return { ...finding, root_cause: false }
     const selectedParent = (parentsByNode.get(finding.node_id) ?? [])
       .map((edge) => ({ id: edge.from, failure: failureByNode.get(edge.from) }))
-      .filter((parent): parent is { id: string; failure: { severity: TeamEvalFindingSeverity; time_created: number } } =>
-        parent.failure !== undefined
+      .filter(
+        (parent): parent is { id: string; failure: { severity: TeamEvalFindingSeverity; time_created: number } } =>
+          parent.failure !== undefined,
       )
       .sort((a, b) => compareFailure(a.failure, b.failure) || a.id.localeCompare(b.id))[0]
     if (!selectedParent) return { ...finding, root_cause: true }

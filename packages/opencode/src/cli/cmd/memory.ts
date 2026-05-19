@@ -339,11 +339,7 @@ export function formatQueryText(results: readonly Memory.QueryResult[]) {
     .join(EOL + EOL)
 }
 
-function queryReviewMemory(
-  memory: Memory.Interface,
-  repo: string | undefined,
-  changes: readonly ReviewChange[],
-) {
+function queryReviewMemory(memory: Memory.Interface, repo: string | undefined, changes: readonly ReviewChange[]) {
   return Effect.gen(function* () {
     if (changes.length === 0) return []
 
@@ -385,7 +381,7 @@ function loadPrReviewChanges(pr: number, repo: string | undefined) {
       .run(
         ChildProcess.make(
           "gh",
-          ["api", `repos/${repo}/pulls/${pr}/files`, "--paginate", "--jq", '.[] | [.filename, .status] | @tsv'],
+          ["api", `repos/${repo}/pulls/${pr}/files`, "--paginate", "--jq", ".[] | [.filename, .status] | @tsv"],
           {
             cwd: ctx.worktree,
             extendEnv: true,

@@ -5535,6 +5535,354 @@
         ]
       }
     },
+    "/session/{sessionID}/root": {
+      "get": {
+        "tags": ["session"],
+        "operationId": "session.root.list",
+        "parameters": [
+          {
+            "name": "sessionID",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "pattern": "^ses"
+            },
+            "required": true
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of session roots",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SessionRoot"
+                  },
+                  "description": "List of session roots"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Retrieve all registered working directories for a session.",
+        "summary": "List session roots",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.session.root.list({\n  ...\n})"
+          }
+        ]
+      },
+      "post": {
+        "tags": ["session"],
+        "operationId": "session.root.add",
+        "parameters": [
+          {
+            "name": "sessionID",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "pattern": "^ses"
+            },
+            "required": true
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully added session root",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionRoot"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Register another working directory for a session.",
+        "summary": "Add session root",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "directory": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": ["directory"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.session.root.add({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/session/{sessionID}/root/{rootID}": {
+      "patch": {
+        "tags": ["session"],
+        "operationId": "session.root.update",
+        "parameters": [
+          {
+            "name": "sessionID",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "pattern": "^ses"
+            },
+            "required": true
+          },
+          {
+            "name": "rootID",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "pattern": "^sesroot"
+            },
+            "required": true
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully updated session root",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionRoot"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Rename a session root or make it the primary root.",
+        "summary": "Update session root",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "primary": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.session.root.update({\n  ...\n})"
+          }
+        ]
+      },
+      "delete": {
+        "tags": ["session"],
+        "operationId": "session.root.delete",
+        "parameters": [
+          {
+            "name": "sessionID",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "pattern": "^ses"
+            },
+            "required": true
+          },
+          {
+            "name": "rootID",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "pattern": "^sesroot"
+            },
+            "required": true
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully deleted session root",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "boolean",
+                  "description": "Successfully deleted session root"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Remove a registered working directory from a session.",
+        "summary": "Delete session root",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.session.root.delete({\n  ...\n})"
+          }
+        ]
+      }
+    },
     "/session/{sessionID}/children": {
       "get": {
         "tags": ["session"],
@@ -9016,22 +9364,6 @@
         "operationId": "team.get",
         "parameters": [
           {
-            "name": "directory",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "workspace",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
             "name": "sessionID",
             "in": "query",
             "schema": {
@@ -9072,27 +9404,57 @@
         ]
       }
     },
+    "/team/{teamID}/eval": {
+      "get": {
+        "tags": ["team"],
+        "operationId": "team.eval",
+        "parameters": [
+          {
+            "name": "teamID",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Team evaluation report",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamEvalReport"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Build and return the evaluation report for a team.",
+        "summary": "Get team evaluation report",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.team.eval({\n  ...\n})"
+          }
+        ]
+      }
+    },
     "/team/{teamID}": {
       "get": {
         "tags": ["team"],
         "operationId": "team.getById",
         "parameters": [
-          {
-            "name": "directory",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "workspace",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
           {
             "name": "teamID",
             "in": "path",
@@ -9139,22 +9501,6 @@
         "tags": ["team"],
         "operationId": "team.tasks",
         "parameters": [
-          {
-            "name": "directory",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "workspace",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
           {
             "name": "teamID",
             "in": "path",
@@ -9206,22 +9552,6 @@
         "operationId": "team.messages",
         "parameters": [
           {
-            "name": "directory",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "workspace",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
             "name": "teamID",
             "in": "path",
             "schema": {
@@ -9271,22 +9601,6 @@
         "tags": ["team"],
         "operationId": "team.shutdown",
         "parameters": [
-          {
-            "name": "directory",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "workspace",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
           {
             "name": "teamID",
             "in": "path",
@@ -10802,6 +11116,15 @@
       "Event": {
         "anyOf": [
           {
+            "$ref": "#/components/schemas/EventServerInstanceDisposed"
+          },
+          {
+            "$ref": "#/components/schemas/EventFileEdited"
+          },
+          {
+            "$ref": "#/components/schemas/EventFileWatcherUpdated"
+          },
+          {
             "$ref": "#/components/schemas/Event.tui.prompt.append"
           },
           {
@@ -10814,19 +11137,22 @@
             "$ref": "#/components/schemas/Event.tui.session.select"
           },
           {
-            "$ref": "#/components/schemas/EventServerConnected"
+            "$ref": "#/components/schemas/EventMcpToolsChanged"
           },
           {
-            "$ref": "#/components/schemas/EventGlobalDisposed"
+            "$ref": "#/components/schemas/EventMcpBrowserOpenFailed"
           },
           {
-            "$ref": "#/components/schemas/EventServerInstanceDisposed"
+            "$ref": "#/components/schemas/EventPermissionAsked"
           },
           {
-            "$ref": "#/components/schemas/EventFileEdited"
+            "$ref": "#/components/schemas/EventPermissionReplied"
           },
           {
-            "$ref": "#/components/schemas/EventFileWatcherUpdated"
+            "$ref": "#/components/schemas/EventCommandExecuted"
+          },
+          {
+            "$ref": "#/components/schemas/EventProjectUpdated"
           },
           {
             "$ref": "#/components/schemas/EventLspClientDiagnostics"
@@ -10836,12 +11162,6 @@
           },
           {
             "$ref": "#/components/schemas/EventMessagePartDelta"
-          },
-          {
-            "$ref": "#/components/schemas/EventPermissionAsked"
-          },
-          {
-            "$ref": "#/components/schemas/EventPermissionReplied"
           },
           {
             "$ref": "#/components/schemas/EventSessionDiff"
@@ -10878,18 +11198,6 @@
           },
           {
             "$ref": "#/components/schemas/EventTodoUpdated"
-          },
-          {
-            "$ref": "#/components/schemas/EventMcpToolsChanged"
-          },
-          {
-            "$ref": "#/components/schemas/EventMcpBrowserOpenFailed"
-          },
-          {
-            "$ref": "#/components/schemas/EventCommandExecuted"
-          },
-          {
-            "$ref": "#/components/schemas/EventProjectUpdated"
           },
           {
             "$ref": "#/components/schemas/EventSessionCompacted"
@@ -11031,6 +11339,12 @@
           },
           {
             "$ref": "#/components/schemas/EventPluginAdded"
+          },
+          {
+            "$ref": "#/components/schemas/EventServerConnected"
+          },
+          {
+            "$ref": "#/components/schemas/EventGlobalDisposed"
           },
           {
             "$ref": "#/components/schemas/EventCatalogModelUpdated"
@@ -11414,6 +11728,76 @@
           }
         },
         "required": ["id", "sessionID", "permission", "patterns", "metadata", "always"],
+        "additionalProperties": false
+      },
+      "Project": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "worktree": {
+            "type": "string"
+          },
+          "vcs": {
+            "type": "string",
+            "enum": ["git"]
+          },
+          "name": {
+            "type": "string"
+          },
+          "icon": {
+            "type": "object",
+            "properties": {
+              "url": {
+                "type": "string"
+              },
+              "override": {
+                "type": "string"
+              },
+              "color": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          },
+          "commands": {
+            "type": "object",
+            "properties": {
+              "start": {
+                "type": "string",
+                "description": "Startup script to run when creating a new workspace (worktree)"
+              }
+            },
+            "additionalProperties": false
+          },
+          "time": {
+            "type": "object",
+            "properties": {
+              "created": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "updated": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "initialized": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": ["created", "updated"],
+            "additionalProperties": false
+          },
+          "sandboxes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["id", "worktree", "time", "sandboxes"],
         "additionalProperties": false
       },
       "SnapshotFileDiff": {
@@ -11829,76 +12213,6 @@
           }
         },
         "required": ["content", "status", "priority"],
-        "additionalProperties": false
-      },
-      "Project": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "worktree": {
-            "type": "string"
-          },
-          "vcs": {
-            "type": "string",
-            "enum": ["git"]
-          },
-          "name": {
-            "type": "string"
-          },
-          "icon": {
-            "type": "object",
-            "properties": {
-              "url": {
-                "type": "string"
-              },
-              "override": {
-                "type": "string"
-              },
-              "color": {
-                "type": "string"
-              }
-            },
-            "additionalProperties": false
-          },
-          "commands": {
-            "type": "object",
-            "properties": {
-              "start": {
-                "type": "string",
-                "description": "Startup script to run when creating a new workspace (worktree)"
-              }
-            },
-            "additionalProperties": false
-          },
-          "time": {
-            "type": "object",
-            "properties": {
-              "created": {
-                "type": "integer",
-                "minimum": 0
-              },
-              "updated": {
-                "type": "integer",
-                "minimum": 0
-              },
-              "initialized": {
-                "type": "integer",
-                "minimum": 0
-              }
-            },
-            "required": ["created", "updated"],
-            "additionalProperties": false
-          },
-          "sandboxes": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          }
-        },
-        "required": ["id", "worktree", "time", "sandboxes"],
         "additionalProperties": false
       },
       "Pty": {
@@ -12756,6 +13070,10 @@
           "cost": {
             "type": "number"
           },
+          "duration": {
+            "type": "integer",
+            "minimum": 0
+          },
           "tokens": {
             "type": "object",
             "properties": {
@@ -13167,9 +13485,13 @@
               },
               "archived": {
                 "type": "number"
+              },
+              "processing": {
+                "type": "integer",
+                "minimum": 0
               }
             },
-            "required": ["created", "updated"],
+            "required": ["created", "updated", "processing"],
             "additionalProperties": false
           },
           "permission": {
@@ -13243,6 +13565,15 @@
           "payload": {
             "anyOf": [
               {
+                "$ref": "#/components/schemas/EventServerInstanceDisposed"
+              },
+              {
+                "$ref": "#/components/schemas/EventFileEdited"
+              },
+              {
+                "$ref": "#/components/schemas/EventFileWatcherUpdated"
+              },
+              {
                 "$ref": "#/components/schemas/Event.tui.prompt.append"
               },
               {
@@ -13255,19 +13586,22 @@
                 "$ref": "#/components/schemas/Event.tui.session.select"
               },
               {
-                "$ref": "#/components/schemas/EventServerConnected"
+                "$ref": "#/components/schemas/EventMcpToolsChanged"
               },
               {
-                "$ref": "#/components/schemas/EventGlobalDisposed"
+                "$ref": "#/components/schemas/EventMcpBrowserOpenFailed"
               },
               {
-                "$ref": "#/components/schemas/EventServerInstanceDisposed"
+                "$ref": "#/components/schemas/EventPermissionAsked"
               },
               {
-                "$ref": "#/components/schemas/EventFileEdited"
+                "$ref": "#/components/schemas/EventPermissionReplied"
               },
               {
-                "$ref": "#/components/schemas/EventFileWatcherUpdated"
+                "$ref": "#/components/schemas/EventCommandExecuted"
+              },
+              {
+                "$ref": "#/components/schemas/EventProjectUpdated"
               },
               {
                 "$ref": "#/components/schemas/EventLspClientDiagnostics"
@@ -13277,12 +13611,6 @@
               },
               {
                 "$ref": "#/components/schemas/EventMessagePartDelta"
-              },
-              {
-                "$ref": "#/components/schemas/EventPermissionAsked"
-              },
-              {
-                "$ref": "#/components/schemas/EventPermissionReplied"
               },
               {
                 "$ref": "#/components/schemas/EventSessionDiff"
@@ -13319,18 +13647,6 @@
               },
               {
                 "$ref": "#/components/schemas/EventTodoUpdated"
-              },
-              {
-                "$ref": "#/components/schemas/EventMcpToolsChanged"
-              },
-              {
-                "$ref": "#/components/schemas/EventMcpBrowserOpenFailed"
-              },
-              {
-                "$ref": "#/components/schemas/EventCommandExecuted"
-              },
-              {
-                "$ref": "#/components/schemas/EventProjectUpdated"
               },
               {
                 "$ref": "#/components/schemas/EventSessionCompacted"
@@ -13472,6 +13788,12 @@
               },
               {
                 "$ref": "#/components/schemas/EventPluginAdded"
+              },
+              {
+                "$ref": "#/components/schemas/EventServerConnected"
+              },
+              {
+                "$ref": "#/components/schemas/EventGlobalDisposed"
               },
               {
                 "$ref": "#/components/schemas/EventCatalogModelUpdated"
@@ -13739,6 +14061,53 @@
         "additionalProperties": {
           "$ref": "#/components/schemas/ReferenceConfigEntry"
         }
+      },
+      "MemoryConfig": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "limit": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "providers": {
+            "type": "object",
+            "properties": {
+              "github": {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "repo": {
+                    "type": "string"
+                  },
+                  "max_age_days": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "include_authors": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "exclude_authors": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
       },
       "PermissionActionConfig": {
         "type": "string",
@@ -14335,6 +14704,9 @@
           },
           "reference": {
             "$ref": "#/components/schemas/ReferenceConfig"
+          },
+          "memory": {
+            "$ref": "#/components/schemas/MemoryConfig"
           },
           "watcher": {
             "type": "object",
@@ -15275,9 +15647,13 @@
               },
               "archived": {
                 "type": "number"
+              },
+              "processing": {
+                "type": "integer",
+                "minimum": 0
               }
             },
-            "required": ["created", "updated"],
+            "required": ["created", "updated", "processing"],
             "additionalProperties": false
           },
           "permission": {
@@ -16095,7 +16471,45 @@
               }
             }
           }
-        }
+        },
+        "additionalProperties": false
+      },
+      "SessionRoot": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^sesroot"
+          },
+          "sessionID": {
+            "type": "string",
+            "pattern": "^ses"
+          },
+          "name": {
+            "type": "string"
+          },
+          "directory": {
+            "type": "string"
+          },
+          "worktree": {
+            "type": "string"
+          },
+          "projectID": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "created": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "primary": {
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "sessionID", "directory", "worktree", "projectID", "created", "primary"],
+        "additionalProperties": false
       },
       "TextPartInput": {
         "type": "object",
@@ -16471,6 +16885,380 @@
           }
         },
         "required": ["id", "name", "goal", "lead_session_id", "status", "time_created", "time_updated"],
+        "additionalProperties": false
+      },
+      "TeamEvalNode": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["team", "member", "task", "message", "session_step", "tool_call", "result"]
+          },
+          "ref": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "time_created": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["NaN"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["-Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          },
+          "time_updated": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["NaN"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["-Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          },
+          "metadata": {
+            "type": "object"
+          }
+        },
+        "required": ["id", "type", "ref", "time_created"],
+        "additionalProperties": false
+      },
+      "TeamEvalEdge": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "lead_to_member",
+              "depends_on",
+              "message_to",
+              "produces",
+              "contains",
+              "session_event",
+              "propagates_to"
+            ]
+          },
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object"
+          }
+        },
+        "required": ["id", "type", "from", "to"],
+        "additionalProperties": false
+      },
+      "TeamEvalFinding": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["info", "warning", "error"]
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "planning.goal_or_decomposition",
+              "planning.missing_or_wrong_dependency",
+              "execution.unknown_agent",
+              "execution.cancelled_member",
+              "execution.empty_result",
+              "execution.stuck_or_blocked",
+              "messaging.pending_delivery",
+              "messaging.missing_progress",
+              "integration.context_loss",
+              "integration.premature_shutdown",
+              "structure.unexpected_or_missing_edge"
+            ]
+          },
+          "node_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "time_created": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["NaN"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["-Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          },
+          "root_cause": {
+            "type": "boolean"
+          },
+          "propagated_from": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object"
+          }
+        },
+        "required": ["id", "severity", "category", "node_id", "message", "time_created", "root_cause"],
+        "additionalProperties": false
+      },
+      "TeamEvalReport": {
+        "type": "object",
+        "properties": {
+          "team_id": {
+            "type": "string"
+          },
+          "generated_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["NaN"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["-Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TeamEvalNode"
+            }
+          },
+          "edges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TeamEvalEdge"
+            }
+          },
+          "findings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TeamEvalFinding"
+            }
+          },
+          "summary": {
+            "type": "object",
+            "properties": {
+              "node_count": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["NaN"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["-Infinity"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity", "-Infinity", "NaN"]
+                  }
+                ]
+              },
+              "edge_count": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["NaN"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["-Infinity"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity", "-Infinity", "NaN"]
+                  }
+                ]
+              },
+              "root_cause_count": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["NaN"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["-Infinity"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity", "-Infinity", "NaN"]
+                  }
+                ]
+              },
+              "propagated_failure_count": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["NaN"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["-Infinity"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity", "-Infinity", "NaN"]
+                  }
+                ]
+              },
+              "structural_deviation_count": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["NaN"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["-Infinity"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity", "-Infinity", "NaN"]
+                  }
+                ]
+              },
+              "longest_dependency_chain": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["NaN"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["-Infinity"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity", "-Infinity", "NaN"]
+                  }
+                ]
+              }
+            },
+            "required": [
+              "node_count",
+              "edge_count",
+              "root_cause_count",
+              "propagated_failure_count",
+              "structural_deviation_count",
+              "longest_dependency_chain"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": ["team_id", "generated_at", "nodes", "edges", "findings", "summary"],
         "additionalProperties": false
       },
       "TeamTask": {
@@ -17360,6 +18148,17 @@
                         "anyOf": [
                           {
                             "type": "number"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "processing": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 0
                           },
                           {
                             "type": "null"
@@ -18721,42 +19520,6 @@
         "required": ["type", "name", "id", "seq", "aggregateID", "data"],
         "additionalProperties": false
       },
-      "EventServerConnected": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string",
-            "enum": ["server.connected"]
-          },
-          "properties": {
-            "type": "object",
-            "properties": {}
-          }
-        },
-        "required": ["id", "type", "properties"],
-        "additionalProperties": false
-      },
-      "EventGlobalDisposed": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string",
-            "enum": ["global.disposed"]
-          },
-          "properties": {
-            "type": "object",
-            "properties": {}
-          }
-        },
-        "required": ["id", "type", "properties"],
-        "additionalProperties": false
-      },
       "EventServerInstanceDisposed": {
         "type": "object",
         "properties": {
@@ -18828,6 +19591,159 @@
             },
             "required": ["file", "event"],
             "additionalProperties": false
+          }
+        },
+        "required": ["id", "type", "properties"],
+        "additionalProperties": false
+      },
+      "EventMcpToolsChanged": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["mcp.tools.changed"]
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "server": {
+                "type": "string"
+              }
+            },
+            "required": ["server"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["id", "type", "properties"],
+        "additionalProperties": false
+      },
+      "EventMcpBrowserOpenFailed": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["mcp.browser.open.failed"]
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "mcpName": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              }
+            },
+            "required": ["mcpName", "url"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["id", "type", "properties"],
+        "additionalProperties": false
+      },
+      "EventPermissionAsked": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["permission.asked"]
+          },
+          "properties": {
+            "$ref": "#/components/schemas/PermissionRequest"
+          }
+        },
+        "required": ["id", "type", "properties"],
+        "additionalProperties": false
+      },
+      "EventPermissionReplied": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["permission.replied"]
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "sessionID": {
+                "type": "string",
+                "pattern": "^ses"
+              },
+              "requestID": {
+                "type": "string",
+                "pattern": "^per"
+              },
+              "reply": {
+                "type": "string",
+                "enum": ["once", "always", "reject"]
+              }
+            },
+            "required": ["sessionID", "requestID", "reply"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["id", "type", "properties"],
+        "additionalProperties": false
+      },
+      "EventCommandExecuted": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["command.executed"]
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "sessionID": {
+                "type": "string",
+                "pattern": "^ses"
+              },
+              "arguments": {
+                "type": "string"
+              },
+              "messageID": {
+                "type": "string",
+                "pattern": "^msg"
+              }
+            },
+            "required": ["name", "sessionID", "arguments", "messageID"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["id", "type", "properties"],
+        "additionalProperties": false
+      },
+      "EventProjectUpdated": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["project.updated"]
+          },
+          "properties": {
+            "$ref": "#/components/schemas/Project"
           }
         },
         "required": ["id", "type", "properties"],
@@ -18911,56 +19827,6 @@
               }
             },
             "required": ["sessionID", "messageID", "partID", "field", "delta"],
-            "additionalProperties": false
-          }
-        },
-        "required": ["id", "type", "properties"],
-        "additionalProperties": false
-      },
-      "EventPermissionAsked": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string",
-            "enum": ["permission.asked"]
-          },
-          "properties": {
-            "$ref": "#/components/schemas/PermissionRequest"
-          }
-        },
-        "required": ["id", "type", "properties"],
-        "additionalProperties": false
-      },
-      "EventPermissionReplied": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string",
-            "enum": ["permission.replied"]
-          },
-          "properties": {
-            "type": "object",
-            "properties": {
-              "sessionID": {
-                "type": "string",
-                "pattern": "^ses"
-              },
-              "requestID": {
-                "type": "string",
-                "pattern": "^per"
-              },
-              "reply": {
-                "type": "string",
-                "enum": ["once", "always", "reject"]
-              }
-            },
-            "required": ["sessionID", "requestID", "reply"],
             "additionalProperties": false
           }
         },
@@ -19093,37 +19959,6 @@
           },
           "properties": {
             "$ref": "#/components/schemas/QuestionRejected"
-          }
-        },
-        "required": ["id", "type", "properties"],
-        "additionalProperties": false
-      },
-      "EventTodoUpdated": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string",
-            "enum": ["todo.updated"]
-          },
-          "properties": {
-            "type": "object",
-            "properties": {
-              "sessionID": {
-                "type": "string",
-                "pattern": "^ses"
-              },
-              "todos": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/Todo"
-                }
-              }
-            },
-            "required": ["sessionID", "todos"],
-            "additionalProperties": false
           }
         },
         "required": ["id", "type", "properties"],
@@ -19290,7 +20125,7 @@
         "required": ["id", "type", "properties"],
         "additionalProperties": false
       },
-      "EventMcpToolsChanged": {
+      "EventTodoUpdated": {
         "type": "object",
         "properties": {
           "id": {
@@ -19298,96 +20133,24 @@
           },
           "type": {
             "type": "string",
-            "enum": ["mcp.tools.changed"]
+            "enum": ["todo.updated"]
           },
           "properties": {
             "type": "object",
             "properties": {
-              "server": {
-                "type": "string"
-              }
-            },
-            "required": ["server"],
-            "additionalProperties": false
-          }
-        },
-        "required": ["id", "type", "properties"],
-        "additionalProperties": false
-      },
-      "EventMcpBrowserOpenFailed": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string",
-            "enum": ["mcp.browser.open.failed"]
-          },
-          "properties": {
-            "type": "object",
-            "properties": {
-              "mcpName": {
-                "type": "string"
-              },
-              "url": {
-                "type": "string"
-              }
-            },
-            "required": ["mcpName", "url"],
-            "additionalProperties": false
-          }
-        },
-        "required": ["id", "type", "properties"],
-        "additionalProperties": false
-      },
-      "EventCommandExecuted": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string",
-            "enum": ["command.executed"]
-          },
-          "properties": {
-            "type": "object",
-            "properties": {
-              "name": {
-                "type": "string"
-              },
               "sessionID": {
                 "type": "string",
                 "pattern": "^ses"
               },
-              "arguments": {
-                "type": "string"
-              },
-              "messageID": {
-                "type": "string",
-                "pattern": "^msg"
+              "todos": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Todo"
+                }
               }
             },
-            "required": ["name", "sessionID", "arguments", "messageID"],
+            "required": ["sessionID", "todos"],
             "additionalProperties": false
-          }
-        },
-        "required": ["id", "type", "properties"],
-        "additionalProperties": false
-      },
-      "EventProjectUpdated": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string",
-            "enum": ["project.updated"]
-          },
-          "properties": {
-            "$ref": "#/components/schemas/Project"
           }
         },
         "required": ["id", "type", "properties"],
@@ -21092,6 +21855,42 @@
         "required": ["id", "type", "properties"],
         "additionalProperties": false
       },
+      "EventServerConnected": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["server.connected"]
+          },
+          "properties": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        "required": ["id", "type", "properties"],
+        "additionalProperties": false
+      },
+      "EventGlobalDisposed": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["global.disposed"]
+          },
+          "properties": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        "required": ["id", "type", "properties"],
+        "additionalProperties": false
+      },
       "ModelV2Info": {
         "type": "object",
         "properties": {
@@ -21710,9 +22509,13 @@
               },
               "archived": {
                 "type": "number"
+              },
+              "processing": {
+                "type": "integer",
+                "minimum": 0
               }
             },
-            "required": ["created", "updated"],
+            "required": ["created", "updated", "processing"],
             "additionalProperties": false
           },
           "title": {

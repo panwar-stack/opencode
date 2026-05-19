@@ -67,7 +67,9 @@ describe("GitHub memory index provider", () => {
         file: "src/memory/github.ts",
         files: ["src/memory/github.ts"],
         confidence: 0.75,
-        citations: [{ label: "PR #123 review comment", url: "https://github.com/opencode/opencode/pull/123#discussion_r1" }],
+        citations: [
+          { label: "PR #123 review comment", url: "https://github.com/opencode/opencode/pull/123#discussion_r1" },
+        ],
       })
       expect(Database.use((db) => db.select().from(MemorySourceItemTable).all())).toMatchObject([
         {
@@ -118,20 +120,22 @@ describe("GitHub memory index provider", () => {
           },
         ],
       }).pipe(
-        Effect.provide(mockGhLayer((cmd, args) => {
-          calls.push([cmd, ...args])
-          if (args[1] === "repos/opencode/opencode/pulls/123/commits") return "[]"
-          return JSON.stringify({
-            number: 123,
-            title: "Index PR state",
-            state: "closed",
-            merged: true,
-            closed_at: "2026-05-01T00:00:00Z",
-            merged_at: "2026-05-01T00:00:00Z",
-            base: { ref: "dev" },
-            head: { ref: "review-memory", sha: "abc123" },
-          })
-        })),
+        Effect.provide(
+          mockGhLayer((cmd, args) => {
+            calls.push([cmd, ...args])
+            if (args[1] === "repos/opencode/opencode/pulls/123/commits") return "[]"
+            return JSON.stringify({
+              number: 123,
+              title: "Index PR state",
+              state: "closed",
+              merged: true,
+              closed_at: "2026-05-01T00:00:00Z",
+              merged_at: "2026-05-01T00:00:00Z",
+              base: { ref: "dev" },
+              head: { ref: "review-memory", sha: "abc123" },
+            })
+          }),
+        ),
       )
 
       expect(calls).toEqual([
@@ -183,27 +187,29 @@ describe("GitHub memory index provider", () => {
           },
         ],
       }).pipe(
-        Effect.provide(mockGhLayer((_, args) => {
-          if (args[1] === "repos/opencode/opencode/pulls/123/commits") {
-            return JSON.stringify([
-              {
-                sha: "aaa111",
-                commit: { message: "First commit", author: { name: "Alice", date: "2026-05-01T00:00:00Z" } },
-              },
-              {
-                sha: "bbb222",
-                commit: { message: "Second commit", author: { name: "Bob", date: "2026-05-02T00:00:00Z" } },
-              },
-            ])
-          }
-          return JSON.stringify({
-            number: 123,
-            title: "Add commit context",
-            state: "closed",
-            merged: true,
-            head: { sha: "bbb222" },
-          })
-        })),
+        Effect.provide(
+          mockGhLayer((_, args) => {
+            if (args[1] === "repos/opencode/opencode/pulls/123/commits") {
+              return JSON.stringify([
+                {
+                  sha: "aaa111",
+                  commit: { message: "First commit", author: { name: "Alice", date: "2026-05-01T00:00:00Z" } },
+                },
+                {
+                  sha: "bbb222",
+                  commit: { message: "Second commit", author: { name: "Bob", date: "2026-05-02T00:00:00Z" } },
+                },
+              ])
+            }
+            return JSON.stringify({
+              number: 123,
+              title: "Add commit context",
+              state: "closed",
+              merged: true,
+              head: { sha: "bbb222" },
+            })
+          }),
+        ),
       )
 
       expect(Database.use((db) => db.select().from(MemorySourceItemTable).all()).map((row) => row.metadata)).toEqual([
@@ -238,12 +244,14 @@ describe("GitHub memory index provider", () => {
           },
         ],
       }).pipe(
-        Effect.provide(mockGhLayer((_, args) => {
-          if (args[1] === "repos/opencode/opencode/pulls/123/commits") {
-            return JSON.stringify([{ sha: "aaa111", commit: { message: "Add memory context\n\nLong body" } }])
-          }
-          return JSON.stringify({ number: 123, title: "Add commit context", state: "closed", merged: true })
-        })),
+        Effect.provide(
+          mockGhLayer((_, args) => {
+            if (args[1] === "repos/opencode/opencode/pulls/123/commits") {
+              return JSON.stringify([{ sha: "aaa111", commit: { message: "Add memory context\n\nLong body" } }])
+            }
+            return JSON.stringify({ number: 123, title: "Add commit context", state: "closed", merged: true })
+          }),
+        ),
       )
 
       expect(
@@ -266,23 +274,25 @@ describe("GitHub memory index provider", () => {
           },
         ],
       }).pipe(
-        Effect.provide(mockGhLayer((_, args) => {
-          if (args[1] === "repos/opencode/opencode/pulls/123/commits") {
-            return JSON.stringify(
-              Array.from({ length: 51 }, (_, index) => ({
-                sha: `sha-${index + 1}`,
-                commit: { message: `Commit ${index + 1}` },
-              })),
-            )
-          }
-          return JSON.stringify({
-            number: 123,
-            title: "Large history",
-            state: "closed",
-            merged: true,
-            head: { sha: "final-sha" },
-          })
-        })),
+        Effect.provide(
+          mockGhLayer((_, args) => {
+            if (args[1] === "repos/opencode/opencode/pulls/123/commits") {
+              return JSON.stringify(
+                Array.from({ length: 51 }, (_, index) => ({
+                  sha: `sha-${index + 1}`,
+                  commit: { message: `Commit ${index + 1}` },
+                })),
+              )
+            }
+            return JSON.stringify({
+              number: 123,
+              title: "Large history",
+              state: "closed",
+              merged: true,
+              head: { sha: "final-sha" },
+            })
+          }),
+        ),
       )
 
       expect(Database.use((db) => db.select().from(MemorySourceItemTable).all()).map((row) => row.metadata)).toEqual([
@@ -311,10 +321,12 @@ describe("GitHub memory index provider", () => {
           },
         ],
       }).pipe(
-        Effect.provide(mockGhLayer((_, args) => {
-          if (args[1] === "repos/opencode/opencode/pulls/123/commits") return { exitCode: 1, stderr: "not found" }
-          return JSON.stringify({ number: 123, title: "Add commit context", state: "closed", merged: true })
-        })),
+        Effect.provide(
+          mockGhLayer((_, args) => {
+            if (args[1] === "repos/opencode/opencode/pulls/123/commits") return { exitCode: 1, stderr: "not found" }
+            return JSON.stringify({ number: 123, title: "Add commit context", state: "closed", merged: true })
+          }),
+        ),
       )
 
       expect(Database.use((db) => db.select().from(MemorySourceItemTable).all()).map((row) => row.metadata)).toEqual([
@@ -362,18 +374,20 @@ describe("GitHub memory index provider", () => {
           },
         ],
       }).pipe(
-        Effect.provide(mockGhLayer(() =>
-          JSON.stringify({
-            number: 124,
-            title: "Close without merge",
-            state: "closed",
-            merged: false,
-            closed_at: "2026-05-01T00:00:00Z",
-            merged_at: null,
-            base: { ref: "dev" },
-            head: { ref: "abandoned", sha: "def456" },
-          }),
-        )),
+        Effect.provide(
+          mockGhLayer(() =>
+            JSON.stringify({
+              number: 124,
+              title: "Close without merge",
+              state: "closed",
+              merged: false,
+              closed_at: "2026-05-01T00:00:00Z",
+              merged_at: null,
+              base: { ref: "dev" },
+              head: { ref: "abandoned", sha: "def456" },
+            }),
+          ),
+        ),
       )
 
       expect(Database.use((db) => db.select().from(MemorySourceItemTable).all()).map((row) => row.metadata)).toEqual([
@@ -519,10 +533,12 @@ describe("GitHub memory index provider", () => {
       })
 
       const result = yield* MemoryGithub.index({ repo: "opencode/opencode" }).pipe(
-        Effect.provide(mockGhLayer((cmd, args) => {
-          calls.push([cmd, ...args])
-          return "[]"
-        })),
+        Effect.provide(
+          mockGhLayer((cmd, args) => {
+            calls.push([cmd, ...args])
+            return "[]"
+          }),
+        ),
       )
 
       expect(result).toEqual({
@@ -578,10 +594,12 @@ describe("GitHub memory index provider", () => {
       })
 
       const result = yield* MemoryGithub.index({ repo: "opencode/opencode", reset: true }).pipe(
-        Effect.provide(mockGhLayer((cmd, args) => {
-          calls.push([cmd, ...args])
-          return "[]"
-        })),
+        Effect.provide(
+          mockGhLayer((cmd, args) => {
+            calls.push([cmd, ...args])
+            return "[]"
+          }),
+        ),
       )
 
       expect(result).toEqual({
@@ -607,11 +625,13 @@ describe("GitHub memory index provider", () => {
         throttle_ms: 1,
         onProgress: (item) => progress.push(item),
       }).pipe(
-        Effect.provide(mockGhLayer((cmd, args) => {
-          calls.push([cmd, ...args])
-          if (args.includes("page=1")) return JSON.stringify(comments)
-          return "[]"
-        })),
+        Effect.provide(
+          mockGhLayer((cmd, args) => {
+            calls.push([cmd, ...args])
+            if (args.includes("page=1")) return JSON.stringify(comments)
+            return "[]"
+          }),
+        ),
       )
 
       expect(result).toMatchObject({ fetched: 100, indexed: 0 })
@@ -650,13 +670,15 @@ describe("GitHub memory index provider", () => {
           },
         ],
       }).pipe(
-        Effect.provide(mockGhLayer((cmd, args) => {
-          calls.push([cmd, ...args])
-          if (args.includes("repos/opencode/opencode/pulls/123")) {
-            return JSON.stringify({ number: 123, title: "Throttle PR", state: "open", merged: false })
-          }
-          return "[]"
-        })),
+        Effect.provide(
+          mockGhLayer((cmd, args) => {
+            calls.push([cmd, ...args])
+            if (args.includes("repos/opencode/opencode/pulls/123")) {
+              return JSON.stringify({ number: 123, title: "Throttle PR", state: "open", merged: false })
+            }
+            return "[]"
+          }),
+        ),
         Effect.forkScoped,
       )
 
@@ -692,11 +714,13 @@ function mockGhLayer(handler: (cmd: string, args: readonly string[]) => MockGhRe
           return Effect.succeed(
             ChildProcessSpawner.makeHandle({
               pid: ChildProcessSpawner.ProcessId(0),
-              exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(typeof response === "string" ? 0 : response.exitCode ?? 0)),
+              exitCode: Effect.succeed(
+                ChildProcessSpawner.ExitCode(typeof response === "string" ? 0 : (response.exitCode ?? 0)),
+              ),
               isRunning: Effect.succeed(false),
               kill: () => Effect.void,
               stdin: { [Symbol.for("effect/Sink/TypeId")]: Symbol.for("effect/Sink/TypeId") } as never,
-              stdout: Stream.make(encoder.encode(typeof response === "string" ? response : response.stdout ?? "")),
+              stdout: Stream.make(encoder.encode(typeof response === "string" ? response : (response.stdout ?? ""))),
               stderr: typeof response === "string" ? Stream.empty : Stream.make(encoder.encode(response.stderr ?? "")),
               all: Stream.empty,
               getInputFd: () => ({ [Symbol.for("effect/Sink/TypeId")]: Symbol.for("effect/Sink/TypeId") }) as never,

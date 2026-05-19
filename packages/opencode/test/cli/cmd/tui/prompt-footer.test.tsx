@@ -163,10 +163,19 @@ async function mountPrompt(props: { sessionID?: string }) {
         <ExitProvider>
           <KVProvider>
             <ToastProvider>
-              <RouteProvider initialRoute={props.sessionID ? { type: "session", sessionID: props.sessionID } : undefined}>
+              <RouteProvider
+                initialRoute={props.sessionID ? { type: "session", sessionID: props.sessionID } : undefined}
+              >
                 <TuiConfigProvider
                   config={{
-                    attention: { enabled: false, notifications: true, sound: true, volume: 0.4, sound_pack: "", sounds: {} },
+                    attention: {
+                      enabled: false,
+                      notifications: true,
+                      sound: true,
+                      volume: 0.4,
+                      sound_pack: "",
+                      sounds: {},
+                    },
                     keybinds: createBindingLookup({}),
                     leader_timeout: 2_000,
                   }}

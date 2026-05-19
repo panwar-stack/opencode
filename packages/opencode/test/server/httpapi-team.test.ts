@@ -46,8 +46,16 @@ describe("team HttpApi", () => {
         team_id: info.id,
         nodes: expect.arrayContaining([expect.objectContaining({ id: `team:${info.id}`, type: "team" })]),
         edges: expect.arrayContaining([
-          expect.objectContaining({ type: "lead_to_member", from: `team:${info.id}`, to: `member:${member.session_id}` }),
-          expect.objectContaining({ type: "produces", from: `member:${member.session_id}`, to: `result:${member.session_id}` }),
+          expect.objectContaining({
+            type: "lead_to_member",
+            from: `team:${info.id}`,
+            to: `member:${member.session_id}`,
+          }),
+          expect.objectContaining({
+            type: "produces",
+            from: `member:${member.session_id}`,
+            to: `result:${member.session_id}`,
+          }),
         ]),
         summary: expect.objectContaining({ root_cause_count: 0 }),
       })

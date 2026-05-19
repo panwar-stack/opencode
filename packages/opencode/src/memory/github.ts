@@ -223,9 +223,7 @@ function fetchPullRequests(input: IndexInput, comments: readonly ReviewComment[]
       { concurrency: 1 },
     )
 
-    return new Map(
-      pullRequests.filter((item): item is readonly [number, PullRequestContext] => item[1] !== undefined),
-    )
+    return new Map(pullRequests.filter((item): item is readonly [number, PullRequestContext] => item[1] !== undefined))
   })
 }
 
@@ -272,7 +270,11 @@ function fetchPullRequestCommits(repo: string, number: number) {
   })
 }
 
-function fetchPage(input: IndexInput, page: number, acc: readonly ReviewComment[]): Effect.Effect<ReviewComment[], GithubIndexError, AppProcess.Service> {
+function fetchPage(
+  input: IndexInput,
+  page: number,
+  acc: readonly ReviewComment[],
+): Effect.Effect<ReviewComment[], GithubIndexError, AppProcess.Service> {
   if (input.limit !== undefined && acc.length >= input.limit) return Effect.succeed(acc.slice(0, input.limit))
 
   return Effect.gen(function* () {
