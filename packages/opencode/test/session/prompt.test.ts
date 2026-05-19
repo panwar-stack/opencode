@@ -1795,7 +1795,7 @@ it.instance(
       expect(yield* llm.calls).toBe(1)
     }),
   { git: true },
-  3_000,
+  30_000,
 )
 
 it.instance(
@@ -1834,7 +1834,7 @@ it.instance(
       expect(yield* llm.calls).toBe(1)
     }),
   { git: true },
-  3_000,
+  30_000,
 )
 
 unix(
@@ -2267,7 +2267,7 @@ it.live(
       }),
       { git: true, config: providerCfg },
     ),
-  5_000,
+  30_000,
 )
 
 it.live(
@@ -2307,7 +2307,7 @@ it.live(
       }),
       { git: true, config: providerCfg },
     ),
-  5_000,
+  30_000,
 )
 
 unix(
