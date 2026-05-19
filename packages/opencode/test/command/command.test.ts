@@ -70,4 +70,47 @@ describe("command", () => {
       { git: true },
     ),
   )
+
+  it.live("includes init_v2 without changing init", () =>
+    provideTmpdirInstance(
+      (dir) =>
+        Effect.gen(function* () {
+          const command = yield* Command.Service
+          const init = yield* command.get("init")
+          if (!init) throw new Error("init command not found")
+
+          expect(init.source).toBe("command")
+          expect(init.description).toBe("guided AGENTS.md setup")
+          expect(init.hints).toEqual(["$ARGUMENTS"])
+          expect(yield* Effect.promise(() => Promise.resolve(init.template))).toContain(
+            "Create or update `AGENTS.md` for this repository.",
+          )
+          expect(yield* Effect.promise(() => Promise.resolve(init.template))).not.toContain("Think before coding")
+
+          const initV2 = yield* command.get("init_v2")
+          if (!initV2) throw new Error("init_v2 command not found")
+
+          expect(initV2.source).toBe("command")
+          expect(initV2.description).toBe("guided AGENTS.md setup with required engineering principles")
+          expect(initV2.hints).toEqual(["$ARGUMENTS"])
+          expect(yield* Effect.promise(() => Promise.resolve(initV2.template))).toContain(
+            "Create or update `AGENTS.md` for this repository.",
+          )
+          expect(yield* Effect.promise(() => Promise.resolve(initV2.template))).toContain(
+            "Think before coding - Don't assume.",
+          )
+          expect(yield* Effect.promise(() => Promise.resolve(initV2.template))).toContain(
+            "Simplicity first - Minimum code that solves the problem.",
+          )
+          expect(yield* Effect.promise(() => Promise.resolve(initV2.template))).toContain(
+            "Surgical changes - Touch only what you must.",
+          )
+          expect(yield* Effect.promise(() => Promise.resolve(initV2.template))).toContain(
+            "Goal-driven execution - Define success criteria.",
+          )
+          expect(yield* Effect.promise(() => Promise.resolve(initV2.template))).toContain(dir)
+        }),
+      { git: true },
+    ),
+  )
 })
