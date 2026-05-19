@@ -182,6 +182,7 @@ export function SessionRootsCommand() {
   const dialog = useDialog()
   const sync = useSync()
   const toast = useToast()
+  const sessionID = createMemo(() => (route.data.type === "session" ? route.data.sessionID : undefined))
 
   const rootsCommands = createMemo(() => [
     {
@@ -191,14 +192,14 @@ export function SessionRootsCommand() {
       category: "Session",
       slashName: "roots",
       slashAliases: ["cwd", "dirs"],
-      enabled: route.data.type === "session",
+      enabled: sessionID() !== undefined,
       run: () => {
-        if (route.data.type !== "session") return
-        const sessionID = route.data.sessionID
+        const id = sessionID()
+        if (!id) return
         void sync.session
-          .refreshRoots(sessionID)
+          .refreshRoots(id)
           .catch((error) => toast.show({ message: errorMessage(error), variant: "error" }))
-          .finally(() => dialog.replace(() => <DialogRoots sessionID={sessionID} />))
+          .finally(() => dialog.replace(() => <DialogRoots sessionID={id} />))
       },
     },
   ])
