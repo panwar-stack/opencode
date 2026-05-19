@@ -178,6 +178,39 @@ const context = createContext<{
   tui: ReturnType<typeof useTuiConfig>
 }>()
 
+export function SessionRootsCommand() {
+  const route = useRoute()
+  const dialog = useDialog()
+  const sync = useSync()
+  const toast = useToast()
+
+  const rootsCommands = createMemo(() => [
+    {
+      namespace: "palette",
+      name: "session.roots",
+      title: "Manage roots",
+      category: "Session",
+      slashName: "roots",
+      slashAliases: ["cwd", "dirs"],
+      enabled: route.data.type === "session",
+      run: () => {
+        if (route.data.type !== "session") return
+        const sessionID = route.data.sessionID
+        void sync.session
+          .refreshRoots(sessionID)
+          .catch((error) => toast.show({ message: errorMessage(error), variant: "error" }))
+          .finally(() => dialog.replace(() => <DialogRoots sessionID={sessionID} />))
+      },
+    },
+  ])
+
+  useBindings(() => ({
+    commands: rootsCommands(),
+  }))
+
+  return null
+}
+
 function use() {
   const ctx = useContext(context)
   if (!ctx) throw new Error("useContext must be used within a Session component")
@@ -512,21 +545,6 @@ export function Session() {
             })
           })
         dialog.clear()
-      },
-    },
-    {
-      title: "Manage roots",
-      value: "session.roots",
-      category: "Session",
-      slash: {
-        name: "roots",
-        aliases: ["cwd", "dirs"],
-      },
-      run: () => {
-        void sync.session
-          .refreshRoots(route.sessionID)
-          .catch((error) => toast.show({ message: errorMessage(error), variant: "error" }))
-          .finally(() => dialog.replace(() => <DialogRoots sessionID={route.sessionID} />))
       },
     },
     {

@@ -44,7 +44,7 @@ import { DialogSessionList } from "@tui/component/dialog-session-list"
 import { DialogConsoleOrg } from "@tui/component/dialog-console-org"
 import { ThemeProvider, useTheme } from "@tui/context/theme"
 import { Home } from "@tui/routes/home"
-import { Session } from "@tui/routes/session"
+import { Session, SessionRootsCommand } from "@tui/routes/session"
 import { PromptHistoryProvider } from "./component/prompt/history"
 import { FrecencyProvider } from "./component/prompt/frecency"
 import { PromptStashProvider } from "./component/prompt/stash"
@@ -936,6 +936,7 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
       <Show when={Flag.OPENCODE_SHOW_TTFD}>
         <TimeToFirstDraw />
       </Show>
+      <SessionRootsCommand />
       <Show when={ready()}>
         <box flexGrow={1} minHeight={0} flexDirection="column">
           <Switch>
