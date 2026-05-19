@@ -163,7 +163,7 @@ Useful contributor helpers:
 
 - `bun run dev:build` builds the OpenCode package with the single-binary build shortcut
 - `/spec-planner` drafts repo-style implementation specs with verification slices
-- `/init-repo` runs init and adds the repo's required coding principles
+- `/init_v2` runs init-style setup and adds the repo's required coding principles
 - `/team-report` runs the team report tool for the active or most recent team session
 
 ### Building on OpenCode
