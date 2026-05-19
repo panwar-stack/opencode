@@ -1,6 +1,7 @@
 import { describe, expect } from "bun:test"
 import path from "path"
-import { Effect } from "effect"
+import fs from "fs/promises"
+import { Effect, Layer } from "effect"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import type { Tool } from "@/tool/tool"
 import { assertExternalDirectoryEffect } from "../../src/tool/external-directory"
@@ -8,9 +9,10 @@ import { Filesystem } from "@/util/filesystem"
 import { provideInstance, TestInstance, tmpdirScoped } from "../fixture/fixture"
 import type { Permission } from "../../src/permission"
 import { SessionID, MessageID } from "../../src/session/schema"
+import { Session } from "@/session/session"
 import { testEffect } from "../lib/effect"
 
-const it = testEffect(CrossSpawnSpawner.defaultLayer)
+const it = testEffect(Layer.mergeAll(CrossSpawnSpawner.defaultLayer, Session.defaultLayer))
 
 const baseCtx: Omit<Tool.Context, "ask"> = {
   sessionID: SessionID.make("ses_test"),
@@ -74,6 +76,53 @@ describe("tool.assertExternalDirectory", () => {
       expect(req).toBeDefined()
       expect(req!.patterns).toEqual([expected])
       expect(req!.always).toEqual([expected])
+    }),
+  )
+
+  it.live("no-ops for paths inside a registered secondary root", () =>
+    Effect.gen(function* () {
+      const primary = yield* tmpdirScoped({ git: true })
+      const secondary = yield* tmpdirScoped({ git: true })
+      const { requests, ctx } = makeCtx()
+
+      const info = yield* provideInstance(primary)(
+        Effect.gen(function* () {
+          const session = yield* Session.Service
+          const info = yield* session.create({ title: "tool roots" })
+          yield* session.addRoot({ sessionID: info.id, directory: secondary })
+          return info
+        }),
+      )
+
+      yield* provideInstance(primary)(
+        assertExternalDirectoryEffect({ ...ctx, sessionID: info.id }, path.join(secondary, "file.txt")),
+      )
+
+      expect(requests.find((request) => request.permission === "external_directory")).toBeUndefined()
+    }),
+  )
+
+  it.live("asks for unregistered siblings in the primary worktree", () =>
+    Effect.gen(function* () {
+      const repo = yield* tmpdirScoped({ git: true })
+      const primary = path.join(repo, "primary")
+      const sibling = path.join(repo, "sibling")
+      yield* Effect.promise(() => fs.mkdir(primary, { recursive: true }))
+      yield* Effect.promise(() => fs.mkdir(sibling, { recursive: true }))
+      const { requests, ctx } = makeCtx()
+
+      const info = yield* provideInstance(primary)(
+        Effect.gen(function* () {
+          const session = yield* Session.Service
+          return yield* session.create({ title: "tool roots" })
+        }),
+      )
+
+      yield* provideInstance(primary)(
+        assertExternalDirectoryEffect({ ...ctx, sessionID: info.id }, path.join(sibling, "file.txt")),
+      )
+
+      expect(requests.find((request) => request.permission === "external_directory")).toBeDefined()
     }),
   )
 

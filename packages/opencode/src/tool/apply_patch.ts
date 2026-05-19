@@ -1,12 +1,10 @@
-import * as path from "path"
 import { Effect, Schema } from "effect"
 import * as Tool from "./tool"
 import { Bus } from "../bus"
 import { FileWatcher } from "../file/watcher"
-import { InstanceState } from "@/effect/instance-state"
 import { Patch } from "../patch"
 import { createTwoFilesPatch, diffLines } from "diff"
-import { assertExternalDirectoryEffect } from "./external-directory"
+import { assertExternalDirectoryWithSession } from "./external-directory"
 import { trimDiff } from "./edit"
 import { LSP } from "@/lsp/lsp"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
@@ -14,6 +12,8 @@ import DESCRIPTION from "./apply_patch.txt"
 import { File } from "../file"
 import { Format } from "../format"
 import * as Bom from "@/util/bom"
+import { ToolPath } from "./path"
+import { Session } from "@/session/session"
 
 export const Parameters = Schema.Struct({
   patchText: Schema.String.annotate({ description: "The full patch text that describes all changes to be made" }),
@@ -26,6 +26,7 @@ export const ApplyPatchTool = Tool.define(
     const afs = yield* AppFileSystem.Service
     const format = yield* Format.Service
     const bus = yield* Bus.Service
+    const session = yield* Session.Service
 
     const run = Effect.fn("ApplyPatchTool.execute")(function* (
       params: Schema.Schema.Type<typeof Parameters>,
@@ -52,15 +53,15 @@ export const ApplyPatchTool = Tool.define(
         return yield* Effect.fail(new Error("apply_patch verification failed: no hunks found"))
       }
 
-      const instance = yield* InstanceState.context
-
       // Validate file paths and check permissions
       const fileChanges: Array<{
         filePath: string
+        relativePath: string
         oldContent: string
         newContent: string
         type: "add" | "update" | "delete" | "move"
         movePath?: string
+        moveRelativePath?: string
         diff: string
         additions: number
         deletions: number
@@ -70,8 +71,9 @@ export const ApplyPatchTool = Tool.define(
       let totalDiff = ""
 
       for (const hunk of hunks) {
-        const filePath = path.resolve(instance.directory, hunk.path)
-        yield* assertExternalDirectoryEffect(ctx, filePath)
+        const resolved = yield* ToolPath.resolveWithSession(session, ctx, hunk.path)
+        const filePath = resolved.path
+        yield* assertExternalDirectoryWithSession(session, ctx, filePath)
 
         switch (hunk.type) {
           case "add": {
@@ -90,6 +92,7 @@ export const ApplyPatchTool = Tool.define(
 
             fileChanges.push({
               filePath,
+              relativePath: resolved.relative,
               oldContent,
               newContent: next.text,
               type: "add",
@@ -139,15 +142,18 @@ export const ApplyPatchTool = Tool.define(
               if (change.removed) deletions += change.count || 0
             }
 
-            const movePath = hunk.move_path ? path.resolve(instance.directory, hunk.move_path) : undefined
-            yield* assertExternalDirectoryEffect(ctx, movePath)
+            const move = hunk.move_path ? yield* ToolPath.resolveWithSession(session, ctx, hunk.move_path) : undefined
+            const movePath = move?.path
+            yield* assertExternalDirectoryWithSession(session, ctx, movePath)
 
             fileChanges.push({
               filePath,
+              relativePath: resolved.relative,
               oldContent,
               newContent,
               type: hunk.move_path ? "move" : "update",
               movePath,
+              moveRelativePath: move?.relative,
               diff,
               additions,
               deletions,
@@ -175,6 +181,7 @@ export const ApplyPatchTool = Tool.define(
 
             fileChanges.push({
               filePath,
+              relativePath: resolved.relative,
               oldContent: contentToDelete,
               newContent: "",
               type: "delete",
@@ -193,7 +200,7 @@ export const ApplyPatchTool = Tool.define(
       // Build per-file metadata for UI rendering (used for both permission and result)
       const files = fileChanges.map((change) => ({
         filePath: change.filePath,
-        relativePath: path.relative(instance.worktree, change.movePath ?? change.filePath).replaceAll("\\", "/"),
+        relativePath: change.moveRelativePath ?? change.relativePath,
         type: change.type,
         patch: change.diff,
         additions: change.additions,
@@ -202,7 +209,7 @@ export const ApplyPatchTool = Tool.define(
       }))
 
       // Check permissions if needed
-      const relativePaths = fileChanges.map((c) => path.relative(instance.worktree, c.filePath).replaceAll("\\", "/"))
+      const relativePaths = fileChanges.map((change) => change.relativePath)
       yield* ctx.ask({
         permission: "edit",
         patterns: relativePaths,
@@ -273,13 +280,12 @@ export const ApplyPatchTool = Tool.define(
       // Generate output summary
       const summaryLines = fileChanges.map((change) => {
         if (change.type === "add") {
-          return `A ${path.relative(instance.worktree, change.filePath).replaceAll("\\", "/")}`
+          return `A ${change.relativePath}`
         }
         if (change.type === "delete") {
-          return `D ${path.relative(instance.worktree, change.filePath).replaceAll("\\", "/")}`
+          return `D ${change.relativePath}`
         }
-        const target = change.movePath ?? change.filePath
-        return `M ${path.relative(instance.worktree, target).replaceAll("\\", "/")}`
+        return `M ${change.moveRelativePath ?? change.relativePath}`
       })
       let output = `Success. Updated the following files:\n${summaryLines.join("\n")}`
 
@@ -288,7 +294,7 @@ export const ApplyPatchTool = Tool.define(
         const target = change.movePath ?? change.filePath
         const block = LSP.Diagnostic.report(target, diagnostics[AppFileSystem.normalizePath(target)] ?? [])
         if (!block) continue
-        const rel = path.relative(instance.worktree, target).replaceAll("\\", "/")
+        const rel = change.moveRelativePath ?? change.relativePath
         output += `\n\nLSP errors detected in ${rel}, please fix:\n${block}`
       }
 

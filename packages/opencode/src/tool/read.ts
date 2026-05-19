@@ -5,11 +5,12 @@ import * as Tool from "./tool"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { LSP } from "@/lsp/lsp"
 import DESCRIPTION from "./read.txt"
-import { InstanceState } from "@/effect/instance-state"
-import { assertExternalDirectoryEffect } from "./external-directory"
+import { assertExternalDirectoryWithSession } from "./external-directory"
 import { Instruction } from "../session/instruction"
 import { isPdfAttachment, sniffAttachmentMime } from "@/util/media"
 import { Reference } from "@/reference/reference"
+import { ToolPath } from "./path"
+import { Session } from "@/session/session"
 
 const DEFAULT_READ_LIMIT = 2000
 const MAX_LINE_LENGTH = 2000
@@ -43,6 +44,7 @@ export const ReadTool = Tool.define(
     const instruction = yield* Instruction.Service
     const lsp = yield* LSP.Service
     const reference = yield* Reference.Service
+    const session = yield* Session.Service
     const scope = yield* Scope.Scope
 
     const miss = Effect.fn("ReadTool.miss")(function* (filepath: string) {
@@ -201,16 +203,10 @@ export const ReadTool = Tool.define(
       params: Schema.Schema.Type<typeof Parameters>,
       ctx: Tool.Context,
     ) {
-      const instance = yield* InstanceState.context
-      let filepath = params.filePath
-      if (!path.isAbsolute(filepath)) {
-        filepath = path.resolve(instance.directory, filepath)
-      }
-      if (process.platform === "win32") {
-        filepath = AppFileSystem.normalizePath(filepath)
-      }
+      const resolved = yield* ToolPath.resolveWithSession(session, ctx, params.filePath)
+      const filepath = resolved.path
       yield* reference.ensure(filepath)
-      const title = path.relative(instance.worktree, filepath)
+      const title = resolved.relative
 
       const stat = yield* fs.stat(filepath).pipe(
         Effect.catchIf(
@@ -219,14 +215,14 @@ export const ReadTool = Tool.define(
         ),
       )
 
-      yield* assertExternalDirectoryEffect(ctx, filepath, {
+      yield* assertExternalDirectoryWithSession(session, ctx, filepath, {
         bypass: Boolean(ctx.extra?.["bypassCwdCheck"]) || (yield* reference.contains(filepath)),
         kind: stat?.type === "Directory" ? "directory" : "file",
       })
 
       yield* ctx.ask({
         permission: "read",
-        patterns: [path.relative(instance.worktree, filepath)],
+        patterns: [resolved.relative],
         always: ["*"],
         metadata: {},
       })

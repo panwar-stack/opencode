@@ -10,6 +10,7 @@ import { RuntimeFlags } from "@/effect/runtime-flags"
 import { LSP } from "@/lsp/lsp"
 import { Permission } from "../../src/permission"
 import { SessionID, MessageID } from "../../src/session/schema"
+import { Session } from "@/session/session"
 import { Instruction } from "../../src/session/instruction"
 import { ReadTool } from "../../src/tool/read"
 import { Truncate } from "@/tool/truncate"
@@ -51,6 +52,7 @@ const readLayer = (flags: Partial<RuntimeFlags.Info> = {}) =>
     CrossSpawnSpawner.defaultLayer,
     Instruction.defaultLayer,
     LSP.defaultLayer,
+    Session.defaultLayer,
     referenceLayer(flags),
     Truncate.defaultLayer,
   )
@@ -180,6 +182,57 @@ describe("tool.read external_directory permission", () => {
       const ext = items.find((item) => item.permission === "external_directory")
       expect(ext).toBeDefined()
       expect(ext!.patterns).toContain(glob(path.join(outer, "*")))
+    }),
+  )
+
+  it.live("allows reading absolute paths inside a registered secondary root", () =>
+    Effect.gen(function* () {
+      const primary = yield* tmpdirScoped({ git: true })
+      const secondary = yield* tmpdirScoped({ git: true })
+      const filepath = path.join(secondary, "nested", "test.txt")
+      yield* put(filepath, "secondary content")
+
+      const info = yield* provideInstance(primary)(
+        Effect.gen(function* () {
+          const session = yield* Session.Service
+          const info = yield* session.create({ title: "tool roots" })
+          yield* session.addRoot({ sessionID: info.id, directory: secondary })
+          return info
+        }),
+      )
+      const { items, next } = asks()
+
+      const result = yield* exec(primary, { filePath: filepath }, { ...next, sessionID: info.id })
+
+      expect(result.output).toContain("secondary content")
+      expect(items.find((item) => item.permission === "external_directory")).toBeUndefined()
+      expect(items.find((item) => item.permission === "read")?.patterns).toEqual([path.join("nested", "test.txt")])
+    }),
+  )
+
+  it.live("labels registered subdirectory roots relative to the containing root", () =>
+    Effect.gen(function* () {
+      const repo = yield* tmpdirScoped({ git: true })
+      const primary = path.join(repo, "primary")
+      const secondary = path.join(repo, "packages", "api")
+      const filepath = path.join(secondary, "file.ts")
+      yield* put(path.join(primary, ".keep"), "")
+      yield* put(filepath, "export const api = true")
+
+      const info = yield* provideInstance(primary)(
+        Effect.gen(function* () {
+          const session = yield* Session.Service
+          const info = yield* session.create({ title: "tool roots" })
+          yield* session.addRoot({ sessionID: info.id, directory: secondary })
+          return info
+        }),
+      )
+      const { items, next } = asks()
+
+      const result = yield* exec(primary, { filePath: filepath }, { ...next, sessionID: info.id })
+
+      expect(result.title).toBe("file.ts")
+      expect(items.find((item) => item.permission === "read")?.patterns).toEqual(["file.ts"])
     }),
   )
 

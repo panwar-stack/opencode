@@ -1,10 +1,10 @@
 import path from "path"
 import { Effect } from "effect"
 import * as EffectLogger from "@opencode-ai/core/effect/logger"
-import { InstanceState } from "@/effect/instance-state"
 import type * as Tool from "./tool"
-import { containsPath } from "../project/instance-context"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
+import { ToolPath } from "./path"
+import { Session } from "@/session/session"
 
 type Kind = "file" | "directory"
 
@@ -18,13 +18,22 @@ export const assertExternalDirectoryEffect = Effect.fn("Tool.assertExternalDirec
   target?: string,
   options?: Options,
 ) {
+  const session = yield* Session.Service
+  yield* assertExternalDirectoryWithSession(session, ctx, target, options)
+})
+
+export const assertExternalDirectoryWithSession = Effect.fn("Tool.assertExternalDirectoryWithSession")(function* (
+  session: Session.Interface,
+  ctx: Tool.Context,
+  target?: string,
+  options?: Options,
+) {
   if (!target) return
 
   if (options?.bypass) return
 
-  const ins = yield* InstanceState.context
   const full = process.platform === "win32" ? AppFileSystem.normalizePath(target) : target
-  if (containsPath(full, ins)) return
+  if (yield* ToolPath.insideWithSession(session, ctx, full)) return
 
   const kind = options?.kind ?? "file"
   const dir = kind === "directory" ? full : path.dirname(full)
@@ -45,5 +54,7 @@ export const assertExternalDirectoryEffect = Effect.fn("Tool.assertExternalDirec
 })
 
 export async function assertExternalDirectory(ctx: Tool.Context, target?: string, options?: Options) {
-  return Effect.runPromise(assertExternalDirectoryEffect(ctx, target, options).pipe(Effect.provide(EffectLogger.layer)))
+  return Effect.runPromise(
+    assertExternalDirectoryEffect(ctx, target, options).pipe(Effect.provide(Session.defaultLayer), Effect.provide(EffectLogger.layer)),
+  )
 }

@@ -3,13 +3,14 @@ import path from "path"
 import { Cause, Effect, Exit, Layer } from "effect"
 import { GlobTool } from "../../src/tool/glob"
 import { SessionID, MessageID } from "../../src/session/schema"
+import { Session } from "@/session/session"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { Ripgrep } from "../../src/file/ripgrep"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { Global } from "@opencode-ai/core/global"
 import { Truncate } from "@/tool/truncate"
 import { Agent } from "../../src/agent/agent"
-import { TestInstance, tmpdirScoped } from "../fixture/fixture"
+import { provideInstance, TestInstance, tmpdirScoped } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 import { Reference } from "@/reference/reference"
 import { RepositoryCache } from "@/reference/repository-cache"
@@ -31,6 +32,7 @@ const toolLayer = (flags: Partial<RuntimeFlags.Info> = {}) =>
     CrossSpawnSpawner.defaultLayer,
     AppFileSystem.defaultLayer,
     Ripgrep.defaultLayer,
+    Session.defaultLayer,
     Truncate.defaultLayer,
     Agent.defaultLayer,
     Git.defaultLayer,
@@ -98,6 +100,43 @@ const git = Effect.fn("GlobToolTest.git")(function* (cwd: string, args: string[]
 })
 
 describe("tool.glob", () => {
+  it.live("matches files inside a registered secondary root", () =>
+    Effect.gen(function* () {
+      const primary = yield* tmpdirScoped({ git: true })
+      const secondary = yield* tmpdirScoped({ git: true })
+      const requests: Array<{ permission: string }> = []
+      yield* Effect.promise(() => Bun.write(path.join(secondary, "a.ts"), "export const a = 1\n"))
+      yield* Effect.promise(() => Bun.write(path.join(secondary, "b.txt"), "hello\n"))
+
+      const info = yield* provideInstance(primary)(
+        Effect.gen(function* () {
+          const session = yield* Session.Service
+          const info = yield* session.create({ title: "tool roots" })
+          yield* session.addRoot({ sessionID: info.id, directory: secondary })
+          return info
+        }),
+      )
+      const tool = yield* (yield* GlobTool).init()
+      const result = yield* provideInstance(primary)(
+        tool.execute(
+          { pattern: "*.ts", path: secondary },
+          {
+            ...ctx,
+            sessionID: info.id,
+            ask: (request) =>
+              Effect.sync(() => {
+                requests.push(request)
+              }),
+          },
+        ),
+      )
+
+      expect(result.metadata.count).toBe(1)
+      expect(result.output).toContain(path.join(secondary, "a.ts"))
+      expect(requests.find((request) => request.permission === "external_directory")).toBeUndefined()
+    }),
+  )
+
   it.instance("matches files from a directory path", () =>
     Effect.gen(function* () {
       const test = yield* TestInstance
