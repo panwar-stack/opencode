@@ -9,6 +9,7 @@ import { MCP } from "../mcp"
 import { Skill } from "../skill"
 import PROMPT_IMPLEMENT_SPEC_PR from "./template/implement-spec-pr.txt"
 import PROMPT_INITIALIZE from "./template/initialize.txt"
+import PROMPT_INITIALIZE_V2 from "./template/initialize-v2.txt"
 import PROMPT_LEARN from "./template/learn.txt"
 import PROMPT_REVIEW from "./template/review.txt"
 import PROMPT_SPEC_PLANNER from "./template/spec-planner.txt"
@@ -57,6 +58,7 @@ export function hints(template: string) {
 export const Default = {
   IMPLEMENT_SPEC_PR: "implement-spec-pr",
   INIT: "init",
+  INIT_V2: "init_v2",
   LEARN: "learn",
   REVIEW: "review",
   SPEC_PLANNER: "spec-planner",
@@ -90,6 +92,15 @@ export const layer = Layer.effect(
           return PROMPT_INITIALIZE.replace("${path}", ctx.worktree)
         },
         hints: hints(PROMPT_INITIALIZE),
+      }
+      commands[Default.INIT_V2] = {
+        name: Default.INIT_V2,
+        description: "guided AGENTS.md setup with required engineering principles",
+        source: "command",
+        get template() {
+          return PROMPT_INITIALIZE_V2.replace("${path}", ctx.worktree)
+        },
+        hints: hints(PROMPT_INITIALIZE_V2),
       }
       commands[Default.LEARN] = {
         name: Default.LEARN,
