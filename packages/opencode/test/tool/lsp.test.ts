@@ -6,12 +6,13 @@ import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { LSP } from "@/lsp/lsp"
 import { Permission } from "../../src/permission"
-import { MessageID, SessionID } from "../../src/session/schema"
+import { ProjectID } from "../../src/project/schema"
+import { MessageID, SessionID, SessionRootID } from "../../src/session/schema"
 import { Session } from "@/session/session"
 import { Tool } from "@/tool/tool"
 import { Truncate } from "@/tool/truncate"
 import { LspTool } from "../../src/tool/lsp"
-import { disposeAllInstances, provideTmpdirInstance } from "../fixture/fixture"
+import { disposeAllInstances, provideTmpdirInstance, tmpdirScoped } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 
 afterEach(async () => {
@@ -30,17 +31,29 @@ const ctx = {
 }
 
 const workspaceSymbolQueries: string[] = []
+const lspRoots: Array<LSP.FileRoot | undefined> = []
 
 const lsp = Layer.succeed(
   LSP.Service,
   LSP.Service.of({
     init: () => Effect.void,
     status: () => Effect.succeed([]),
-    hasClients: () => Effect.succeed(true),
-    touchFile: () => Effect.void,
+    hasClients: (_file, root) =>
+      Effect.sync(() => {
+        lspRoots.push(root)
+        return true
+      }),
+    touchFile: (_file, _diagnostics, root) =>
+      Effect.sync(() => {
+        lspRoots.push(root)
+      }),
     diagnostics: () => Effect.succeed({}),
     hover: () => Effect.succeed([]),
-    definition: () => Effect.succeed([]),
+    definition: (_input, root) =>
+      Effect.sync(() => {
+        lspRoots.push(root)
+        return []
+      }),
     references: () => Effect.succeed([]),
     implementation: () => Effect.succeed([]),
     documentSymbol: () => Effect.succeed([]),
@@ -180,6 +193,52 @@ describe("tool.lsp", () => {
             yield* run({ operation: "workspaceSymbol", filePath: file, line: 3, character: 7 })
 
             expect(workspaceSymbolQueries).toEqual(["TestSymbol", ""])
+          }),
+        { git: true },
+      ),
+    )
+
+    it.live("uses registered secondary root for LSP ownership", () =>
+      provideTmpdirInstance(
+        (dir) =>
+          Effect.gen(function* () {
+            const secondary = yield* tmpdirScoped({ git: true })
+            const file = path.join(secondary, "test.ts")
+            yield* put(file)
+
+            lspRoots.length = 0
+            const { items, next } = asks()
+            const result = yield* run({ operation: "goToDefinition", filePath: file, line: 1, character: 1 }, next).pipe(
+              Effect.provide(
+                Layer.mock(Session.Service)({
+                  listRoots: () =>
+                    Effect.succeed([
+                      {
+                        id: SessionRootID.make("sesroot_primary"),
+                        sessionID: ctx.sessionID,
+                        directory: dir,
+                        worktree: dir,
+                        projectID: ProjectID.make("proj_primary"),
+                        created: 1,
+                        primary: true,
+                      },
+                      {
+                        id: SessionRootID.make("sesroot_secondary"),
+                        sessionID: ctx.sessionID,
+                        directory: secondary,
+                        worktree: secondary,
+                        projectID: ProjectID.make("proj_secondary"),
+                        created: 2,
+                        primary: false,
+                      },
+                    ]),
+                }),
+              ),
+            )
+
+            expect(result.title).toBe("goToDefinition test.ts:1:1")
+            expect(items.some((item) => item.permission === "external_directory")).toBe(false)
+            expect(lspRoots.some((root) => root?.directory === secondary && root.worktree === secondary)).toBe(true)
           }),
         { git: true },
       ),

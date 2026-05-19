@@ -5,13 +5,15 @@ export type ClientOptions = {
 }
 
 export type Event =
-  | EventServerInstanceDisposed
-  | EventFileEdited
-  | EventFileWatcherUpdated
   | EventTuiPromptAppend
   | EventTuiCommandExecute
   | EventTuiToastShow1
   | EventTuiSessionSelect
+  | EventServerConnected
+  | EventGlobalDisposed
+  | EventServerInstanceDisposed
+  | EventFileEdited
+  | EventFileWatcherUpdated
   | EventMcpToolsChanged
   | EventMcpBrowserOpenFailed
   | EventPermissionAsked
@@ -80,8 +82,6 @@ export type Event =
   | EventSessionNextCompactionDelta
   | EventSessionNextCompactionEnded
   | EventPluginAdded
-  | EventServerConnected
-  | EventGlobalDisposed
   | EventCatalogModelUpdated
   | EventModelsDevRefreshed
   | EventAccountAdded
@@ -813,13 +813,15 @@ export type GlobalEvent = {
   project?: string
   workspace?: string
   payload:
-    | EventServerInstanceDisposed
-    | EventFileEdited
-    | EventFileWatcherUpdated
     | EventTuiPromptAppend
     | EventTuiCommandExecute
     | EventTuiToastShow
     | EventTuiSessionSelect
+    | EventServerConnected
+    | EventGlobalDisposed
+    | EventServerInstanceDisposed
+    | EventFileEdited
+    | EventFileWatcherUpdated
     | EventMcpToolsChanged
     | EventMcpBrowserOpenFailed
     | EventPermissionAsked
@@ -888,8 +890,6 @@ export type GlobalEvent = {
     | EventSessionNextCompactionDelta
     | EventSessionNextCompactionEnded
     | EventPluginAdded
-    | EventServerConnected
-    | EventGlobalDisposed
     | EventCatalogModelUpdated
     | EventModelsDevRefreshed
     | EventAccountAdded
@@ -2647,6 +2647,22 @@ export type SyncEventSessionNextCompactionEnded = {
   }
 }
 
+export type EventServerConnected = {
+  id: string
+  type: "server.connected"
+  properties: {
+    [key: string]: unknown
+  }
+}
+
+export type EventGlobalDisposed = {
+  id: string
+  type: "global.disposed"
+  properties: {
+    [key: string]: unknown
+  }
+}
+
 export type EventServerInstanceDisposed = {
   id: string
   type: "server.instance.disposed"
@@ -3414,22 +3430,6 @@ export type EventPluginAdded = {
   type: "plugin.added"
   properties: {
     id: string
-  }
-}
-
-export type EventServerConnected = {
-  id: string
-  type: "server.connected"
-  properties: {
-    [key: string]: unknown
-  }
-}
-
-export type EventGlobalDisposed = {
-  id: string
-  type: "global.disposed"
-  properties: {
-    [key: string]: unknown
   }
 }
 

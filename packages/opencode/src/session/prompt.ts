@@ -1572,9 +1572,10 @@ export const layer = Layer.effect(
 
             yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
 
+            const roots = yield* sessions.listRoots(sessionID).pipe(Effect.catch(() => Effect.succeed([])))
             const [skills, env, teamLead, memoryPrompt, instructions, modelMsgs] = yield* Effect.all([
               sys.skills(agent),
-              sys.environment(model),
+              sys.environment(model, roots),
               teamLeadSystemPrompt({ session, agent }),
               reviewMemorySystemPrompt({ messages: msgs }),
               instruction.system().pipe(Effect.orDie),
