@@ -15,6 +15,7 @@ import type { Provider } from "@/provider/provider"
 import type { Agent } from "@/agent/agent"
 import { Permission } from "@/permission"
 import { Skill } from "@/skill"
+import type { Session } from "./session"
 
 export function provider(model: Provider.Model) {
   if (model.api.id.includes("gpt-4") || model.api.id.includes("o1") || model.api.id.includes("o3"))
@@ -33,7 +34,7 @@ export function provider(model: Provider.Model) {
 }
 
 export interface Interface {
-  readonly environment: (model: Provider.Model) => Effect.Effect<string[]>
+  readonly environment: (model: Provider.Model, roots?: Session.RootInfo[]) => Effect.Effect<string[]>
   readonly skills: (agent: Agent.Info) => Effect.Effect<string | undefined>
 }
 
@@ -45,8 +46,17 @@ export const layer = Layer.effect(
     const skill = yield* Skill.Service
 
     return Service.of({
-      environment: Effect.fn("SystemPrompt.environment")(function* (model: Provider.Model) {
+      environment: Effect.fn("SystemPrompt.environment")(function* (model: Provider.Model, roots?: Session.RootInfo[]) {
         const ctx = yield* InstanceState.context
+        const list = roots?.length
+          ? roots
+          : [
+              {
+                directory: ctx.directory,
+                worktree: ctx.worktree,
+                primary: true,
+              },
+            ]
         return [
           [
             `You are powered by the model named ${model.api.id}. The exact model ID is ${model.providerID}/${model.api.id}`,
@@ -54,6 +64,12 @@ export const layer = Layer.effect(
             `<env>`,
             `  Working directory: ${ctx.directory}`,
             `  Workspace root folder: ${ctx.worktree}`,
+            `  Session roots:`,
+            ...list.map((root) => {
+              const name = "name" in root ? root.name : undefined
+              return `    - ${name ? `${name}: ` : ""}${root.directory}${root.primary ? " (primary)" : ""}; workspace: ${root.worktree}`
+            }),
+            `  Snapshot/revert coverage: primary root only`,
             `  Is directory a git repo: ${ctx.project.vcs === "git" ? "yes" : "no"}`,
             `  Platform: ${process.platform}`,
             `  Today's date: ${new Date().toDateString()}`,

@@ -1,13 +1,12 @@
 import { Effect, Schema } from "effect"
 import * as Tool from "./tool"
-import path from "path"
 import { LSP } from "@/lsp/lsp"
 import DESCRIPTION from "./lsp.txt"
-import { InstanceState } from "@/effect/instance-state"
 import { pathToFileURL } from "url"
 import { assertExternalDirectoryWithSession } from "./external-directory"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { Session } from "@/session/session"
+import { ToolPath } from "./path"
 
 const operations = [
   "goToDefinition",
@@ -46,8 +45,8 @@ export const LspTool = Tool.define(
       parameters: Parameters,
       execute: (args: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
         Effect.gen(function* () {
-          const instance = yield* InstanceState.context
-          const file = path.isAbsolute(args.filePath) ? args.filePath : path.join(instance.directory, args.filePath)
+          const resolved = yield* ToolPath.resolveWithSession(session, ctx, args.filePath)
+          const file = resolved.path
           yield* assertExternalDirectoryWithSession(session, ctx, file)
           const meta =
             args.operation === "workspaceSymbol"
@@ -64,7 +63,7 @@ export const LspTool = Tool.define(
 
           const uri = pathToFileURL(file).href
           const position = { file, line: args.line - 1, character: args.character - 1 }
-          const relPath = path.relative(instance.worktree, file)
+          const relPath = resolved.relative
           const detail =
             args.operation === "workspaceSymbol"
               ? ""
@@ -76,31 +75,31 @@ export const LspTool = Tool.define(
           const exists = yield* fs.existsSafe(file)
           if (!exists) throw new Error(`File not found: ${file}`)
 
-          const available = yield* lsp.hasClients(file)
+          const available = yield* lsp.hasClients(file, resolved.root)
           if (!available) throw new Error("No LSP server available for this file type.")
 
-          yield* lsp.touchFile(file, "document")
+          yield* lsp.touchFile(file, "document", resolved.root)
 
           const result: unknown[] = yield* (() => {
             switch (args.operation) {
               case "goToDefinition":
-                return lsp.definition(position)
+                return lsp.definition(position, resolved.root)
               case "findReferences":
-                return lsp.references(position)
+                return lsp.references(position, resolved.root)
               case "hover":
-                return lsp.hover(position)
+                return lsp.hover(position, resolved.root)
               case "documentSymbol":
-                return lsp.documentSymbol(uri)
+                return lsp.documentSymbol(uri, resolved.root)
               case "workspaceSymbol":
                 return lsp.workspaceSymbol(args.query ?? "")
               case "goToImplementation":
-                return lsp.implementation(position)
+                return lsp.implementation(position, resolved.root)
               case "prepareCallHierarchy":
-                return lsp.prepareCallHierarchy(position)
+                return lsp.prepareCallHierarchy(position, resolved.root)
               case "incomingCalls":
-                return lsp.incomingCalls(position)
+                return lsp.incomingCalls(position, resolved.root)
               case "outgoingCalls":
-                return lsp.outgoingCalls(position)
+                return lsp.outgoingCalls(position, resolved.root)
             }
           })()
 
