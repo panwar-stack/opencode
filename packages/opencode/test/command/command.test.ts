@@ -49,6 +49,23 @@ describe("command", () => {
           expect(yield* Effect.promise(() => Promise.resolve(implementSpecPr.template))).toContain(
             "Implement only the work required for PR `#$2`.",
           )
+
+          const learn = yield* command.get("learn")
+          if (!learn) throw new Error("learn command not found")
+
+          expect(learn.source).toBe("command")
+          expect(learn.description).toContain("non-obvious learnings")
+          expect(learn.hints).toEqual(["$ARGUMENTS"])
+          expect(yield* Effect.promise(() => Promise.resolve(learn.template))).toContain("AGENTS.md files can exist")
+          expect(yield* Effect.promise(() => Promise.resolve(learn.template))).toContain("$ARGUMENTS")
+
+          const teamReport = yield* command.get("team-report")
+          if (!teamReport) throw new Error("team-report command not found")
+
+          expect(teamReport.source).toBe("command")
+          expect(teamReport.description).toBe("Run the team_report tool for the active lead session.")
+          expect(yield* Effect.promise(() => Promise.resolve(teamReport.template))).toContain("team_report")
+          expect(yield* Effect.promise(() => Promise.resolve(teamReport.template))).toContain("compare_session_ids")
         }),
       { git: true },
     ),

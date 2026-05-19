@@ -17,6 +17,7 @@ import { Discovery } from "./discovery"
 import CUSTOMIZE_OPENCODE_SKILL_BODY from "./prompt/customize-opencode.md" with { type: "text" }
 import REVIEW_MEMORY_SKILL_BODY from "./prompt/review-memory.md" with { type: "text" }
 import SPEC_PLANNER_SKILL_BODY from "./prompt/spec-planner.md" with { type: "text" }
+import TEAM_REPORT_SKILL_BODY from "./prompt/team-report.md" with { type: "text" }
 import { isRecord } from "@/util/record"
 
 const log = Log.create({ service: "skill" })
@@ -40,6 +41,9 @@ const REVIEW_MEMORY_SKILL_DESCRIPTION =
 const SPEC_PLANNER_SKILL_NAME = "spec-planner"
 const SPEC_PLANNER_SKILL_DESCRIPTION =
   "Convert rough user requirements, feature ideas, bug themes, or implementation goals into concrete engineering specs. Use when Codex needs to draft a Markdown spec, implementation plan, PR breakdown, acceptance criteria, verification plan, or repo-ready proposal similar to opencode specs such as packages/opencode/specs/agent-team-evaluation.md."
+const TEAM_REPORT_SKILL_NAME = "team-report"
+const TEAM_REPORT_SKILL_DESCRIPTION =
+  "Generate a post-run agent-team effectiveness report and optional baseline comparisons."
 const BUILTIN_LOCATION = "<built-in>"
 
 export const Info = Schema.Struct({
@@ -68,6 +72,12 @@ const BUILTIN_SKILLS = [
     description: SPEC_PLANNER_SKILL_DESCRIPTION,
     location: BUILTIN_LOCATION,
     content: SPEC_PLANNER_SKILL_BODY,
+  },
+  {
+    name: TEAM_REPORT_SKILL_NAME,
+    description: TEAM_REPORT_SKILL_DESCRIPTION,
+    location: BUILTIN_LOCATION,
+    content: TEAM_REPORT_SKILL_BODY,
   },
 ] satisfies Info[]
 

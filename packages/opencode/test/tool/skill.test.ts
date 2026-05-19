@@ -125,6 +125,12 @@ Use this skill.
           expect(specPlanner.output).toContain(`<skill_content name="spec-planner">`)
           expect(specPlanner.output).toContain("Requirements To Spec")
           expect(specPlanner.output).toContain("This is a built-in skill with no external skill directory.")
+
+          const teamReport = yield* tool.execute({ name: "team-report" }, ctx)
+          expect(teamReport.metadata.dir).toBe("<built-in>")
+          expect(teamReport.output).toContain(`<skill_content name="team-report">`)
+          expect(teamReport.output).toContain("team_report")
+          expect(teamReport.output).toContain("This is a built-in skill with no external skill directory.")
         }),
       { git: true },
     ),
