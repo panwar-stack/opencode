@@ -1,13 +1,14 @@
 import path from "path"
 import { Effect, Option, Schema } from "effect"
 import * as Stream from "effect/Stream"
-import { InstanceState } from "@/effect/instance-state"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { Ripgrep } from "../file/ripgrep"
-import { assertExternalDirectoryEffect } from "./external-directory"
+import { assertExternalDirectoryWithSession } from "./external-directory"
 import DESCRIPTION from "./glob.txt"
 import * as Tool from "./tool"
 import { Reference } from "@/reference/reference"
+import { ToolPath } from "./path"
+import { Session } from "@/session/session"
 
 export const Parameters = Schema.Struct({
   pattern: Schema.String.annotate({ description: "The glob pattern to match files against" }),
@@ -22,13 +23,13 @@ export const GlobTool = Tool.define(
     const rg = yield* Ripgrep.Service
     const fs = yield* AppFileSystem.Service
     const reference = yield* Reference.Service
+    const session = yield* Session.Service
 
     return {
       description: DESCRIPTION,
       parameters: Parameters,
       execute: (params: { pattern: string; path?: string }, ctx: Tool.Context) =>
         Effect.gen(function* () {
-          const ins = yield* InstanceState.context
           yield* ctx.ask({
             permission: "glob",
             patterns: [params.pattern],
@@ -39,14 +40,14 @@ export const GlobTool = Tool.define(
             },
           })
 
-          let search = params.path ?? ins.directory
-          search = path.isAbsolute(search) ? search : path.resolve(ins.directory, search)
+          const resolved = yield* ToolPath.resolveWithSession(session, ctx, params.path)
+          const search = resolved.path
           yield* reference.ensure(search)
           const info = yield* fs.stat(search).pipe(Effect.catch(() => Effect.succeed(undefined)))
           if (info?.type === "File") {
             throw new Error(`glob path must be a directory: ${search}`)
           }
-          yield* assertExternalDirectoryEffect(ctx, search, {
+          yield* assertExternalDirectoryWithSession(session, ctx, search, {
             bypass: yield* reference.contains(search),
             kind: "directory",
           })
@@ -90,7 +91,7 @@ export const GlobTool = Tool.define(
           }
 
           return {
-            title: path.relative(ins.worktree, search),
+            title: resolved.relative,
             metadata: {
               count: files.length,
               truncated,

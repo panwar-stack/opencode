@@ -5,8 +5,9 @@ import { LSP } from "@/lsp/lsp"
 import DESCRIPTION from "./lsp.txt"
 import { InstanceState } from "@/effect/instance-state"
 import { pathToFileURL } from "url"
-import { assertExternalDirectoryEffect } from "./external-directory"
+import { assertExternalDirectoryWithSession } from "./external-directory"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
+import { Session } from "@/session/session"
 
 const operations = [
   "goToDefinition",
@@ -39,6 +40,7 @@ export const LspTool = Tool.define(
   Effect.gen(function* () {
     const lsp = yield* LSP.Service
     const fs = yield* AppFileSystem.Service
+    const session = yield* Session.Service
     return {
       description: DESCRIPTION,
       parameters: Parameters,
@@ -46,7 +48,7 @@ export const LspTool = Tool.define(
         Effect.gen(function* () {
           const instance = yield* InstanceState.context
           const file = path.isAbsolute(args.filePath) ? args.filePath : path.join(instance.directory, args.filePath)
-          yield* assertExternalDirectoryEffect(ctx, file)
+          yield* assertExternalDirectoryWithSession(session, ctx, file)
           const meta =
             args.operation === "workspaceSymbol"
               ? { operation: args.operation }

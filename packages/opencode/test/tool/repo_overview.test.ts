@@ -7,6 +7,7 @@ import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { Git } from "../../src/git"
 import { Global } from "@opencode-ai/core/global"
 import { MessageID, SessionID } from "../../src/session/schema"
+import { Session } from "@/session/session"
 import { Truncate } from "../../src/tool/truncate"
 import { RepoOverviewTool } from "../../src/tool/repo_overview"
 import { disposeAllInstances, provideTmpdirInstance, tmpdirScoped } from "../fixture/fixture"
@@ -33,6 +34,7 @@ const it = testEffect(
     AppFileSystem.defaultLayer,
     CrossSpawnSpawner.defaultLayer,
     Git.defaultLayer,
+    Session.defaultLayer,
     Truncate.defaultLayer,
   ),
 )

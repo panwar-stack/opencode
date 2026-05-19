@@ -11,8 +11,9 @@ import { Truncate } from "@/tool/truncate"
 import { Tool } from "@/tool/tool"
 import { Agent } from "../../src/agent/agent"
 import { SessionID, MessageID } from "../../src/session/schema"
+import { Session } from "@/session/session"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
-import { disposeAllInstances, TestInstance } from "../fixture/fixture"
+import { disposeAllInstances, provideInstance, TestInstance, tmpdirScoped } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 
 const ctx = {
@@ -35,6 +36,7 @@ const it = testEffect(
     LSP.defaultLayer,
     AppFileSystem.defaultLayer,
     Bus.layer,
+    Session.defaultLayer,
     Format.defaultLayer,
     CrossSpawnSpawner.defaultLayer,
     Truncate.defaultLayer,
@@ -57,6 +59,42 @@ const run = Effect.fn("WriteToolTest.run")(function* (
 
 describe("tool.write", () => {
   describe("new file creation", () => {
+    it.live("writes absolute paths inside a registered secondary root", () =>
+      Effect.gen(function* () {
+        const primary = yield* tmpdirScoped({ git: true })
+        const secondary = yield* tmpdirScoped({ git: true })
+        const filepath = path.join(secondary, "created.txt")
+        const requests: Parameters<Tool.Context["ask"]>[0][] = []
+
+        const info = yield* provideInstance(primary)(
+          Effect.gen(function* () {
+            const session = yield* Session.Service
+            const info = yield* session.create({ title: "tool roots" })
+            yield* session.addRoot({ sessionID: info.id, directory: secondary })
+            return info
+          }),
+        )
+
+        yield* provideInstance(primary)(
+          run(
+            { filePath: filepath, content: "secondary content" },
+            {
+              ...ctx,
+              sessionID: info.id,
+              ask: (request) =>
+                Effect.sync(() => {
+                  requests.push(request)
+                }),
+            },
+          ),
+        )
+
+        expect(yield* Effect.promise(() => fs.readFile(filepath, "utf-8"))).toBe("secondary content")
+        expect(requests.find((request) => request.permission === "external_directory")).toBeUndefined()
+        expect(requests.find((request) => request.permission === "edit")?.patterns).toEqual(["created.txt"])
+      }),
+    )
+
     it.instance("writes content to new file", () =>
       Effect.gen(function* () {
         const test = yield* TestInstance

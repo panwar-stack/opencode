@@ -2,11 +2,12 @@ import path from "path"
 import { Effect, Schema } from "effect"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { Git } from "@/git"
-import { assertExternalDirectoryEffect } from "./external-directory"
+import { assertExternalDirectoryWithSession } from "./external-directory"
 import DESCRIPTION from "./repo_overview.txt"
 import * as Tool from "./tool"
 import { parseRepositoryReference, repositoryCachePath } from "@/util/repository"
 import { InstanceState } from "@/effect/instance-state"
+import { Session } from "@/session/session"
 
 export const Parameters = Schema.Struct({
   repository: Schema.optional(Schema.String).annotate({
@@ -98,11 +99,12 @@ function commonEntrypoints(files: Set<string>) {
   ].filter((file) => files.has(file))
 }
 
-export const RepoOverviewTool = Tool.define<typeof Parameters, Metadata, AppFileSystem.Service | Git.Service>(
+export const RepoOverviewTool = Tool.define<typeof Parameters, Metadata, AppFileSystem.Service | Git.Service | Session.Service>(
   "repo_overview",
   Effect.gen(function* () {
     const fs = yield* AppFileSystem.Service
     const git = yield* Git.Service
+    const session = yield* Session.Service
 
     const resolveTarget = Effect.fn("RepoOverviewTool.resolveTarget")(function* (
       params: Schema.Schema.Type<typeof Parameters>,
@@ -182,7 +184,7 @@ export const RepoOverviewTool = Tool.define<typeof Parameters, Metadata, AppFile
           const depth =
             !params.depth || !Number.isInteger(params.depth) || params.depth < 1 || params.depth > 6 ? 3 : params.depth
 
-          yield* assertExternalDirectoryEffect(ctx, target.path, { kind: "directory" })
+          yield* assertExternalDirectoryWithSession(session, ctx, target.path, { kind: "directory" })
           yield* ctx.ask({
             permission: "repo_overview",
             patterns: [target.repository ?? target.path],

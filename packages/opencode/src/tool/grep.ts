@@ -1,13 +1,14 @@
 import path from "path"
 import { Schema } from "effect"
 import { Effect, Option } from "effect"
-import { InstanceState } from "@/effect/instance-state"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { Ripgrep } from "../file/ripgrep"
-import { assertExternalDirectoryEffect } from "./external-directory"
+import { assertExternalDirectoryWithSession } from "./external-directory"
 import DESCRIPTION from "./grep.txt"
 import * as Tool from "./tool"
 import { Reference } from "@/reference/reference"
+import { ToolPath } from "./path"
+import { Session } from "@/session/session"
 
 const MAX_LINE_LENGTH = 2000
 
@@ -27,6 +28,7 @@ export const GrepTool = Tool.define(
     const fs = yield* AppFileSystem.Service
     const rg = yield* Ripgrep.Service
     const reference = yield* Reference.Service
+    const session = yield* Session.Service
 
     return {
       description: DESCRIPTION,
@@ -53,13 +55,11 @@ export const GrepTool = Tool.define(
             },
           })
 
-          const ins = yield* InstanceState.context
-          const requested = path.isAbsolute(params.path ?? ins.directory)
-            ? (params.path ?? ins.directory)
-            : path.join(ins.directory, params.path ?? ".")
+          const resolved = yield* ToolPath.resolveWithSession(session, ctx, params.path)
+          const requested = resolved.path
           yield* reference.ensure(requested)
           const requestedInfo = yield* fs.stat(requested).pipe(Effect.catch(() => Effect.succeed(undefined)))
-          yield* assertExternalDirectoryEffect(ctx, requested, {
+          yield* assertExternalDirectoryWithSession(session, ctx, requested, {
             bypass: yield* reference.contains(requested),
             kind: requestedInfo?.type === "Directory" ? "directory" : "file",
           })
