@@ -44,6 +44,7 @@ export function createFetch(override?: FetchHandler) {
 
     const overridden = await override?.(url)
     if (overridden) return overridden
+    if (/^\/session\/[^/]+\/root$/.test(url.pathname)) return json([])
 
     switch (url.pathname) {
       case "/agent":
