@@ -11,3 +11,10 @@ export function mapStorageNotFound<A, R>(self: Effect.Effect<A, StorageNotFoundE
 export function mapBusy<A, R>(self: Effect.Effect<A, Session.BusyError, R>) {
   return self.pipe(Effect.catchTag("SessionBusyError", () => Effect.fail(new HttpApiError.BadRequest({}))))
 }
+
+export function mapRootMutation<A, R>(self: Effect.Effect<A, StorageNotFoundError | Session.RootError, R>) {
+  return self.pipe(
+    Effect.catchTag("NotFoundError", (error) => Effect.fail(ApiError.notFound(error.message))),
+    Effect.catchTag("SessionRootError", () => Effect.fail(new HttpApiError.BadRequest({}))),
+  )
+}

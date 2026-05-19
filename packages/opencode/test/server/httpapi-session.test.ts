@@ -379,8 +379,8 @@ describe("session HttpApi", () => {
         ).toMatchObject({ id: child.id, time: { processing: 1234 } })
 
         expect(
-          (yield* requestJson<Session.Info[]>(SessionPaths.list, { headers })).find((item) => item.id === child.id)?.time
-            .processing,
+          (yield* requestJson<Session.Info[]>(SessionPaths.list, { headers })).find((item) => item.id === child.id)
+            ?.time.processing,
         ).toBe(1234)
 
         expect(
@@ -461,6 +461,73 @@ describe("session HttpApi", () => {
             headers,
           }),
         ).toBe(true)
+      }),
+    { git: true, config: { formatter: false, lsp: false, share: "disabled" } },
+  )
+
+  it.instance(
+    "serves session root mutation routes",
+    () =>
+      Effect.gen(function* () {
+        const test = yield* TestInstance
+        const headers = { "x-opencode-directory": test.directory, "content-type": "application/json" }
+        const session = yield* createSession({ title: "roots" })
+        const other = path.join(test.directory, "other-root")
+        yield* Effect.promise(() => mkdir(other, { recursive: true }))
+
+        const initial = yield* requestJson<Session.RootInfo[]>(pathFor(SessionPaths.roots, { sessionID: session.id }), {
+          headers,
+        })
+        expect(initial).toHaveLength(1)
+        expect(initial[0]).toMatchObject({ directory: test.directory, primary: true })
+
+        const added = yield* requestJson<Session.RootInfo>(pathFor(SessionPaths.roots, { sessionID: session.id }), {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ directory: other, name: "other" }),
+        })
+        expect(added).toMatchObject({ directory: other, name: "other", primary: false })
+
+        const duplicate = yield* request(pathFor(SessionPaths.roots, { sessionID: session.id }), {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ directory: other }),
+        })
+        expect(duplicate.status).toBe(400)
+
+        const primary = yield* requestJson<Session.RootInfo>(
+          pathFor(SessionPaths.root, { sessionID: session.id, rootID: added.id }),
+          {
+            method: "PATCH",
+            headers,
+            body: JSON.stringify({ name: "renamed", primary: true }),
+          },
+        )
+        expect(primary).toMatchObject({ id: added.id, name: "renamed", primary: true })
+        expect(
+          yield* requestJson<Session.Info>(pathFor(SessionPaths.get, { sessionID: session.id }), { headers }),
+        ).toMatchObject({ directory: other })
+
+        expect(
+          yield* requestJson<boolean>(pathFor(SessionPaths.root, { sessionID: session.id, rootID: added.id }), {
+            method: "DELETE",
+            headers,
+          }),
+        ).toBe(true)
+        const remaining = yield* requestJson<Session.RootInfo[]>(
+          pathFor(SessionPaths.roots, { sessionID: session.id }),
+          {
+            headers,
+          },
+        )
+        expect(remaining).toHaveLength(1)
+        expect(remaining[0]).toMatchObject({ id: initial[0]?.id, primary: true })
+
+        const lastRoot = yield* request(
+          pathFor(SessionPaths.root, { sessionID: session.id, rootID: remaining[0]!.id }),
+          { method: "DELETE", headers },
+        )
+        expect(lastRoot.status).toBe(400)
       }),
     { git: true, config: { formatter: false, lsp: false, share: "disabled" } },
   )

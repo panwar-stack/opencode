@@ -1,6 +1,7 @@
 import { afterEach, describe, expect } from "bun:test"
 import { Effect, Layer } from "effect"
 import { Session as SessionNs } from "@/session/session"
+import { Project } from "@/project/project"
 import * as Log from "@opencode-ai/core/util/log"
 import { disposeAllInstances, provideInstance, TestInstance } from "../fixture/fixture"
 import { mkdir } from "fs/promises"
@@ -23,6 +24,7 @@ const it = testEffect(
     Layer.provide(SyncEvent.defaultLayer),
     Layer.provide(RuntimeFlags.layer({ experimentalWorkspaces: false })),
     Layer.provide(BackgroundJob.defaultLayer),
+    Layer.provide(Project.defaultLayer),
   ),
 )
 
