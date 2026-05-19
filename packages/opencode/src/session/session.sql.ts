@@ -1,11 +1,11 @@
-import { sqliteTable, text, integer, index, primaryKey, real } from "drizzle-orm/sqlite-core"
+import { sqliteTable, text, integer, index, primaryKey, real, uniqueIndex } from "drizzle-orm/sqlite-core"
 import { ProjectTable } from "../project/project.sql"
 import type { MessageV2 } from "./message-v2"
 import type { SessionMessage } from "@opencode-ai/core/session-message"
 import type { Snapshot } from "../snapshot"
 import type { Permission } from "../permission"
 import type { ProjectID } from "../project/schema"
-import type { SessionID, MessageID, PartID } from "./schema"
+import type { SessionID, MessageID, PartID, SessionRootID } from "./schema"
 import type { WorkspaceID } from "../control-plane/schema"
 import { Timestamps } from "../storage/schema.sql"
 
@@ -56,6 +56,31 @@ export const SessionTable = sqliteTable(
     index("session_project_idx").on(table.project_id),
     index("session_workspace_idx").on(table.workspace_id),
     index("session_parent_idx").on(table.parent_id),
+  ],
+)
+
+export const SessionRootTable = sqliteTable(
+  "session_root",
+  {
+    id: text().$type<SessionRootID>().primaryKey(),
+    session_id: text()
+      .$type<SessionID>()
+      .notNull()
+      .references(() => SessionTable.id, { onDelete: "cascade" }),
+    name: text(),
+    directory: text().notNull(),
+    worktree: text().notNull(),
+    project_id: text()
+      .$type<ProjectID>()
+      .notNull()
+      .references(() => ProjectTable.id, { onDelete: "cascade" }),
+    path: text(),
+    created: integer().notNull(),
+    primary: integer({ mode: "boolean" }).notNull().default(false),
+  },
+  (table) => [
+    uniqueIndex("session_root_session_directory_idx").on(table.session_id, table.directory),
+    index("session_root_session_idx").on(table.session_id),
   ],
 )
 

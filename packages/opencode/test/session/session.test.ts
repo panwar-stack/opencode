@@ -1,6 +1,7 @@
 import { describe, expect } from "bun:test"
 import { Deferred, Effect, Exit, Layer } from "effect"
 import { Session as SessionNs } from "@/session/session"
+import { Project } from "@/project/project"
 import { GlobalBus, type GlobalEvent } from "../../src/bus/global"
 import * as Log from "@opencode-ai/core/util/log"
 import { MessageV2 } from "../../src/session/message-v2"
@@ -24,6 +25,7 @@ const it = testEffect(
       Layer.provide(SyncEvent.defaultLayer),
       Layer.provide(RuntimeFlags.layer({ experimentalWorkspaces: false })),
       Layer.provide(BackgroundJob.defaultLayer),
+      Layer.provide(Project.defaultLayer),
     ),
     CrossSpawnSpawner.defaultLayer,
   ),
@@ -195,6 +197,50 @@ describe("step-finish token propagation via Bus event", () => {
 })
 
 describe("Session", () => {
+  it.instance("manages session roots and keeps primary root synced", () =>
+    Effect.gen(function* () {
+      const session = yield* SessionNs.Service
+      const info = yield* session.create({ title: "roots" })
+
+      const initialRoots = yield* session.listRoots(info.id)
+      expect(initialRoots).toHaveLength(1)
+      expect(initialRoots[0]).toMatchObject({
+        sessionID: info.id,
+        directory: info.directory,
+        projectID: info.projectID,
+        primary: true,
+      })
+
+      const other = yield* tmpdirScoped({ git: true })
+      const added = yield* session.addRoot({ sessionID: info.id, directory: other, name: "other" })
+      expect(added).toMatchObject({ directory: other, name: "other", primary: false })
+
+      const duplicate = yield* session.addRoot({ sessionID: info.id, directory: other }).pipe(Effect.exit)
+      expect(Exit.isFailure(duplicate)).toBe(true)
+
+      const primary = yield* session.updateRoot({
+        sessionID: info.id,
+        rootID: added.id,
+        name: "renamed",
+        primary: true,
+      })
+      expect(primary).toMatchObject({ id: added.id, name: "renamed", primary: true })
+      expect((yield* session.get(info.id)).directory).toBe(other)
+      expect((yield* session.getPrimaryRoot(info.id)).id).toBe(added.id)
+
+      yield* session.removeRoot({ sessionID: info.id, rootID: added.id })
+      const remaining = yield* session.listRoots(info.id)
+      expect(remaining).toHaveLength(1)
+      expect(remaining[0]).toMatchObject({ id: initialRoots[0]?.id, primary: true })
+      expect((yield* session.get(info.id)).directory).toBe(info.directory)
+
+      const lastDelete = yield* session.removeRoot({ sessionID: info.id, rootID: remaining[0]!.id }).pipe(Effect.exit)
+      expect(Exit.isFailure(lastDelete)).toBe(true)
+
+      yield* session.remove(info.id)
+    }),
+  )
+
   it.live("remove works without an instance", () =>
     Effect.gen(function* () {
       const session = yield* SessionNs.Service
