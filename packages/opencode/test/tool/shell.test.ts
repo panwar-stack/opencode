@@ -18,6 +18,7 @@ import { Plugin } from "../../src/plugin"
 import { testEffect } from "../lib/effect"
 import { Tool } from "@/tool/tool"
 import { RuntimeFlags } from "@/effect/runtime-flags"
+import { Session } from "@/session/session"
 
 const shellLayer = Layer.mergeAll(
   CrossSpawnSpawner.defaultLayer,
@@ -26,6 +27,7 @@ const shellLayer = Layer.mergeAll(
   Truncate.defaultLayer,
   Config.defaultLayer,
   Agent.defaultLayer,
+  Session.defaultLayer,
   RuntimeFlags.defaultLayer,
 )
 const it = testEffect(shellLayer)
@@ -172,6 +174,44 @@ const mustTruncate = (result: {
 }
 
 describe("tool.shell", () => {
+  it.live("runs with workdir inside a registered secondary root", () =>
+    Effect.gen(function* () {
+      const primary = yield* tmpdirScoped()
+      const secondary = yield* tmpdirScoped()
+      const requests: Array<{ permission: string }> = []
+      const info = yield* provideInstance(primary)(
+        Effect.gen(function* () {
+          const session = yield* Session.Service
+          const info = yield* session.create({ title: "tool roots" })
+          yield* session.addRoot({ sessionID: info.id, directory: secondary })
+          return info
+        }),
+      )
+
+      const result = yield* runIn(
+        primary,
+        run(
+          {
+            command: `${bin} -e "console.log(process.cwd())"`,
+            workdir: secondary,
+            description: "print cwd",
+          },
+          {
+            ...ctx,
+            sessionID: info.id,
+            ask: (request) =>
+              Effect.sync(() => {
+                requests.push(request)
+              }),
+          },
+        ),
+      )
+
+      expect(result.output.trim()).toBe(secondary)
+      expect(requests.find((request) => request.permission === "external_directory")).toBeUndefined()
+    }),
+  )
+
   each("basic", () =>
     runIn(
       projectRoot,

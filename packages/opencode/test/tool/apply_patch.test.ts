@@ -3,22 +3,26 @@ import path from "path"
 import * as fs from "fs/promises"
 import { Cause, Effect, Exit, Layer } from "effect"
 import { ApplyPatchTool } from "../../src/tool/apply_patch"
+import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { LSP } from "@/lsp/lsp"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { Format } from "../../src/format"
 import { Agent } from "../../src/agent/agent"
 import { Bus } from "../../src/bus"
 import { Truncate } from "@/tool/truncate"
-import { TestInstance } from "../fixture/fixture"
+import { provideInstance, TestInstance, tmpdirScoped } from "../fixture/fixture"
 import { SessionID, MessageID } from "../../src/session/schema"
+import { Session } from "@/session/session"
 import { testEffect } from "../lib/effect"
 
 const it = testEffect(
   Layer.mergeAll(
     LSP.defaultLayer,
+    CrossSpawnSpawner.defaultLayer,
     AppFileSystem.defaultLayer,
     Format.defaultLayer,
     Bus.layer,
+    Session.defaultLayer,
     Truncate.defaultLayer,
     Agent.defaultLayer,
   ),
@@ -90,6 +94,44 @@ const expectFailure = <A, E, R>(effect: Effect.Effect<A, E, R>, message?: string
 const expectReadFailure = (filepath: string) => expectFailure(readText(filepath))
 
 describe("tool.apply_patch freeform", () => {
+  it.live("applies absolute patch paths inside a registered secondary root", () =>
+    Effect.gen(function* () {
+      const primary = yield* tmpdirScoped({ git: true })
+      const secondary = yield* tmpdirScoped({ git: true })
+      const filepath = path.join(secondary, "added.txt")
+      const requests: Array<{ permission: string; patterns: readonly string[] }> = []
+      const info = yield* provideInstance(primary)(
+        Effect.gen(function* () {
+          const session = yield* Session.Service
+          const info = yield* session.create({ title: "tool roots" })
+          yield* session.addRoot({ sessionID: info.id, directory: secondary })
+          return info
+        }),
+      )
+      const tool = yield* (yield* ApplyPatchTool).init()
+
+      yield* provideInstance(primary)(
+        tool.execute(
+          {
+            patchText: ["*** Begin Patch", `*** Add File: ${filepath}`, "+hello", "*** End Patch"].join("\n"),
+          },
+          {
+            ...baseCtx,
+            sessionID: info.id,
+            ask: (request) =>
+              Effect.sync(() => {
+                requests.push(request)
+              }),
+          },
+        ),
+      )
+
+      expect(yield* readText(filepath)).toBe("hello\n")
+      expect(requests.find((request) => request.permission === "external_directory")).toBeUndefined()
+      expect(requests.find((request) => request.permission === "edit")?.patterns).toEqual(["added.txt"])
+    }),
+  )
+
   it.live("requires patchText", () =>
     Effect.gen(function* () {
       const { ctx } = makeCtx()

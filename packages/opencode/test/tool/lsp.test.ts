@@ -7,6 +7,7 @@ import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { LSP } from "@/lsp/lsp"
 import { Permission } from "../../src/permission"
 import { MessageID, SessionID } from "../../src/session/schema"
+import { Session } from "@/session/session"
 import { Tool } from "@/tool/tool"
 import { Truncate } from "@/tool/truncate"
 import { LspTool } from "../../src/tool/lsp"
@@ -59,6 +60,7 @@ const it = testEffect(
     Agent.defaultLayer,
     AppFileSystem.defaultLayer,
     CrossSpawnSpawner.defaultLayer,
+    Session.defaultLayer,
     Truncate.defaultLayer,
     lsp,
   ),
