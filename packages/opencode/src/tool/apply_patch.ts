@@ -60,8 +60,10 @@ export const ApplyPatchTool = Tool.define(
         oldContent: string
         newContent: string
         type: "add" | "update" | "delete" | "move"
+        root: ToolPath.Root
         movePath?: string
         moveRelativePath?: string
+        moveRoot?: ToolPath.Root
         diff: string
         additions: number
         deletions: number
@@ -96,6 +98,7 @@ export const ApplyPatchTool = Tool.define(
               oldContent,
               newContent: next.text,
               type: "add",
+              root: resolved.root,
               diff,
               additions,
               deletions,
@@ -152,8 +155,10 @@ export const ApplyPatchTool = Tool.define(
               oldContent,
               newContent,
               type: hunk.move_path ? "move" : "update",
+              root: resolved.root,
               movePath,
               moveRelativePath: move?.relative,
+              moveRoot: move?.root,
               diff,
               additions,
               deletions,
@@ -185,6 +190,7 @@ export const ApplyPatchTool = Tool.define(
               oldContent: contentToDelete,
               newContent: "",
               type: "delete",
+              root: resolved.root,
               diff: deleteDiff,
               additions: 0,
               deletions,
@@ -273,7 +279,7 @@ export const ApplyPatchTool = Tool.define(
       for (const change of fileChanges) {
         if (change.type === "delete") continue
         const target = change.movePath ?? change.filePath
-        yield* lsp.touchFile(target, "document")
+        yield* lsp.touchFile(target, "document", change.moveRoot ?? change.root)
       }
       const diagnostics = yield* lsp.diagnostics()
 
