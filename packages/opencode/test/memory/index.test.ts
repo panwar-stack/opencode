@@ -114,13 +114,12 @@ describe("memory index", () => {
 
       const memory = yield* Memory.Service
 
-      expect((yield* memory.query({ text: "terminal", file: "src/session/list.ts" })).map((result) => result.title)).toEqual([
-        "Compact terminal output",
-        "Other repository terminal output",
-      ])
-      expect((yield* memory.query({ text: "terminal", repo: "opencode/opencode" })).map((result) => result.title)).toEqual([
-        "Compact terminal output",
-      ])
+      expect(
+        (yield* memory.query({ text: "terminal", file: "src/session/list.ts" })).map((result) => result.title),
+      ).toEqual(["Compact terminal output", "Other repository terminal output"])
+      expect(
+        (yield* memory.query({ text: "terminal", repo: "opencode/opencode" })).map((result) => result.title),
+      ).toEqual(["Compact terminal output"])
       expect(yield* memory.query({ text: "terminal", file: "src/auth/login.ts" })).toEqual([])
     }),
   )

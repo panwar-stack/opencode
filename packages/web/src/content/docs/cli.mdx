@@ -240,12 +240,12 @@ opencode memory index github [--repo owner/repo] [--since date] [--limit n] [--r
 
 ##### Flags
 
-| Flag                                    | Description                                                        |
-| --------------------------------------- | ------------------------------------------------------------------ |
-| <nobr><code>{"--repo"}</code></nobr>  | GitHub repository in `owner/repo` form                             |
-| <nobr><code>{"--since"}</code></nobr> | Only fetch comments updated after this date                        |
-| <nobr><code>{"--limit"}</code></nobr> | Maximum number of comments to fetch                                |
-| <nobr><code>{"--reset"}</code></nobr> | Clear indexed GitHub memory for this repository without fetching   |
+| Flag                                  | Description                                                      |
+| ------------------------------------- | ---------------------------------------------------------------- |
+| <nobr><code>{"--repo"}</code></nobr>  | GitHub repository in `owner/repo` form                           |
+| <nobr><code>{"--since"}</code></nobr> | Only fetch comments updated after this date                      |
+| <nobr><code>{"--limit"}</code></nobr> | Maximum number of comments to fetch                              |
+| <nobr><code>{"--reset"}</code></nobr> | Clear indexed GitHub memory for this repository without fetching |
 
 ---
 
@@ -259,8 +259,8 @@ opencode memory query <text> [--file path] [--json]
 
 ##### Flags
 
-| Flag                                   | Description                  |
-| -------------------------------------- | ---------------------------- |
+| Flag                                 | Description                  |
+| ------------------------------------ | ---------------------------- |
 | <nobr><code>{"--file"}</code></nobr> | Limit results to a file path |
 | <nobr><code>{"--json"}</code></nobr> | Print results as JSON        |
 
@@ -276,8 +276,8 @@ opencode memory review [--base ref] [--pr number] [--json]
 
 ##### Flags
 
-| Flag                                   | Description                                            |
-| -------------------------------------- | ------------------------------------------------------ |
+| Flag                                 | Description                                            |
+| ------------------------------------ | ------------------------------------------------------ |
 | <nobr><code>{"--base"}</code></nobr> | Base branch or ref to compare against (defaults `dev`) |
 | <nobr><code>{"--pr"}</code></nobr>   | GitHub pull request number to review                   |
 | <nobr><code>{"--json"}</code></nobr> | Print results as JSON                                  |

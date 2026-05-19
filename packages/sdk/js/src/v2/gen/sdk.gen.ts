@@ -151,6 +151,14 @@ import type {
   SessionPromptResponses,
   SessionRevertErrors,
   SessionRevertResponses,
+  SessionRootAddErrors,
+  SessionRootAddResponses,
+  SessionRootDeleteErrors,
+  SessionRootDeleteResponses,
+  SessionRootListErrors,
+  SessionRootListResponses,
+  SessionRootUpdateErrors,
+  SessionRootUpdateResponses,
   SessionShareErrors,
   SessionShareResponses,
   SessionShellErrors,
@@ -2969,6 +2977,166 @@ export class Provider extends HeyApiClient {
   }
 }
 
+export class Root extends HeyApiClient {
+  /**
+   * List session roots
+   *
+   * Retrieve all registered working directories for a session.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<SessionRootListResponses, SessionRootListErrors, ThrowOnError>({
+      url: "/session/{sessionID}/root",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Add session root
+   *
+   * Register another working directory for a session.
+   */
+  public add<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      query_directory?: string
+      workspace?: string
+      body_directory?: string
+      name?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            {
+              in: "query",
+              key: "query_directory",
+              map: "directory",
+            },
+            { in: "query", key: "workspace" },
+            {
+              in: "body",
+              key: "body_directory",
+              map: "directory",
+            },
+            { in: "body", key: "name" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<SessionRootAddResponses, SessionRootAddErrors, ThrowOnError>({
+      url: "/session/{sessionID}/root",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Delete session root
+   *
+   * Remove a registered working directory from a session.
+   */
+  public delete<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      rootID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "path", key: "rootID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<SessionRootDeleteResponses, SessionRootDeleteErrors, ThrowOnError>({
+      url: "/session/{sessionID}/root/{rootID}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Update session root
+   *
+   * Rename a session root or make it the primary root.
+   */
+  public update<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      rootID: string
+      directory?: string
+      workspace?: string
+      name?: string
+      primary?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "path", key: "rootID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "name" },
+            { in: "body", key: "primary" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).patch<SessionRootUpdateResponses, SessionRootUpdateErrors, ThrowOnError>({
+      url: "/session/{sessionID}/root/{rootID}",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
 export class Session2 extends HeyApiClient {
   /**
    * List sessions
@@ -3926,6 +4094,11 @@ export class Session2 extends HeyApiClient {
       ...options,
       ...params,
     })
+  }
+
+  private _root?: Root
+  get root(): Root {
+    return (this._root ??= new Root({ client: this.client }))
   }
 }
 

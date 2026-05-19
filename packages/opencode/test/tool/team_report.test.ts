@@ -36,7 +36,11 @@ describe("tool.team_report", () => {
           const sessions = yield* Session.Service
           const team = yield* Team.Service
           const lead = yield* sessions.create({ title: "Lead" })
-          const info = yield* team.create({ name: "report-team", goal: "Evaluate report output", leadSessionID: lead.id })
+          const info = yield* team.create({
+            name: "report-team",
+            goal: "Evaluate report output",
+            leadSessionID: lead.id,
+          })
           const worker = yield* team.addMember({
             teamID: info.id,
             sessionID: "ses_report_cancelled_worker",
@@ -75,7 +79,11 @@ describe("tool.team_report", () => {
           const sessions = yield* Session.Service
           const team = yield* Team.Service
           const lead = yield* sessions.create({ title: "Lead" })
-          const info = yield* team.create({ name: "healthy-report-team", goal: "Evaluate healthy report", leadSessionID: lead.id })
+          const info = yield* team.create({
+            name: "healthy-report-team",
+            goal: "Evaluate healthy report",
+            leadSessionID: lead.id,
+          })
           const worker = yield* team.addMember({
             teamID: info.id,
             sessionID: "ses_report_healthy_worker",

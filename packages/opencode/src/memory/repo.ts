@@ -110,7 +110,11 @@ export const upsertSourceItem = Effect.fn("MemoryIndex.upsertSourceItem")((input
           metadata: input.metadata,
         })
         .onConflictDoUpdate({
-          target: [MemorySourceItemTable.repository_id, MemorySourceItemTable.provider, MemorySourceItemTable.source_id],
+          target: [
+            MemorySourceItemTable.repository_id,
+            MemorySourceItemTable.provider,
+            MemorySourceItemTable.source_id,
+          ],
           set: {
             source_kind: input.source_kind,
             pr_number: input.pr_number,
@@ -254,7 +258,9 @@ export const getSyncCheckpoint = Effect.fn("MemoryIndex.getSyncCheckpoint")((inp
       db
         .select()
         .from(MemorySyncCheckpointTable)
-        .where(and(eq(MemorySyncCheckpointTable.provider, input.provider), eq(MemorySyncCheckpointTable.repo, input.repo)))
+        .where(
+          and(eq(MemorySyncCheckpointTable.provider, input.provider), eq(MemorySyncCheckpointTable.repo, input.repo)),
+        )
         .get(),
     ),
   ),
@@ -272,10 +278,7 @@ export const query = Effect.fn("MemoryIndex.query")((input: QueryInput) =>
         .innerJoin(MemoryRepositoryTable, eq(MemoryConstraintTable.repository_id, MemoryRepositoryTable.id))
         .where(
           input.repo
-            ? and(
-                eq(MemoryConstraintTable.status, "active"),
-                eq(MemoryRepositoryTable.repo, input.repo),
-              )
+            ? and(eq(MemoryConstraintTable.status, "active"), eq(MemoryRepositoryTable.repo, input.repo))
             : eq(MemoryConstraintTable.status, "active"),
         )
         .all()

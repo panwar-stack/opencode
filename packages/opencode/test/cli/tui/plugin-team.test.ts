@@ -7,7 +7,9 @@ const { TuiPluginRuntime } = await import("../../../src/cli/cmd/tui/plugin/runti
 const { TuiConfig } = await import("../../../src/cli/cmd/tui/config/tui")
 
 test("team sidebar plugin is registered as internal", () => {
-  const teamPlugin = internalTuiPlugins({ experimentalEventSystem: false }).find((p) => p.id === "internal:sidebar-team")
+  const teamPlugin = internalTuiPlugins({ experimentalEventSystem: false }).find(
+    (p) => p.id === "internal:sidebar-team",
+  )
   expect(teamPlugin).toBeDefined()
   expect(teamPlugin?.id).toBe("internal:sidebar-team")
   expect(teamPlugin?.tui).toBeTypeOf("function")

@@ -136,10 +136,7 @@ describe("memory cli", () => {
         cursor: "2026-05-02T00:00:00Z",
       }),
     ).toBe(
-      [
-        "Indexed 1 of 2 GitHub review comments for opencode/opencode.",
-        "Checkpoint: 2026-05-02T00:00:00Z",
-      ].join(EOL),
+      ["Indexed 1 of 2 GitHub review comments for opencode/opencode.", "Checkpoint: 2026-05-02T00:00:00Z"].join(EOL),
     )
   })
 

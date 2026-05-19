@@ -86,7 +86,11 @@ export const resolveWithSession = Effect.fn("ToolPath.resolveWithSession")(funct
   target?: string,
 ) {
   const root = yield* primaryWithSession(session, ctx)
-  const filepath = normalize(path.isAbsolute(target ?? root.directory) ? (target ?? root.directory) : path.resolve(root.directory, target ?? "."))
+  const filepath = normalize(
+    path.isAbsolute(target ?? root.directory)
+      ? (target ?? root.directory)
+      : path.resolve(root.directory, target ?? "."),
+  )
   const match = (yield* containingRootWithSession(session, ctx, filepath)) ?? root
   return {
     path: filepath,

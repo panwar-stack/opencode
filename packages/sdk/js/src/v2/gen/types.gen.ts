@@ -5,20 +5,22 @@ export type ClientOptions = {
 }
 
 export type Event =
+  | EventServerInstanceDisposed
+  | EventFileEdited
+  | EventFileWatcherUpdated
   | EventTuiPromptAppend
   | EventTuiCommandExecute
   | EventTuiToastShow1
   | EventTuiSessionSelect
-  | EventServerConnected
-  | EventGlobalDisposed
-  | EventServerInstanceDisposed
-  | EventFileEdited
-  | EventFileWatcherUpdated
+  | EventMcpToolsChanged
+  | EventMcpBrowserOpenFailed
+  | EventPermissionAsked
+  | EventPermissionReplied
+  | EventCommandExecuted
+  | EventProjectUpdated
   | EventLspClientDiagnostics
   | EventLspUpdated
   | EventMessagePartDelta
-  | EventPermissionAsked
-  | EventPermissionReplied
   | EventSessionDiff
   | EventSessionError
   | EventQuestionAsked
@@ -31,10 +33,6 @@ export type Event =
   | EventTeamMemberUpdated
   | EventTeamMessageReceived
   | EventTodoUpdated
-  | EventMcpToolsChanged
-  | EventMcpBrowserOpenFailed
-  | EventCommandExecuted
-  | EventProjectUpdated
   | EventSessionCompacted
   | EventVcsBranchUpdated
   | EventWorkspaceReady
@@ -81,6 +79,8 @@ export type Event =
   | EventSessionNextCompactionStarted
   | EventSessionNextCompactionDelta
   | EventSessionNextCompactionEnded
+  | EventServerConnected
+  | EventGlobalDisposed
   | EventCatalogModelUpdated
 
 export type OAuth = {
@@ -180,6 +180,30 @@ export type PermissionRequest = {
     messageID: string
     callID: string
   }
+}
+
+export type Project = {
+  id: string
+  worktree: string
+  vcs?: "git"
+  name?: string
+  icon?: {
+    url?: string
+    override?: string
+    color?: string
+  }
+  commands?: {
+    /**
+     * Startup script to run when creating a new workspace (worktree)
+     */
+    start?: string
+  }
+  time: {
+    created: number
+    updated: number
+    initialized?: number
+  }
+  sandboxes: Array<string>
 }
 
 export type SnapshotFileDiff = {
@@ -342,30 +366,6 @@ export type Todo = {
    * Priority level of the task: high, medium, low
    */
   priority: string
-}
-
-export type Project = {
-  id: string
-  worktree: string
-  vcs?: "git"
-  name?: string
-  icon?: {
-    url?: string
-    override?: string
-    color?: string
-  }
-  commands?: {
-    /**
-     * Startup script to run when creating a new workspace (worktree)
-     */
-    start?: string
-  }
-  time: {
-    created: number
-    updated: number
-    initialized?: number
-  }
-  sandboxes: Array<string>
 }
 
 export type Pty = {
@@ -648,6 +648,7 @@ export type StepFinishPart = {
   reason: string
   snapshot?: string
   cost: number
+  duration?: number
   tokens: {
     total?: number
     input: number
@@ -799,20 +800,22 @@ export type GlobalEvent = {
   project?: string
   workspace?: string
   payload:
+    | EventServerInstanceDisposed
+    | EventFileEdited
+    | EventFileWatcherUpdated
     | EventTuiPromptAppend
     | EventTuiCommandExecute
     | EventTuiToastShow
     | EventTuiSessionSelect
-    | EventServerConnected
-    | EventGlobalDisposed
-    | EventServerInstanceDisposed
-    | EventFileEdited
-    | EventFileWatcherUpdated
+    | EventMcpToolsChanged
+    | EventMcpBrowserOpenFailed
+    | EventPermissionAsked
+    | EventPermissionReplied
+    | EventCommandExecuted
+    | EventProjectUpdated
     | EventLspClientDiagnostics
     | EventLspUpdated
     | EventMessagePartDelta
-    | EventPermissionAsked
-    | EventPermissionReplied
     | EventSessionDiff
     | EventSessionError
     | EventQuestionAsked
@@ -825,10 +828,6 @@ export type GlobalEvent = {
     | EventTeamMemberUpdated
     | EventTeamMessageReceived
     | EventTodoUpdated
-    | EventMcpToolsChanged
-    | EventMcpBrowserOpenFailed
-    | EventCommandExecuted
-    | EventProjectUpdated
     | EventSessionCompacted
     | EventVcsBranchUpdated
     | EventWorkspaceReady
@@ -875,6 +874,8 @@ export type GlobalEvent = {
     | EventSessionNextCompactionStarted
     | EventSessionNextCompactionDelta
     | EventSessionNextCompactionEnded
+    | EventServerConnected
+    | EventGlobalDisposed
     | EventCatalogModelUpdated
     | SyncEventMessageUpdated
     | SyncEventMessageRemoved
@@ -1768,6 +1769,18 @@ export type ProviderAuthError1 = {
   }
 }
 
+export type SessionRoot = {
+  id: string
+  sessionID: string
+  name?: string
+  directory: string
+  worktree: string
+  projectID: string
+  path?: string
+  created: number
+  primary: boolean
+}
+
 export type TextPartInput = {
   id?: string
   type: "text"
@@ -2528,22 +2541,6 @@ export type SyncEventSessionNextCompactionEnded = {
   }
 }
 
-export type EventServerConnected = {
-  id: string
-  type: "server.connected"
-  properties: {
-    [key: string]: unknown
-  }
-}
-
-export type EventGlobalDisposed = {
-  id: string
-  type: "global.disposed"
-  properties: {
-    [key: string]: unknown
-  }
-}
-
 export type EventServerInstanceDisposed = {
   id: string
   type: "server.instance.disposed"
@@ -2567,6 +2564,56 @@ export type EventFileWatcherUpdated = {
     file: string
     event: "add" | "change" | "unlink"
   }
+}
+
+export type EventMcpToolsChanged = {
+  id: string
+  type: "mcp.tools.changed"
+  properties: {
+    server: string
+  }
+}
+
+export type EventMcpBrowserOpenFailed = {
+  id: string
+  type: "mcp.browser.open.failed"
+  properties: {
+    mcpName: string
+    url: string
+  }
+}
+
+export type EventPermissionAsked = {
+  id: string
+  type: "permission.asked"
+  properties: PermissionRequest
+}
+
+export type EventPermissionReplied = {
+  id: string
+  type: "permission.replied"
+  properties: {
+    sessionID: string
+    requestID: string
+    reply: "once" | "always" | "reject"
+  }
+}
+
+export type EventCommandExecuted = {
+  id: string
+  type: "command.executed"
+  properties: {
+    name: string
+    sessionID: string
+    arguments: string
+    messageID: string
+  }
+}
+
+export type EventProjectUpdated = {
+  id: string
+  type: "project.updated"
+  properties: Project
 }
 
 export type EventLspClientDiagnostics = {
@@ -2595,22 +2642,6 @@ export type EventMessagePartDelta = {
     partID: string
     field: string
     delta: string
-  }
-}
-
-export type EventPermissionAsked = {
-  id: string
-  type: "permission.asked"
-  properties: PermissionRequest
-}
-
-export type EventPermissionReplied = {
-  id: string
-  type: "permission.replied"
-  properties: {
-    sessionID: string
-    requestID: string
-    reply: "once" | "always" | "reject"
   }
 }
 
@@ -2717,40 +2748,6 @@ export type EventTodoUpdated = {
     sessionID: string
     todos: Array<Todo>
   }
-}
-
-export type EventMcpToolsChanged = {
-  id: string
-  type: "mcp.tools.changed"
-  properties: {
-    server: string
-  }
-}
-
-export type EventMcpBrowserOpenFailed = {
-  id: string
-  type: "mcp.browser.open.failed"
-  properties: {
-    mcpName: string
-    url: string
-  }
-}
-
-export type EventCommandExecuted = {
-  id: string
-  type: "command.executed"
-  properties: {
-    name: string
-    sessionID: string
-    arguments: string
-    messageID: string
-  }
-}
-
-export type EventProjectUpdated = {
-  id: string
-  type: "project.updated"
-  properties: Project
 }
 
 export type EventSessionCompacted = {
@@ -3303,6 +3300,22 @@ export type EventSessionNextCompactionEnded = {
     sessionID: string
     text: string
     include?: string
+  }
+}
+
+export type EventServerConnected = {
+  id: string
+  type: "server.connected"
+  properties: {
+    [key: string]: unknown
+  }
+}
+
+export type EventGlobalDisposed = {
+  id: string
+  type: "global.disposed"
+  properties: {
+    [key: string]: unknown
   }
 }
 
@@ -5858,6 +5871,150 @@ export type SessionUpdateResponses = {
 }
 
 export type SessionUpdateResponse = SessionUpdateResponses[keyof SessionUpdateResponses]
+
+export type SessionRootListData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/root"
+}
+
+export type SessionRootListErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionRootListError = SessionRootListErrors[keyof SessionRootListErrors]
+
+export type SessionRootListResponses = {
+  /**
+   * List of session roots
+   */
+  200: Array<SessionRoot>
+}
+
+export type SessionRootListResponse = SessionRootListResponses[keyof SessionRootListResponses]
+
+export type SessionRootAddData = {
+  body?: {
+    directory: string
+    name?: string
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/root"
+}
+
+export type SessionRootAddErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionRootAddError = SessionRootAddErrors[keyof SessionRootAddErrors]
+
+export type SessionRootAddResponses = {
+  /**
+   * Successfully added session root
+   */
+  200: SessionRoot
+}
+
+export type SessionRootAddResponse = SessionRootAddResponses[keyof SessionRootAddResponses]
+
+export type SessionRootDeleteData = {
+  body?: never
+  path: {
+    sessionID: string
+    rootID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/root/{rootID}"
+}
+
+export type SessionRootDeleteErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionRootDeleteError = SessionRootDeleteErrors[keyof SessionRootDeleteErrors]
+
+export type SessionRootDeleteResponses = {
+  /**
+   * Successfully deleted session root
+   */
+  200: boolean
+}
+
+export type SessionRootDeleteResponse = SessionRootDeleteResponses[keyof SessionRootDeleteResponses]
+
+export type SessionRootUpdateData = {
+  body?: {
+    name?: string
+    primary?: boolean
+  }
+  path: {
+    sessionID: string
+    rootID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/root/{rootID}"
+}
+
+export type SessionRootUpdateErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionRootUpdateError = SessionRootUpdateErrors[keyof SessionRootUpdateErrors]
+
+export type SessionRootUpdateResponses = {
+  /**
+   * Successfully updated session root
+   */
+  200: SessionRoot
+}
+
+export type SessionRootUpdateResponse = SessionRootUpdateResponses[keyof SessionRootUpdateResponses]
 
 export type SessionChildrenData = {
   body?: never
