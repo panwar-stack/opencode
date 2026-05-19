@@ -9,8 +9,10 @@ import { MCP } from "../mcp"
 import { Skill } from "../skill"
 import PROMPT_IMPLEMENT_SPEC_PR from "./template/implement-spec-pr.txt"
 import PROMPT_INITIALIZE from "./template/initialize.txt"
+import PROMPT_LEARN from "./template/learn.txt"
 import PROMPT_REVIEW from "./template/review.txt"
 import PROMPT_SPEC_PLANNER from "./template/spec-planner.txt"
+import PROMPT_TEAM_REPORT from "./template/team-report.txt"
 
 type State = {
   commands: Record<string, Info>
@@ -55,8 +57,10 @@ export function hints(template: string) {
 export const Default = {
   IMPLEMENT_SPEC_PR: "implement-spec-pr",
   INIT: "init",
+  LEARN: "learn",
   REVIEW: "review",
   SPEC_PLANNER: "spec-planner",
+  TEAM_REPORT: "team-report",
 } as const
 
 export interface Interface {
@@ -87,6 +91,15 @@ export const layer = Layer.effect(
         },
         hints: hints(PROMPT_INITIALIZE),
       }
+      commands[Default.LEARN] = {
+        name: Default.LEARN,
+        description: "Extract non-obvious learnings from session to AGENTS.md files to build codebase understanding",
+        source: "command",
+        get template() {
+          return PROMPT_LEARN
+        },
+        hints: hints(PROMPT_LEARN),
+      }
       commands[Default.REVIEW] = {
         name: Default.REVIEW,
         description: "review changes [commit|branch|pr], defaults to uncommitted",
@@ -115,6 +128,15 @@ export const layer = Layer.effect(
           return PROMPT_IMPLEMENT_SPEC_PR
         },
         hints: hints(PROMPT_IMPLEMENT_SPEC_PR),
+      }
+      commands[Default.TEAM_REPORT] = {
+        name: Default.TEAM_REPORT,
+        description: "Run the team_report tool for the active lead session.",
+        source: "command",
+        get template() {
+          return PROMPT_TEAM_REPORT
+        },
+        hints: hints(PROMPT_TEAM_REPORT),
       }
 
       for (const [name, command] of Object.entries(cfg.command ?? {})) {

@@ -85,9 +85,11 @@ describe("skill", () => {
             "customize-opencode",
             "review-memory",
             "spec-planner",
+            "team-report",
           ])
           expect(builtins.find((s) => s.name === "review-memory")?.content).toContain("opencode memory review")
           expect(builtins.find((s) => s.name === "spec-planner")?.content).toContain("Requirements To Spec")
+          expect(builtins.find((s) => s.name === "team-report")?.content).toContain("team_report")
         }),
       { git: true },
     ),
