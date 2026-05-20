@@ -7,16 +7,16 @@ import { onCleanup, onMount } from "solid-js"
 import { tmpdir } from "../../../fixture/fixture"
 import { createTuiResolvedConfig } from "../../../fixture/tui-runtime"
 import { ArgsProvider } from "../../../../src/cli/cmd/tui/context/args"
-import { CommandPaletteProvider, useCommandPalette } from "../../../../src/cli/cmd/tui/context/command-palette"
 import { ExitProvider } from "../../../../src/cli/cmd/tui/context/exit"
 import { KVProvider } from "../../../../src/cli/cmd/tui/context/kv"
+import { LocalProvider } from "../../../../src/cli/cmd/tui/context/local"
 import { ProjectProvider } from "../../../../src/cli/cmd/tui/context/project"
 import { RouteProvider } from "../../../../src/cli/cmd/tui/context/route"
 import { SDKProvider } from "../../../../src/cli/cmd/tui/context/sdk"
 import { SyncProvider } from "../../../../src/cli/cmd/tui/context/sync"
 import { ThemeProvider } from "../../../../src/cli/cmd/tui/context/theme"
 import { TuiConfigProvider } from "../../../../src/cli/cmd/tui/context/tui-config"
-import { OpencodeKeymapProvider, registerOpencodeKeymap } from "../../../../src/cli/cmd/tui/keymap"
+import { OpencodeKeymapProvider, registerOpencodeKeymap, useCommandSlashes } from "../../../../src/cli/cmd/tui/keymap"
 import { SessionRootsCommand } from "../../../../src/cli/cmd/tui/routes/session"
 import { DialogProvider } from "../../../../src/cli/cmd/tui/ui/dialog"
 import { ToastProvider } from "../../../../src/cli/cmd/tui/ui/toast"
@@ -43,14 +43,14 @@ test("registers /roots as soon as the current route is a session", async () => {
       })
     }
   })
-  let command!: ReturnType<typeof useCommandPalette>
+  let slashes!: ReturnType<typeof useCommandSlashes>
   let ready!: () => void
   const mounted = new Promise<void>((resolve) => {
     ready = resolve
   })
 
   function Probe() {
-    command = useCommandPalette()
+    slashes = useCommandSlashes()
     onMount(ready)
     return <box />
   }
@@ -74,12 +74,12 @@ test("registers /roots as soon as the current route is a session", async () => {
                       <ProjectProvider>
                         <SyncProvider>
                           <ThemeProvider mode="dark">
-                            <DialogProvider>
-                              <CommandPaletteProvider>
+                            <LocalProvider>
+                              <DialogProvider>
                                 <SessionRootsCommand />
                                 <Probe />
-                              </CommandPaletteProvider>
-                            </DialogProvider>
+                              </DialogProvider>
+                            </LocalProvider>
                           </ThemeProvider>
                         </SyncProvider>
                       </ProjectProvider>
@@ -98,8 +98,8 @@ test("registers /roots as soon as the current route is a session", async () => {
 
   try {
     await mounted
-    await wait(() => command.slashes().some((entry) => entry.display === "/roots"))
-    const roots = command.slashes().find((entry) => entry.display === "/roots")
+    await wait(() => slashes().some((entry) => entry.display === "/roots"))
+    const roots = slashes().find((entry) => entry.display === "/roots")
 
     expect(roots?.description).toBe("Manage roots")
     expect(roots?.aliases).toEqual(["/cwd", "/dirs"])
