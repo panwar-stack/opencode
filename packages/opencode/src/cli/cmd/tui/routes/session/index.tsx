@@ -80,7 +80,7 @@ import { PermissionPrompt } from "./permission"
 import { QuestionPrompt } from "./question"
 import { DialogExportOptions } from "../../ui/dialog-export-options"
 import * as Model from "../../util/model"
-import { formatTranscript } from "../../util/transcript"
+import { formatExportSession, formatTranscript } from "../../util/transcript"
 import { UI } from "@/cli/ui.ts"
 import { useTuiConfig } from "../../context/tui-config"
 import { nextThinkingMode, reasoningSummary, useThinkingMode, type ThinkingMode } from "../../context/thinking"
@@ -94,6 +94,7 @@ import { getRevertDiffFiles } from "../../util/revert-diff"
 import { OPENCODE_BASE_MODE, useBindings, useCommandShortcut, useOpencodeKeymap } from "../../keymap"
 import { PathFormatterProvider, usePathFormatter } from "../../context/path-format"
 import { DialogRoots } from "./dialog-roots"
+import { collectExportSessionFromClient } from "../../util/session-export"
 
 addDefaultParsers(parsers.parsers)
 
@@ -103,7 +104,6 @@ const GO_UPSELL_ACCOUNT_RATE_LIMIT_LAST_SEEN_AT = "go_upsell_account_rate_limit_
 const GO_UPSELL_ACCOUNT_RATE_LIMIT_DONT_SHOW = "go_upsell_account_rate_limit_dont_show"
 const GO_UPSELL_WINDOW = 86_400_000 // 24 hrs
 const GO_UPSELL_PROVIDERS = new Set(["opencode", "opencode-go"])
-
 function goUpsellKeys(action: SessionRetry.Retryable["action"]) {
   if (!action) return
   if (!GO_UPSELL_PROVIDERS.has(action.provider)) return
@@ -1041,7 +1041,7 @@ export function Session() {
       },
     },
     {
-      title: "Export session transcript",
+      title: "Export session and descendant transcripts",
       value: "session.export",
       category: "Session",
       slash: {
@@ -1051,7 +1051,6 @@ export function Session() {
         try {
           const sessionData = session()
           if (!sessionData) return
-          const sessionMessages = messages()
 
           const defaultFilename = `session-${sessionData.id.slice(0, 8)}.md`
 
@@ -1066,9 +1065,8 @@ export function Session() {
 
           if (options === null) return
 
-          const transcript = formatTranscript(
-            sessionData,
-            sessionMessages.map((msg) => ({ info: msg, parts: sync.data.part[msg.id] ?? [] })),
+          const transcript = formatExportSession(
+            (await collectExportSessionFromClient(sdk.client, sessionData.id)) as Parameters<typeof formatExportSession>[0],
             {
               thinking: options.thinking,
               toolDetails: options.toolDetails,

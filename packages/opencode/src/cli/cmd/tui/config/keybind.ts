@@ -81,7 +81,7 @@ export const Definitions = {
   scrollbar_toggle: keybind("none", "Toggle session scrollbar"),
   status_view: keybind("<leader>s", "View status"),
 
-  session_export: keybind("<leader>x", "Export session to editor"),
+  session_export: keybind("<leader>x", "Export session and descendants to editor"),
   session_copy: keybind("none", "Copy session transcript"),
   session_new: keybind("<leader>n", "Create a new session"),
   session_list: keybind("<leader>l", "List all sessions"),

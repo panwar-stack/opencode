@@ -4,4 +4,7 @@ Understand the specification thoroughly at `$1`.
 
 Implement only the work required for PR `#$2`.
 
+if `#2` is missing then use agent teams to implement the specification one pull request at a time. Each pull request must be implemented, verified, tested, and reviewed before work begins on the next pull request.
+
+
 Do not implement unrelated PRs, future phases, or adjacent improvements unless they are strictly necessary to complete PR `#$2`.
