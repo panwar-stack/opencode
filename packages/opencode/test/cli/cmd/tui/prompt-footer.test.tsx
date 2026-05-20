@@ -26,6 +26,7 @@ mock.module("../../../../src/cli/cmd/tui/keymap", () => ({
   useBindings: () => {},
   useCommandShortcut: (command: string) => () => (command === "command.palette.show" ? "ctrl+p" : "tab"),
   useLeaderActive: () => () => false,
+  useOpencodeModeStack: () => ({ push: () => () => {} }),
   useOpencodeKeymap: () => ({
     pending: () => [],
   }),
