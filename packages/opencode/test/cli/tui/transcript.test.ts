@@ -1,11 +1,13 @@
 import { describe, expect, test } from "bun:test"
 import {
   formatAssistantHeader,
+  formatExportSession,
   formatMessage,
   formatPart,
   formatTranscript,
 } from "../../../src/cli/cmd/tui/util/transcript"
 import type { AssistantMessage, Part, Provider, UserMessage } from "@opencode-ai/sdk/v2"
+import type { ExportSession } from "../../../src/cli/cmd/tui/util/session-export"
 
 const providers: Provider[] = [
   {
@@ -65,6 +67,90 @@ const providers: Provider[] = [
     },
   },
 ]
+
+function exportSession(input: {
+  id: string
+  title: string
+  parentID?: string
+  created?: number
+  updated?: number
+  messages?: ExportSession["messages"]
+  children?: ExportSession[]
+}): ExportSession {
+  return {
+    info: {
+      id: input.id,
+      slug: input.id,
+      projectID: "proj_123",
+      directory: "/test",
+      parentID: input.parentID,
+      title: input.title,
+      version: "0.0.0",
+      time: { created: input.created ?? 1000000000000, updated: input.updated ?? 1000000001000 },
+    },
+    messages: input.messages ?? [],
+    children: input.children ?? [],
+  } as ExportSession
+}
+
+function userMessage(sessionID: string, text: string): ExportSession["messages"][number] {
+  return {
+    info: {
+      id: `${sessionID}_user`,
+      sessionID,
+      role: "user",
+      agent: "build",
+      model: { providerID: "anthropic", modelID: "claude-sonnet-4-20250514" },
+      time: { created: 1000000000000 },
+    },
+    parts: [{ id: `${sessionID}_part`, sessionID, messageID: `${sessionID}_user`, type: "text", text }],
+  } as ExportSession["messages"][number]
+}
+
+function assistantMessage(sessionID: string): ExportSession["messages"][number] {
+  return {
+    info: {
+      id: `${sessionID}_assistant`,
+      sessionID,
+      role: "assistant",
+      agent: "build",
+      modelID: "claude-sonnet-4-20250514",
+      providerID: "anthropic",
+      mode: "",
+      parentID: `${sessionID}_user`,
+      path: { cwd: "/test", root: "/test" },
+      cost: 0.001,
+      tokens: { input: 100, output: 50, reasoning: 0, cache: { read: 0, write: 0 } },
+      time: { created: 1000000000100, completed: 1000000000600 },
+    },
+    parts: [
+      {
+        id: `${sessionID}_reasoning`,
+        sessionID,
+        messageID: `${sessionID}_assistant`,
+        type: "reasoning",
+        text: "Thinking through export",
+        time: { start: 1000000000100 },
+      },
+      {
+        id: `${sessionID}_tool`,
+        sessionID,
+        messageID: `${sessionID}_assistant`,
+        type: "tool",
+        callID: `${sessionID}_call`,
+        tool: "bash",
+        state: {
+          status: "completed",
+          input: { command: "pwd" },
+          output: "/test",
+          title: "Print directory",
+          metadata: {},
+          time: { start: 1000000000200, end: 1000000000300 },
+        },
+      },
+    ],
+  } as ExportSession["messages"][number]
+}
 
 describe("transcript", () => {
   describe("formatAssistantHeader", () => {
@@ -421,6 +507,109 @@ describe("transcript", () => {
       expect(result).toContain("## Assistant\n\n")
       expect(result).not.toContain("Build")
       expect(result).not.toContain("claude-sonnet-4-20250514")
+    })
+  })
+
+  describe("formatExportSession", () => {
+    test("formats multi-session output depth-first", () => {
+      const session = exportSession({
+        id: "ses_root",
+        title: "Root",
+        children: [
+          exportSession({
+            id: "ses_child_1",
+            title: "Child 1",
+            parentID: "ses_root",
+            messages: [userMessage("ses_child_1", "child one")],
+            children: [
+              exportSession({
+                id: "ses_nested",
+                title: "Nested",
+                parentID: "ses_child_1",
+                messages: [userMessage("ses_nested", "nested child")],
+              }),
+            ],
+          }),
+          exportSession({
+            id: "ses_child_2",
+            title: "Child 2",
+            parentID: "ses_root",
+            messages: [userMessage("ses_child_2", "child two")],
+          }),
+        ],
+      })
+
+      const result = formatExportSession(session, { thinking: false, toolDetails: false, assistantMetadata: false })
+
+      expect(result.indexOf("## Session: Root")).toBeLessThan(result.indexOf("## Child Session: Child 1"))
+      expect(result.indexOf("## Child Session: Child 1")).toBeLessThan(
+        result.indexOf("## Nested Child Session: Nested"),
+      )
+      expect(result.indexOf("## Nested Child Session: Nested")).toBeLessThan(
+        result.indexOf("## Child Session: Child 2"),
+      )
+    })
+
+    test("includes heading hierarchy and session metadata", () => {
+      const session = exportSession({
+        id: "ses_root",
+        title: "Root",
+        children: [
+          exportSession({
+            id: "ses_child",
+            title: "Child",
+            parentID: "ses_root",
+            children: [exportSession({ id: "ses_nested", title: "Nested", parentID: "ses_child" })],
+          }),
+        ],
+      })
+
+      const result = formatExportSession(session, { thinking: false, toolDetails: false, assistantMetadata: false })
+
+      expect(result).toContain("# Root\n\n**Session ID:** ses_root")
+      expect(result).toContain("## Session: Root\n\n**Session ID:** ses_root\n**Depth:** 0")
+      expect(result).toContain(
+        "## Child Session: Child\n\n**Session ID:** ses_child\n**Parent Session ID:** ses_root\n**Depth:** 1",
+      )
+      expect(result).toContain(
+        "## Nested Child Session: Nested\n\n**Session ID:** ses_nested\n**Parent Session ID:** ses_child\n**Depth:** 2",
+      )
+    })
+
+    test("tolerates empty child sessions", () => {
+      const session = exportSession({
+        id: "ses_root",
+        title: "Root",
+        children: [exportSession({ id: "ses_child", title: "Empty Child", parentID: "ses_root" })],
+      })
+
+      const result = formatExportSession(session, { thinking: false, toolDetails: false, assistantMetadata: false })
+
+      expect(result).toContain(
+        "## Child Session: Empty Child\n\n**Session ID:** ses_child\n**Parent Session ID:** ses_root\n**Depth:** 1\n\n---\n\n",
+      )
+      expect(result).not.toContain("No messages")
+    })
+
+    test("propagates thinking, tool detail, assistant metadata, and provider options", () => {
+      const session = exportSession({
+        id: "ses_root",
+        title: "Root",
+        messages: [assistantMessage("ses_root")],
+      })
+
+      const result = formatExportSession(session, {
+        thinking: true,
+        toolDetails: true,
+        assistantMetadata: true,
+        providers,
+      })
+
+      expect(result).toContain("## Assistant (Build · Claude Sonnet 4 · 0.5s)")
+      expect(result).toContain("_Thinking:_\n\nThinking through export")
+      expect(result).toContain("**Input:**\n```json")
+      expect(result).toContain('"command": "pwd"')
+      expect(result).toContain("**Output:**\n```\n/test")
     })
   })
 })

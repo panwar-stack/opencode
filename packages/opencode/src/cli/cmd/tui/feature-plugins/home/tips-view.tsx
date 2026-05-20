@@ -182,7 +182,8 @@ const TIPS: Tip[] = [
       ? `Pinned sessions are assigned quick slots; use ${shortcutText(shortcuts.sessionQuickSwitch1())} through ${shortcutText(shortcuts.sessionQuickSwitch9())} to switch`
       : undefined,
   "Run {highlight}/compact{/highlight} to summarize long sessions near context limits",
-  (shortcuts) => `Use ${commandText("/export", shortcuts.sessionExport())} to save the conversation as Markdown`,
+  (shortcuts) =>
+    `Use ${commandText("/export", shortcuts.sessionExport())} to save the conversation and child sessions as Markdown`,
   (shortcuts) => press(shortcuts.messagesCopy(), "to copy the assistant's last message to clipboard"),
   (shortcuts) => press(shortcuts.commandList(), "to see all available actions and commands"),
   "Run {highlight}/connect{/highlight} to add API keys for 75+ supported LLM providers",

@@ -1,6 +1,7 @@
 import type { AssistantMessage, Part, Provider, UserMessage } from "@opencode-ai/sdk/v2"
 import { Locale } from "@/util/locale"
 import * as Model from "./model"
+import type { ExportSession } from "./session-export"
 
 export type TranscriptOptions = {
   thinking: boolean
@@ -38,6 +39,44 @@ export function formatTranscript(
   for (const msg of messages) {
     transcript += formatMessage(msg.info, msg.parts, options, providers)
     transcript += `---\n\n`
+  }
+
+  return transcript
+}
+
+export function formatExportSession(session: ExportSession, options: TranscriptOptions): string {
+  const providers = Model.index(options.providers)
+  let transcript = `# ${session.info.title}\n\n`
+  transcript += `**Session ID:** ${session.info.id}\n`
+  transcript += `**Created:** ${new Date(session.info.time.created).toLocaleString()}\n`
+  transcript += `**Updated:** ${new Date(session.info.time.updated).toLocaleString()}\n\n`
+  transcript += `---\n\n`
+  transcript += formatExportSection(session, options, providers, 0)
+  return transcript
+}
+
+function formatExportSection(
+  session: ExportSession,
+  options: TranscriptOptions,
+  providers: ReadonlyMap<string, Provider>,
+  depth: number,
+  parentID?: string,
+): string {
+  const heading = depth === 0 ? "Session" : depth === 1 ? "Child Session" : "Nested Child Session"
+  let transcript = `## ${heading}: ${session.info.title}\n\n`
+  transcript += `**Session ID:** ${session.info.id}\n`
+  if (parentID) transcript += `**Parent Session ID:** ${parentID}\n`
+  transcript += `**Depth:** ${depth}\n\n`
+
+  for (const msg of session.messages) {
+    transcript += formatMessage(msg.info, msg.parts, options, providers)
+    transcript += `---\n\n`
+  }
+
+  if (session.messages.length === 0) transcript += `---\n\n`
+
+  for (const child of session.children) {
+    transcript += formatExportSection(child, options, providers, depth + 1, session.info.id)
   }
 
   return transcript
