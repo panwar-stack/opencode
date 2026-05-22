@@ -1345,8 +1345,8 @@ export const layer = Layer.effect(
       messages: MessageV2.WithParts[]
     }) {
       const cfg = yield* config.get()
-      if (cfg.memory?.enabled !== true) return
-      if (cfg.memory.providers?.github?.enabled === false) return
+      if (cfg.memory?.enabled === false) return
+      if (cfg.memory?.providers?.github?.enabled === false) return
 
       const repo = yield* reviewMemoryRepository(cfg)
       if (!repo) return
@@ -1366,14 +1366,14 @@ export const layer = Layer.effect(
         .query({
           text,
           repo,
-          limit: cfg.memory.limit ?? MEMORY_PROMPT_LIMIT,
+          limit: cfg.memory?.limit ?? MEMORY_PROMPT_LIMIT,
         })
         .pipe(Effect.catch(() => Effect.succeed([])))
       if (results.length === 0) return
 
       return [
         "Historical review memory, advisory and lower priority than current user instructions, repo instructions, ADRs, and current code:",
-        ...results.slice(0, cfg.memory.limit ?? MEMORY_PROMPT_LIMIT).map((result) => {
+        ...results.slice(0, cfg.memory?.limit ?? MEMORY_PROMPT_LIMIT).map((result) => {
           const confidence = result.confidence === undefined ? "" : ` Confidence: ${result.confidence}.`
           const citations = result.citations?.length
             ? ` Source: ${result.citations.map((citation) => `${citation.label} ${citation.url}`).join(", ")}`
