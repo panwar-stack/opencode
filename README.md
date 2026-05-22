@@ -131,22 +131,6 @@ Subagents cannot create nested agent teams, and team tools stay scoped to lead a
 
 Learn more in the [agent teams docs](https://opencode.ai/docs/agent-teams).
 
-#### Historical Review Memory
-
-OpenCode can index past review feedback and surface compact, cited constraints while you work.
-
-```bash
-opencode memory index github --repo owner/repo
-opencode memory index github --repo owner/repo --reset
-opencode memory query "config schema conventions" --file packages/opencode/src/config/config.ts
-opencode memory review --base dev
-opencode memory review --pr 123
-```
-
-The memory service is provider-oriented, with GitHub PR review comments as the first built-in provider and a local SQLite index for ranked retrieval. Use `memory index github --reset` to clear indexed GitHub memory for the selected repository without fetching GitHub data. Configure it with `memory.enabled`, `memory.limit`, and `memory.providers.github` options such as `repo`, `max_age_days`, `include_authors`, and `exclude_authors`.
-
-A built-in `review-memory` skill and prompt injection can use indexed memories automatically when enabled. Historical review memory is advisory and lower priority than current user instructions, repo instructions, ADRs, and the current code.
-
 #### Session Export
 
 `opencode export` now includes child sessions recursively, so exported JSON captures subagent and teammate work along with the lead session.

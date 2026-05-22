@@ -151,20 +151,12 @@ Use this skill.
             ask: () => Effect.void,
           }
 
-          const result = yield* tool.execute({ name: "review-memory" }, ctx)
-
-          expect(result.metadata.dir).toBe("<built-in>")
-          expect(result.output).toContain(`<skill_content name="review-memory">`)
-          expect(result.output).toContain("opencode memory review")
-          expect(result.output).toContain("This is a built-in skill with no external skill directory.")
-          expect(result.output).not.toContain("Base directory for this skill:")
-          expect(result.output).not.toContain("sentinel.txt")
-
           const specPlanner = yield* tool.execute({ name: "spec-planner" }, ctx)
           expect(specPlanner.metadata.dir).toBe("<built-in>")
           expect(specPlanner.output).toContain(`<skill_content name="spec-planner">`)
           expect(specPlanner.output).toContain("Requirements To Spec")
           expect(specPlanner.output).toContain("This is a built-in skill with no external skill directory.")
+          expect(specPlanner.output).not.toContain("sentinel.txt")
 
           const teamReport = yield* tool.execute({ name: "team-report" }, ctx)
           expect(teamReport.metadata.dir).toBe("<built-in>")

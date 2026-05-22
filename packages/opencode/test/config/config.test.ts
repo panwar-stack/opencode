@@ -353,42 +353,15 @@ it.instance(
   { config: { shell: "bash" } },
 )
 
-it.instance(
-  "loads memory config field",
-  Effect.gen(function* () {
-    const config = yield* Config.Service.use((svc) => svc.get())
-    expect(config.memory).toEqual({
-      enabled: true,
-      limit: 3,
-      providers: {
-        github: {
-          enabled: false,
-          repo: "opencode-ai/opencode",
-          include_authors: ["alice"],
-          exclude_authors: ["bot"],
-          max_age_days: 90,
-        },
-      },
-    })
-  }),
-  {
-    config: {
-      memory: {
-        enabled: true,
-        limit: 3,
-        providers: {
-          github: {
-            enabled: false,
-            repo: "opencode-ai/opencode",
-            include_authors: ["alice"],
-            exclude_authors: ["bot"],
-            max_age_days: 90,
-          },
-        },
-      },
-    },
-  },
-)
+test("rejects memory config field", () => {
+  try {
+    ConfigParse.schema(Config.Info, { memory: {} }, "test")
+    throw new Error("expected config parse to fail")
+  } catch (err) {
+    const error = err as { data?: { issues?: Array<{ code?: string; keys?: string[]; path?: string[] }> } }
+    expect(error.data?.issues?.[0]).toMatchObject({ code: "unrecognized_keys", keys: ["memory"], path: [] })
+  }
+})
 
 it.instance("updates config and preserves empty shell sentinel", () =>
   Effect.gen(function* () {
