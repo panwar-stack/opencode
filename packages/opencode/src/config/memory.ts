@@ -23,7 +23,7 @@ const ProviderGitHub = Schema.Struct({
 
 export const Info = Schema.Struct({
   enabled: Schema.optional(Schema.Boolean).annotate({
-    description: "Enable historical review memory prompt injection",
+    description: "Enable historical review memory prompt injection. Defaults to true.",
   }),
   limit: Schema.optional(PositiveInt).annotate({
     description: "Maximum historical review memory constraints to inject into prompts",
