@@ -1099,7 +1099,7 @@ it.live("does not inject lead team guidance into teammate sessions", () =>
 )
 
 reviewMemory.live(
-  "injects configured review memory into prompts",
+  "injects configured review memory into prompts by default",
   () =>
     provideTmpdirServer(
       Effect.fnUntraced(function* ({ llm }) {
@@ -1130,14 +1130,14 @@ reviewMemory.live(
         git: true,
         config: (url) => ({
           ...providerCfg(url),
-          memory: { enabled: true, providers: { github: { repo: "opencode-ai/opencode" } } },
+          memory: { providers: { github: { repo: "opencode-ai/opencode" } } },
         }),
       },
     ),
   10_000,
 )
 
-reviewMemory.live("injects review memory for the current GitHub repository", () =>
+reviewMemory.live("injects review memory for the current GitHub repository by default", () =>
   provideTmpdirServer(
     Effect.fnUntraced(function* ({ dir, llm }) {
       const result = yield* Git.Service.use((git) =>
@@ -1166,15 +1166,12 @@ reviewMemory.live("injects review memory for the current GitHub repository", () 
     }),
     {
       git: true,
-      config: (url) => ({
-        ...providerCfg(url),
-        memory: { enabled: true },
-      }),
+      config: (url) => providerCfg(url),
     },
   ),
 )
 
-reviewMemory.live("does not inject review memory unless config enables it", () =>
+reviewMemory.live("does not inject review memory without a GitHub repository", () =>
   provideTmpdirServer(
     Effect.fnUntraced(function* ({ llm }) {
       const { prompt, chat } = yield* boot()
