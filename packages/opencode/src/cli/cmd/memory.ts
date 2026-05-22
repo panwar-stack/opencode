@@ -26,6 +26,8 @@ interface GithubIndexArgs {
 }
 
 interface GithubProviderConfig {
+  readonly enabled?: boolean
+  readonly repo?: string
   readonly include_authors?: readonly string[]
   readonly exclude_authors?: readonly string[]
   readonly max_age_days?: number
@@ -92,8 +94,11 @@ export const MemoryIndexGithubCommand = effectCmd({
     const validation = validateGithubIndexArgs(args)
     if (validation) return yield* fail(validation)
 
-    const repo = yield* resolveGithubRepo(args.repo)
     const cfg = yield* Config.Service.use((config) => config.get())
+    const providerValidation = validateGithubProviderConfig(cfg.memory?.providers?.github)
+    if (providerValidation) return yield* fail(providerValidation)
+
+    const repo = yield* resolveGithubRepo(githubIndexRepoArg(args, cfg.memory?.providers?.github))
     const result = yield* MemoryGithub.index(
       toGithubIndexInput(args, repo, cfg.memory?.providers?.github, (progress) => {
         console.log(formatGithubIndexProgress(progress))
@@ -184,6 +189,14 @@ export function validateGithubIndexArgs(args: GithubIndexArgs) {
 export function validateReviewArgs(args: ReviewArgs) {
   if (args.base !== undefined && args.base.trim() === "") return "--base must not be empty"
   if (args.pr !== undefined && (!Number.isInteger(args.pr) || args.pr <= 0)) return "--pr must be a positive integer"
+}
+
+export function validateGithubProviderConfig(githubConfig?: GithubProviderConfig) {
+  if (githubConfig?.enabled === false) return "GitHub review memory provider is disabled by config."
+}
+
+export function githubIndexRepoArg(args: GithubIndexArgs, githubConfig?: GithubProviderConfig) {
+  return args.repo ?? githubConfig?.repo
 }
 
 export function toGithubIndexInput(
