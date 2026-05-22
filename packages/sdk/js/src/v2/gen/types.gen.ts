@@ -6400,9 +6400,9 @@ export type SessionRootListData = {
 
 export type SessionRootListErrors = {
   /**
-   * Bad request
+   * BadRequest | InvalidRequestError
    */
-  400: BadRequestError
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
   /**
    * NotFoundError
    */
@@ -6437,9 +6437,9 @@ export type SessionRootAddData = {
 
 export type SessionRootAddErrors = {
   /**
-   * Bad request
+   * BadRequest | InvalidRequestError
    */
-  400: BadRequestError
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
   /**
    * NotFoundError
    */
@@ -6472,9 +6472,9 @@ export type SessionRootDeleteData = {
 
 export type SessionRootDeleteErrors = {
   /**
-   * Bad request
+   * BadRequest | InvalidRequestError
    */
-  400: BadRequestError
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
   /**
    * NotFoundError
    */
@@ -6510,9 +6510,9 @@ export type SessionRootUpdateData = {
 
 export type SessionRootUpdateErrors = {
   /**
-   * Bad request
+   * BadRequest | InvalidRequestError
    */
-  400: BadRequestError
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
   /**
    * NotFoundError
    */
@@ -7884,9 +7884,9 @@ export type TeamGetData = {
 
 export type TeamGetErrors = {
   /**
-   * Bad request
+   * BadRequest | InvalidRequestError
    */
-  400: BadRequestError
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
 }
 
 export type TeamGetError = TeamGetErrors[keyof TeamGetErrors]
@@ -7911,9 +7911,9 @@ export type TeamEvalData = {
 
 export type TeamEvalErrors = {
   /**
-   * Bad request
+   * BadRequest | InvalidRequestError
    */
-  400: BadRequestError
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
 }
 
 export type TeamEvalError = TeamEvalErrors[keyof TeamEvalErrors]
@@ -7938,9 +7938,9 @@ export type TeamGetByIdData = {
 
 export type TeamGetByIdErrors = {
   /**
-   * Bad request
+   * BadRequest | InvalidRequestError
    */
-  400: BadRequestError
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
 }
 
 export type TeamGetByIdError = TeamGetByIdErrors[keyof TeamGetByIdErrors]
@@ -7965,9 +7965,9 @@ export type TeamTasksData = {
 
 export type TeamTasksErrors = {
   /**
-   * Bad request
+   * BadRequest | InvalidRequestError
    */
-  400: BadRequestError
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
 }
 
 export type TeamTasksError = TeamTasksErrors[keyof TeamTasksErrors]
@@ -7992,9 +7992,9 @@ export type TeamMessagesData = {
 
 export type TeamMessagesErrors = {
   /**
-   * Bad request
+   * BadRequest | InvalidRequestError
    */
-  400: BadRequestError
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
 }
 
 export type TeamMessagesError = TeamMessagesErrors[keyof TeamMessagesErrors]
@@ -8019,9 +8019,9 @@ export type TeamShutdownData = {
 
 export type TeamShutdownErrors = {
   /**
-   * Bad request
+   * BadRequest | InvalidRequestError
    */
-  400: BadRequestError
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
 }
 
 export type TeamShutdownError = TeamShutdownErrors[keyof TeamShutdownErrors]
