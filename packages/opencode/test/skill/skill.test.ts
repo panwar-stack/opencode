@@ -81,13 +81,7 @@ describe("skill", () => {
         Effect.gen(function* () {
           const skill = yield* Skill.Service
           const builtins = (yield* skill.all()).filter((s) => Skill.isBuiltinLocation(s.location))
-          expect(builtins.map((s) => s.name).toSorted()).toEqual([
-            "customize-opencode",
-            "review-memory",
-            "spec-planner",
-            "team-report",
-          ])
-          expect(builtins.find((s) => s.name === "review-memory")?.content).toContain("opencode memory review")
+          expect(builtins.map((s) => s.name).toSorted()).toEqual(["customize-opencode", "spec-planner", "team-report"])
           expect(builtins.find((s) => s.name === "spec-planner")?.content).toContain("Requirements To Spec")
           expect(builtins.find((s) => s.name === "team-report")?.content).toContain("team_report")
         }),
@@ -95,28 +89,28 @@ describe("skill", () => {
     ),
   )
 
-  it.live("allows disk skills to override built-in skills", () =>
+  it.live("discovers a project disk skill", () =>
     provideTmpdirInstance(
       (dir) =>
         Effect.gen(function* () {
           yield* Effect.promise(() =>
             Bun.write(
-              path.join(dir, ".opencode", "skill", "review-memory", "SKILL.md"),
+              path.join(dir, ".opencode", "skill", "project-skill", "SKILL.md"),
               `---
-name: review-memory
-description: Project override.
+name: project-skill
+description: Project skill.
 ---
 
-# Project Review Memory
+# Project Skill
 `,
             ),
           )
 
           const skill = yield* Skill.Service
-          const item = yield* skill.get("review-memory")
-          expect(item?.description).toBe("Project override.")
-          expect(item?.location).toContain(path.join("skill", "review-memory", "SKILL.md"))
-          expect(item?.content).toContain("Project Review Memory")
+          const item = yield* skill.get("project-skill")
+          expect(item?.description).toBe("Project skill.")
+          expect(item?.location).toContain(path.join("skill", "project-skill", "SKILL.md"))
+          expect(item?.content).toContain("Project Skill")
         }),
       { git: true },
     ),
