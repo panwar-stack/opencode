@@ -353,6 +353,43 @@ it.instance(
   { config: { shell: "bash" } },
 )
 
+it.instance(
+  "loads memory config field",
+  Effect.gen(function* () {
+    const config = yield* Config.Service.use((svc) => svc.get())
+    expect(config.memory).toEqual({
+      enabled: true,
+      limit: 3,
+      providers: {
+        github: {
+          enabled: false,
+          repo: "opencode-ai/opencode",
+          include_authors: ["alice"],
+          exclude_authors: ["bot"],
+          max_age_days: 90,
+        },
+      },
+    })
+  }),
+  {
+    config: {
+      memory: {
+        enabled: true,
+        limit: 3,
+        providers: {
+          github: {
+            enabled: false,
+            repo: "opencode-ai/opencode",
+            include_authors: ["alice"],
+            exclude_authors: ["bot"],
+            max_age_days: 90,
+          },
+        },
+      },
+    },
+  },
+)
+
 it.instance("updates config and preserves empty shell sentinel", () =>
   Effect.gen(function* () {
     const test = yield* TestInstance

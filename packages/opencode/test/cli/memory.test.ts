@@ -7,6 +7,7 @@ import {
   formatGithubResetText,
   formatQueryJSON,
   formatQueryText,
+  githubIndexRepoArg,
   formatReviewJSON,
   formatReviewText,
   parsePrReviewChanges,
@@ -16,6 +17,7 @@ import {
   toQueryInput,
   toReviewQueryInput,
   validateGithubIndexArgs,
+  validateGithubProviderConfig,
   validateReviewArgs,
 } from "@/cli/cmd/memory"
 import { Memory } from "@/memory"
@@ -118,6 +120,17 @@ describe("memory cli", () => {
     expect(validateGithubIndexArgs({ since: "not-a-date" })).toBe("--since must be a valid date")
     expect(validateGithubIndexArgs({ limit: 0 })).toBe("--limit must be a positive integer")
     expect(validateGithubIndexArgs({ limit: 1.5 })).toBe("--limit must be a positive integer")
+  })
+
+  test("uses GitHub provider config for index policy and repo", () => {
+    expect(validateGithubProviderConfig({ enabled: false })).toBe(
+      "GitHub review memory provider is disabled by config.",
+    )
+    expect(validateGithubProviderConfig({ enabled: true })).toBeUndefined()
+    expect(githubIndexRepoArg({}, { repo: "opencode/opencode" })).toBe("opencode/opencode")
+    expect(githubIndexRepoArg({ repo: "opencode/override" }, { repo: "opencode/opencode" })).toBe(
+      "opencode/override",
+    )
   })
 
   test("parses GitHub index repositories", () => {
