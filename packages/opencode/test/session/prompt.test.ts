@@ -231,6 +231,7 @@ function makePrompt(input?: { processor?: "blocking"; memory?: readonly Memory.E
     Layer.provideMerge(trunc),
     Layer.provide(Instruction.defaultLayer),
     Layer.provide(SystemPrompt.defaultLayer),
+    Layer.provide(Git.defaultLayer),
     Layer.provide(RuntimeFlags.layer({ experimentalEventSystem: true })),
     Layer.provideMerge(deps),
     Layer.provide(summary),
@@ -1100,11 +1101,72 @@ reviewMemory.live(
         git: true,
         config: (url) => ({
           ...providerCfg(url),
-          memory: { enabled: true },
+          memory: { enabled: true, providers: { github: { repo: "opencode-ai/opencode" } } },
         }),
       },
     ),
   10_000,
+)
+
+reviewMemory.live("injects review memory for the current GitHub repository", () =>
+  provideTmpdirServer(
+    Effect.fnUntraced(function* ({ dir, llm }) {
+      const result = yield* Git.Service.use((git) =>
+        git.run(["remote", "add", "origin", "https://github.com/opencode-ai/opencode.git"], { cwd: dir }),
+      ).pipe(Effect.provide(Git.defaultLayer))
+      expect(result.exitCode).toBe(0)
+
+      const { prompt, chat } = yield* boot()
+      yield* llm.text("done")
+
+      yield* prompt.prompt({
+        sessionID: chat.id,
+        agent: "build",
+        model: ref,
+        parts: [{ type: "text", text: "update the Effect service filesystem usage" }],
+      })
+
+      const bodies = (yield* llm.inputs).map((input) => JSON.stringify(input))
+      expect(
+        bodies.some(
+          (body) =>
+            body.includes("Historical review memory") &&
+            body.includes("Prefer Effect FileSystem over raw fs/promises"),
+        ),
+      ).toBe(true)
+    }),
+    {
+      git: true,
+      config: (url) => ({
+        ...providerCfg(url),
+        memory: { enabled: true },
+      }),
+    },
+  ),
+)
+
+reviewMemory.live("does not inject review memory unless config enables it", () =>
+  provideTmpdirServer(
+    Effect.fnUntraced(function* ({ llm }) {
+      const { prompt, chat } = yield* boot()
+      yield* llm.text("done")
+
+      yield* prompt.prompt({
+        sessionID: chat.id,
+        agent: "build",
+        model: ref,
+        parts: [{ type: "text", text: "update the Effect service filesystem usage" }],
+      })
+
+      const bodies = (yield* llm.inputs).map((input) => JSON.stringify(input))
+      expect(bodies.some((body) => body.includes("Historical review memory"))).toBe(false)
+      expect(bodies.some((body) => body.includes("Prefer Effect FileSystem over raw fs/promises"))).toBe(false)
+    }),
+    {
+      git: true,
+      config: (url) => providerCfg(url),
+    },
+  ),
 )
 
 reviewMemory.live("does not inject review memory when config disables it", () =>
@@ -1129,6 +1191,33 @@ reviewMemory.live("does not inject review memory when config disables it", () =>
       config: (url) => ({
         ...providerCfg(url),
         memory: { enabled: false },
+      }),
+    },
+  ),
+)
+
+reviewMemory.live("does not inject review memory when GitHub provider is disabled", () =>
+  provideTmpdirServer(
+    Effect.fnUntraced(function* ({ llm }) {
+      const { prompt, chat } = yield* boot()
+      yield* llm.text("done")
+
+      yield* prompt.prompt({
+        sessionID: chat.id,
+        agent: "build",
+        model: ref,
+        parts: [{ type: "text", text: "update the Effect service filesystem usage" }],
+      })
+
+      const bodies = (yield* llm.inputs).map((input) => JSON.stringify(input))
+      expect(bodies.some((body) => body.includes("Historical review memory"))).toBe(false)
+      expect(bodies.some((body) => body.includes("Prefer Effect FileSystem over raw fs/promises"))).toBe(false)
+    }),
+    {
+      git: true,
+      config: (url) => ({
+        ...providerCfg(url),
+        memory: { enabled: true, providers: { github: { enabled: false, repo: "opencode-ai/opencode" } } },
       }),
     },
   ),

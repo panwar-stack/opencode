@@ -54,6 +54,7 @@ import { ModelV2 } from "@opencode-ai/core/model"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { AgentAttachment, FileAttachment, ReferenceAttachment, Source } from "@opencode-ai/core/session-prompt"
 import { Reference } from "@/reference/reference"
+import { Git } from "@/git"
 import * as DateTime from "effect/DateTime"
 import { eq } from "@/storage/db"
 import * as Database from "@/storage/db"
@@ -64,6 +65,7 @@ import { SessionTools } from "./tools"
 import { LLMEvent } from "@opencode-ai/llm"
 import { Team } from "@/team/team"
 import { Memory } from "@/memory"
+import { parseGitHubRemote } from "@/util/repository"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -129,6 +131,7 @@ export const layer = Layer.effect(
     const flags = yield* RuntimeFlags.Service
     const team = yield* Team.Service
     const memory = yield* Memory.Service
+    const git = yield* Git.Service
     const ops = Effect.fn("SessionPrompt.ops")(function* () {
       return {
         cancel: (sessionID: SessionID) => cancel(sessionID),
@@ -1344,6 +1347,10 @@ export const layer = Layer.effect(
     }) {
       const cfg = yield* config.get()
       if (cfg.memory?.enabled !== true) return
+      if (cfg.memory.providers?.github?.enabled === false) return
+
+      const repo = yield* reviewMemoryRepository(cfg)
+      if (!repo) return
 
       const text = input.messages
         .findLast((message) => message.info.role === "user")
@@ -1359,6 +1366,7 @@ export const layer = Layer.effect(
       const results = yield* memory
         .query({
           text,
+          repo,
           limit: cfg.memory.limit ?? MEMORY_PROMPT_LIMIT,
         })
         .pipe(Effect.catch(() => Effect.succeed([])))
@@ -1374,6 +1382,20 @@ export const layer = Layer.effect(
           return `- ${result.body}${confidence}${citations}`
         }),
       ].join("\n")
+    })
+
+    const reviewMemoryRepository = Effect.fn("SessionPrompt.reviewMemoryRepository")(function* (cfg: Config.Info) {
+      if (cfg.memory?.providers?.github?.repo) return cfg.memory.providers.github.repo
+
+      const ctx = yield* InstanceState.context
+      if (ctx.project.vcs !== "git") return
+
+      const result = yield* git.run(["remote", "get-url", "origin"], { cwd: ctx.worktree })
+      if (result.exitCode !== 0) return
+
+      const parsed = parseGitHubRemote(result.text().trim())
+      if (!parsed) return
+      return `${parsed.owner}/${parsed.repo}`
     })
 
     const runLoop: (sessionID: SessionID) => Effect.Effect<MessageV2.WithParts> = Effect.fn("SessionPrompt.run")(
@@ -1785,6 +1807,8 @@ export const defaultLayer = Layer.suspend(() =>
       Layer.provide(LSP.defaultLayer),
       Layer.provide(ToolRegistry.defaultLayer),
       Layer.provide(Team.defaultLayer),
+    )
+    .pipe(
       Layer.provide(Truncate.defaultLayer),
       Layer.provide(Provider.defaultLayer),
       Layer.provide(Config.defaultLayer),
@@ -1805,6 +1829,7 @@ export const defaultLayer = Layer.suspend(() =>
           LLM.defaultLayer,
           Reference.defaultLayer,
           Memory.defaultLayer,
+          Git.defaultLayer,
           Bus.layer,
           CrossSpawnSpawner.defaultLayer,
           RuntimeFlags.defaultLayer,
