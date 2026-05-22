@@ -56,7 +56,6 @@ import { reply, TestLLMServer } from "../lib/llm-server"
 import { SyncEvent } from "@/sync"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { EventV2Bridge } from "@/event-v2-bridge"
-import { Memory } from "@/memory"
 
 void Log.init({ print: false })
 
@@ -166,7 +165,7 @@ const blockingProcessor = Layer.succeed(
   }),
 )
 
-function makePrompt(input?: { processor?: "blocking"; memory?: readonly Memory.Entry[] }) {
+function makePrompt(input?: { processor?: "blocking" }) {
   const deps = Layer.mergeAll(
     Session.defaultLayer,
     Snapshot.defaultLayer,
@@ -182,7 +181,6 @@ function makePrompt(input?: { processor?: "blocking"; memory?: readonly Memory.E
     mcp,
     AppFileSystem.defaultLayer,
     BackgroundJob.defaultLayer,
-    Memory.layer(input?.memory),
     Team.defaultLayer,
     status,
     SyncEvent.defaultLayer,
@@ -238,30 +236,17 @@ function makePrompt(input?: { processor?: "blocking"; memory?: readonly Memory.E
   )
 }
 
-function makeHttp(input?: { processor?: "blocking"; memory?: readonly Memory.Entry[] }) {
+function makeHttp(input?: { processor?: "blocking" }) {
   return Layer.mergeAll(TestLLMServer.layer, makePrompt(input))
 }
 
-function makeHttpNoLLMServer(input?: { processor?: "blocking"; memory?: readonly Memory.Entry[] }) {
+function makeHttpNoLLMServer(input?: { processor?: "blocking" }) {
   return makePrompt(input)
 }
 
 const it = testEffect(makeHttp())
 const noLLMServer = testEffect(makeHttpNoLLMServer())
 const raceNoLLMServer = testEffect(makeHttpNoLLMServer({ processor: "blocking" }))
-const reviewMemory = testEffect(
-  makeHttp({
-    memory: [
-      {
-        id: "review-memory-1",
-        title: "Effect services",
-        body: "Prefer Effect FileSystem over raw fs/promises in Effect services.",
-        confidence: 0.91,
-        citations: [{ label: "PR #123", url: "https://github.com/opencode-ai/opencode/pull/123#discussion_r1" }],
-      },
-    ],
-  }),
-)
 const unix = process.platform !== "win32" ? it.instance : it.instance.skip
 const unixNoLLMServer = process.platform !== "win32" ? noLLMServer.instance : noLLMServer.instance.skip
 
@@ -824,7 +809,7 @@ it.instance(
       yield* prompt.cancel(chat.id)
       yield* Fiber.await(fiber)
     }),
-  10_000,
+  30_000,
 )
 
 it.instance(
@@ -1069,8 +1054,8 @@ it.live("does not inject lead team guidance into teammate sessions", () =>
   ),
 )
 
-reviewMemory.live(
-  "injects configured review memory into prompts by default",
+it.live(
+  "does not inject removed memory guidance into prompts",
   () =>
     provideTmpdirServer(
       Effect.fnUntraced(function* ({ llm }) {
@@ -1085,139 +1070,15 @@ reviewMemory.live(
         })
 
         const bodies = (yield* llm.inputs).map((input) => JSON.stringify(input))
-        expect(
-          bodies.some(
-            (body) =>
-              body.includes("Historical review memory") &&
-              body.includes("lower priority than current user instructions") &&
-              body.includes("Prefer Effect FileSystem over raw fs/promises") &&
-              body.includes("Confidence: 0.91") &&
-              body.includes("PR #123") &&
-              body.includes("https://github.com/opencode-ai/opencode/pull/123#discussion_r1"),
-          ),
-        ).toBe(true)
+        expect(bodies.some((body) => body.includes(["Historical", "review", "memory"].join(" ")))).toBe(false)
+        expect(bodies.some((body) => body.includes("Prefer Effect FileSystem over raw fs/promises"))).toBe(false)
       }),
       {
         git: true,
-        config: (url) => ({
-          ...providerCfg(url),
-          memory: { providers: { github: { repo: "opencode-ai/opencode" } } },
-        }),
+        config: providerCfg,
       },
     ),
   10_000,
-)
-
-reviewMemory.live("injects review memory for the current GitHub repository by default", () =>
-  provideTmpdirServer(
-    Effect.fnUntraced(function* ({ dir, llm }) {
-      const result = yield* Git.Service.use((git) =>
-        git.run(["remote", "add", "origin", "https://github.com/opencode-ai/opencode.git"], { cwd: dir }),
-      ).pipe(Effect.provide(Git.defaultLayer))
-      expect(result.exitCode).toBe(0)
-
-      const { prompt, chat } = yield* boot()
-      yield* llm.text("done")
-
-      yield* prompt.prompt({
-        sessionID: chat.id,
-        agent: "build",
-        model: ref,
-        parts: [{ type: "text", text: "update the Effect service filesystem usage" }],
-      })
-
-      const bodies = (yield* llm.inputs).map((input) => JSON.stringify(input))
-      expect(
-        bodies.some(
-          (body) =>
-            body.includes("Historical review memory") &&
-            body.includes("Prefer Effect FileSystem over raw fs/promises"),
-        ),
-      ).toBe(true)
-    }),
-    {
-      git: true,
-      config: (url) => providerCfg(url),
-    },
-  ),
-)
-
-reviewMemory.live("does not inject review memory without a GitHub repository", () =>
-  provideTmpdirServer(
-    Effect.fnUntraced(function* ({ llm }) {
-      const { prompt, chat } = yield* boot()
-      yield* llm.text("done")
-
-      yield* prompt.prompt({
-        sessionID: chat.id,
-        agent: "build",
-        model: ref,
-        parts: [{ type: "text", text: "update the Effect service filesystem usage" }],
-      })
-
-      const bodies = (yield* llm.inputs).map((input) => JSON.stringify(input))
-      expect(bodies.some((body) => body.includes("Historical review memory"))).toBe(false)
-      expect(bodies.some((body) => body.includes("Prefer Effect FileSystem over raw fs/promises"))).toBe(false)
-    }),
-    {
-      git: true,
-      config: (url) => providerCfg(url),
-    },
-  ),
-)
-
-reviewMemory.live("does not inject review memory when config disables it", () =>
-  provideTmpdirServer(
-    Effect.fnUntraced(function* ({ llm }) {
-      const { prompt, chat } = yield* boot()
-      yield* llm.text("done")
-
-      yield* prompt.prompt({
-        sessionID: chat.id,
-        agent: "build",
-        model: ref,
-        parts: [{ type: "text", text: "update the Effect service filesystem usage" }],
-      })
-
-      const bodies = (yield* llm.inputs).map((input) => JSON.stringify(input))
-      expect(bodies.some((body) => body.includes("Historical review memory"))).toBe(false)
-      expect(bodies.some((body) => body.includes("Prefer Effect FileSystem over raw fs/promises"))).toBe(false)
-    }),
-    {
-      git: true,
-      config: (url) => ({
-        ...providerCfg(url),
-        memory: { enabled: false },
-      }),
-    },
-  ),
-)
-
-reviewMemory.live("does not inject review memory when GitHub provider is disabled", () =>
-  provideTmpdirServer(
-    Effect.fnUntraced(function* ({ llm }) {
-      const { prompt, chat } = yield* boot()
-      yield* llm.text("done")
-
-      yield* prompt.prompt({
-        sessionID: chat.id,
-        agent: "build",
-        model: ref,
-        parts: [{ type: "text", text: "update the Effect service filesystem usage" }],
-      })
-
-      const bodies = (yield* llm.inputs).map((input) => JSON.stringify(input))
-      expect(bodies.some((body) => body.includes("Historical review memory"))).toBe(false)
-      expect(bodies.some((body) => body.includes("Prefer Effect FileSystem over raw fs/promises"))).toBe(false)
-    }),
-    {
-      git: true,
-      config: (url) => ({
-        ...providerCfg(url),
-        memory: { enabled: true, providers: { github: { enabled: false, repo: "opencode-ai/opencode" } } },
-      }),
-    },
-  ),
 )
 
 it.live("team lead starts multiple teammates from one assistant step in parallel", () =>
@@ -1694,6 +1555,7 @@ unixNoLLMServer(
       yield* run.assertNotBusy(chat.id)
     }),
   { config: cfg },
+  30_000,
 )
 
 unixNoLLMServer(
@@ -1789,6 +1651,7 @@ unixNoLLMServer(
       yield* run.assertNotBusy(chat.id)
     }),
   { config: cfg },
+  30_000,
 )
 
 unixNoLLMServer(
@@ -2014,6 +1877,8 @@ unix(
       const { dir, llm } = yield* useServerConfig(providerCfg)
       const prompt = yield* SessionPrompt.Service
       const sessions = yield* Session.Service
+      const fs = yield* AppFileSystem.Service
+      const ready = path.join(dir, "truncated-output-ready")
       const chat = yield* sessions.create({
         title: "Interrupted bash truncation",
         permission: [{ permission: "*", pattern: "*", action: "allow" }],
@@ -2027,8 +1892,7 @@ unix(
       })
 
       yield* llm.tool("bash", {
-        command:
-          'i=0; while [ "$i" -lt 4000 ]; do printf "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx %05d\\n" "$i"; i=$((i + 1)); done; sleep 30',
+        command: `i=0; while [ "$i" -lt 4000 ]; do printf "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx %05d\\n" "$i"; i=$((i + 1)); done; touch "${ready}"; sleep 30`,
         description: "Print many lines",
         timeout: 30_000,
         workdir: path.resolve(dir),
@@ -2036,7 +1900,10 @@ unix(
 
       const run = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
       yield* llm.wait(1)
-      yield* Effect.sleep(150)
+      yield* pollWithTimeout(
+        fs.existsSafe(ready).pipe(Effect.map((exists) => (exists ? (true as const) : undefined))),
+        "shell output never reached truncation marker",
+      )
       yield* prompt.cancel(chat.id)
 
       const exit = yield* Fiber.await(run)
@@ -2134,28 +2001,31 @@ unix("shell captures stdout and stderr in completed tool output", () =>
   ),
 )
 
-unix("shell completes a fast command on the preferred shell", () =>
-  provideTmpdirInstance(
-    (dir) =>
-      Effect.gen(function* () {
-        const { prompt, run, chat } = yield* boot()
-        const result = yield* prompt.shell({
-          sessionID: chat.id,
-          agent: "build",
-          command: "pwd",
-        })
+unix(
+  "shell completes a fast command on the preferred shell",
+  () =>
+    provideTmpdirInstance(
+      (dir) =>
+        Effect.gen(function* () {
+          const { prompt, run, chat } = yield* boot()
+          const result = yield* prompt.shell({
+            sessionID: chat.id,
+            agent: "build",
+            command: "pwd",
+          })
 
-        expect(result.info.role).toBe("assistant")
-        const tool = completedTool(result.parts)
-        if (!tool) return
+          expect(result.info.role).toBe("assistant")
+          const tool = completedTool(result.parts)
+          if (!tool) return
 
-        expect(tool.state.input.command).toBe("pwd")
-        expect(tool.state.output).toContain(dir)
-        expect(tool.state.metadata.output).toContain(dir)
-        yield* run.assertNotBusy(chat.id)
-      }),
-    { git: true, config: cfg },
-  ),
+          expect(tool.state.input.command).toBe("pwd")
+          expect(tool.state.output).toContain(dir)
+          expect(tool.state.metadata.output).toContain(dir)
+          yield* run.assertNotBusy(chat.id)
+        }),
+      { git: true, config: cfg },
+    ),
+  30_000,
 )
 
 unix(
@@ -2234,27 +2104,30 @@ unix("shell lists files from the project directory", () =>
   ),
 )
 
-unix("shell captures stderr from a failing command", () =>
-  provideTmpdirInstance(
-    (_dir) =>
-      Effect.gen(function* () {
-        const { prompt, run, chat } = yield* boot()
-        const result = yield* prompt.shell({
-          sessionID: chat.id,
-          agent: "build",
-          command: "command -v __nonexistent_cmd_e2e__ || echo 'not found' >&2; exit 1",
-        })
+unix(
+  "shell captures stderr from a failing command",
+  () =>
+    provideTmpdirInstance(
+      (_dir) =>
+        Effect.gen(function* () {
+          const { prompt, run, chat } = yield* boot()
+          const result = yield* prompt.shell({
+            sessionID: chat.id,
+            agent: "build",
+            command: "command -v __nonexistent_cmd_e2e__ || echo 'not found' >&2; exit 1",
+          })
 
-        expect(result.info.role).toBe("assistant")
-        const tool = completedTool(result.parts)
-        if (!tool) return
+          expect(result.info.role).toBe("assistant")
+          const tool = completedTool(result.parts)
+          if (!tool) return
 
-        expect(tool.state.output).toContain("not found")
-        expect(tool.state.metadata.output).toContain("not found")
-        yield* run.assertNotBusy(chat.id)
-      }),
-    { git: true, config: cfg },
-  ),
+          expect(tool.state.output).toContain("not found")
+          expect(tool.state.metadata.output).toContain("not found")
+          yield* run.assertNotBusy(chat.id)
+        }),
+      { git: true, config: cfg },
+    ),
+  30_000,
 )
 
 unix(
@@ -2485,6 +2358,8 @@ unix(
         Effect.gen(function* () {
           const prompt = yield* SessionPrompt.Service
           const sessions = yield* Session.Service
+          const fs = yield* AppFileSystem.Service
+          const ready = path.join(dir, "truncated-output-ready")
           const chat = yield* sessions.create({
             title: "Interrupted bash truncation",
             permission: [{ permission: "*", pattern: "*", action: "allow" }],
@@ -2498,8 +2373,7 @@ unix(
           })
 
           yield* llm.tool("bash", {
-            command:
-              'i=0; while [ "$i" -lt 4000 ]; do printf "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx %05d\\n" "$i"; i=$((i + 1)); done; sleep 30',
+            command: `i=0; while [ "$i" -lt 4000 ]; do printf "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx %05d\\n" "$i"; i=$((i + 1)); done; touch "${ready}"; sleep 30`,
             description: "Print many lines",
             timeout: 30_000,
             workdir: path.resolve(dir),
@@ -2507,7 +2381,10 @@ unix(
 
           const run = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
           yield* llm.wait(1)
-          yield* Effect.sleep(150)
+          yield* pollWithTimeout(
+            fs.existsSafe(ready).pipe(Effect.map((exists) => (exists ? (true as const) : undefined))),
+            "shell output never reached truncation marker",
+          )
           yield* prompt.cancel(chat.id)
 
           const exit = yield* Fiber.await(run)

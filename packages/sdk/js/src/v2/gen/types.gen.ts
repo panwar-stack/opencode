@@ -948,20 +948,6 @@ export type ReferenceConfig = {
   [key: string]: ReferenceConfigEntry
 }
 
-export type MemoryConfig = {
-  enabled?: boolean
-  limit?: number
-  providers?: {
-    github?: {
-      enabled?: boolean
-      repo?: string
-      max_age_days?: number
-      include_authors?: Array<string>
-      exclude_authors?: Array<string>
-    }
-  }
-}
-
 export type PermissionActionConfig = "ask" | "allow" | "deny"
 
 export type PermissionObjectConfig = {
@@ -1202,7 +1188,6 @@ export type Config = {
     urls?: Array<string>
   }
   reference?: ReferenceConfig
-  memory?: MemoryConfig
   watcher?: {
     ignore?: Array<string>
   }

@@ -9713,15 +9713,6 @@
       "Event": {
         "anyOf": [
           {
-            "$ref": "#/components/schemas/EventServerInstanceDisposed"
-          },
-          {
-            "$ref": "#/components/schemas/EventFileEdited"
-          },
-          {
-            "$ref": "#/components/schemas/EventFileWatcherUpdated"
-          },
-          {
             "$ref": "#/components/schemas/Event.tui.prompt.append"
           },
           {
@@ -9732,6 +9723,21 @@
           },
           {
             "$ref": "#/components/schemas/Event.tui.session.select"
+          },
+          {
+            "$ref": "#/components/schemas/EventServerConnected"
+          },
+          {
+            "$ref": "#/components/schemas/EventGlobalDisposed"
+          },
+          {
+            "$ref": "#/components/schemas/EventServerInstanceDisposed"
+          },
+          {
+            "$ref": "#/components/schemas/EventFileEdited"
+          },
+          {
+            "$ref": "#/components/schemas/EventFileWatcherUpdated"
           },
           {
             "$ref": "#/components/schemas/EventMcpToolsChanged"
@@ -9933,12 +9939,6 @@
           },
           {
             "$ref": "#/components/schemas/EventSessionNextCompactionEnded"
-          },
-          {
-            "$ref": "#/components/schemas/EventServerConnected"
-          },
-          {
-            "$ref": "#/components/schemas/EventGlobalDisposed"
           },
           {
             "$ref": "#/components/schemas/EventCatalogModelUpdated"
@@ -12124,15 +12124,6 @@
           "payload": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/EventServerInstanceDisposed"
-              },
-              {
-                "$ref": "#/components/schemas/EventFileEdited"
-              },
-              {
-                "$ref": "#/components/schemas/EventFileWatcherUpdated"
-              },
-              {
                 "$ref": "#/components/schemas/Event.tui.prompt.append"
               },
               {
@@ -12143,6 +12134,21 @@
               },
               {
                 "$ref": "#/components/schemas/Event.tui.session.select"
+              },
+              {
+                "$ref": "#/components/schemas/EventServerConnected"
+              },
+              {
+                "$ref": "#/components/schemas/EventGlobalDisposed"
+              },
+              {
+                "$ref": "#/components/schemas/EventServerInstanceDisposed"
+              },
+              {
+                "$ref": "#/components/schemas/EventFileEdited"
+              },
+              {
+                "$ref": "#/components/schemas/EventFileWatcherUpdated"
               },
               {
                 "$ref": "#/components/schemas/EventMcpToolsChanged"
@@ -12344,12 +12350,6 @@
               },
               {
                 "$ref": "#/components/schemas/EventSessionNextCompactionEnded"
-              },
-              {
-                "$ref": "#/components/schemas/EventServerConnected"
-              },
-              {
-                "$ref": "#/components/schemas/EventGlobalDisposed"
               },
               {
                 "$ref": "#/components/schemas/EventCatalogModelUpdated"
@@ -12605,53 +12605,6 @@
         "additionalProperties": {
           "$ref": "#/components/schemas/ReferenceConfigEntry"
         }
-      },
-      "MemoryConfig": {
-        "type": "object",
-        "properties": {
-          "enabled": {
-            "type": "boolean"
-          },
-          "limit": {
-            "type": "integer",
-            "exclusiveMinimum": 0
-          },
-          "providers": {
-            "type": "object",
-            "properties": {
-              "github": {
-                "type": "object",
-                "properties": {
-                  "enabled": {
-                    "type": "boolean"
-                  },
-                  "repo": {
-                    "type": "string"
-                  },
-                  "max_age_days": {
-                    "type": "integer",
-                    "exclusiveMinimum": 0
-                  },
-                  "include_authors": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  },
-                  "exclude_authors": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  }
-                },
-                "additionalProperties": false
-              }
-            },
-            "additionalProperties": false
-          }
-        },
-        "additionalProperties": false
       },
       "PermissionActionConfig": {
         "type": "string",
@@ -13231,9 +13184,6 @@
           },
           "reference": {
             "$ref": "#/components/schemas/ReferenceConfig"
-          },
-          "memory": {
-            "$ref": "#/components/schemas/MemoryConfig"
           },
           "watcher": {
             "type": "object",
@@ -17807,6 +17757,42 @@
         "required": ["type", "name", "id", "seq", "aggregateID", "data"],
         "additionalProperties": false
       },
+      "EventServerConnected": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["server.connected"]
+          },
+          "properties": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        "required": ["id", "type", "properties"],
+        "additionalProperties": false
+      },
+      "EventGlobalDisposed": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["global.disposed"]
+          },
+          "properties": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        "required": ["id", "type", "properties"],
+        "additionalProperties": false
+      },
       "EventServerInstanceDisposed": {
         "type": "object",
         "properties": {
@@ -20113,42 +20099,6 @@
             },
             "required": ["timestamp", "sessionID", "text"],
             "additionalProperties": false
-          }
-        },
-        "required": ["id", "type", "properties"],
-        "additionalProperties": false
-      },
-      "EventServerConnected": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string",
-            "enum": ["server.connected"]
-          },
-          "properties": {
-            "type": "object",
-            "properties": {}
-          }
-        },
-        "required": ["id", "type", "properties"],
-        "additionalProperties": false
-      },
-      "EventGlobalDisposed": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string",
-            "enum": ["global.disposed"]
-          },
-          "properties": {
-            "type": "object",
-            "properties": {}
           }
         },
         "required": ["id", "type", "properties"],
