@@ -133,6 +133,34 @@ describe("tool.memory", () => {
     }),
   )
 
+  it.live("logs GitHub retrieval context for memory searches", () =>
+    Effect.gen(function* () {
+      const memory = yield* Memory.Service
+      const repository = yield* seedRepository("retrieval-log")
+      yield* memory.upsertCommits(repository.id, [
+        {
+          hash: "abc123",
+          message: "Fix GitHub memory logging",
+          author_time: Date.now(),
+          changed_files: ["src/cli/cmd/github.ts"],
+          diff: "diff --git a/src/cli/cmd/github.ts b/src/cli/cmd/github.ts",
+          token_text: tokenText("github memory logging"),
+        },
+      ])
+      const sessionID = SessionID.make("ses_memory_retrieval_log")
+      Memory.setRetrievalContext({ sessionID, context: { issueIdentifier: "github.com/opencode-ai/opencode#5" } })
+      const tool = yield* Tool.init(yield* MemorySearchCommitTool)
+      yield* tool.execute({ queries: ["github logging"], repository: repository.identity }, context([], sessionID))
+      Memory.clearRetrievalContext(sessionID)
+
+      const log = Database.use((db) => db.select().from(memory.tables.retrievalLog).all()).find((row) => row.session_id === sessionID)
+      expect(log?.session_id).toBe(sessionID)
+      expect(log?.issue_identifier).toBe("github.com/opencode-ai/opencode#5")
+      expect(log?.tool).toBe("memory_search_commit")
+      expect(JSON.parse(log?.returned_items ?? "[]")).toEqual(["abc123"])
+    }),
+  )
+
   it.live("examines commits with historical diff truncation warning", () =>
     Effect.gen(function* () {
       const memory = yield* Memory.Service
@@ -197,9 +225,9 @@ function seedRepository(name: string) {
   })
 }
 
-function context(requests: unknown[] = []): Tool.Context {
+function context(requests: unknown[] = [], sessionID = SessionID.make("ses_memory_test")): Tool.Context {
   return {
-    sessionID: SessionID.make("ses_memory_test"),
+    sessionID,
     messageID: MessageID.ascending(),
     agent: "build",
     abort: new AbortController().signal,

@@ -59,6 +59,7 @@ export const MemorySearchCommitTool = Tool.define(
             (query) => memory.searchCommitRows({ repository_id: repository.id, query, limit }),
           )
           const commits = dedupeRanked(rows.flat()).slice(0, limit)
+          yield* logRetrieval(memory, ctx, repository.id, "memory_search_commit", params.queries, commits.map((commit) => commit.hash))
           return {
             title: commits.length ? `${commits.length} memory commit${commits.length === 1 ? "" : "s"}` : "No memory commits",
             metadata: { repository: repository.identity, count: commits.length },
@@ -100,6 +101,7 @@ export const MemoryExamineCommitTool = Tool.define(
           const commit = yield* memory.getCommit({ repository_id: repository.id, hash: params.hash })
             .pipe(Effect.catch(Effect.die))
           if (!commit) return yield* Effect.die(new Error(`No repository memory commit found for hash: ${params.hash}`))
+          yield* logRetrieval(memory, ctx, repository.id, "memory_examine_commit", [params.hash], [commit.hash])
           const max = params.max_diff_bytes ?? DEFAULT_DIFF_BYTES
           const diff = commit.diff.slice(0, max)
           const changed = parseJsonArray(commit.changed_files)
@@ -141,6 +143,7 @@ export const MemorySearchSummaryTool = Tool.define(
           yield* askMemory(ctx, "memory_search_summary", repository.identity, [params.query])
           const limit = params.limit ?? (yield* config.get()).memory?.search_summary_limit ?? DEFAULT_LIMITS.summaries
           const summaries = yield* memory.searchSummaryRows({ repository_id: repository.id, query: params.query, limit })
+          yield* logRetrieval(memory, ctx, repository.id, "memory_search_summary", [params.query], summaries.map((summary) => summary.path))
           return {
             title: summaries.length ? `${summaries.length} memory summar${summaries.length === 1 ? "y" : "ies"}` : "No memory summaries",
             metadata: { repository: repository.identity, count: summaries.length },
@@ -182,6 +185,7 @@ export const MemoryViewSummaryTool = Tool.define(
             worktree: repository.worktree,
           })
           if (!summary) throw new Error(`No repository memory summary found for path: ${params.path}`)
+          yield* logRetrieval(memory, ctx, repository.id, "memory_view_summary", [params.path], [summary.path])
           return {
             title: summary.path,
             metadata: { repository: repository.identity, path: summary.path, stale: summary.stale, missing: summary.missing },
@@ -241,6 +245,24 @@ function askMemory(ctx: Tool.Context, permission: string, repository: string, pa
     patterns: patterns.length ? patterns : [repository],
     always: [repository],
     metadata: { repository },
+  })
+}
+
+function logRetrieval(
+  memory: Memory.Interface,
+  ctx: Tool.Context,
+  repositoryID: string,
+  tool: string,
+  queries: readonly string[],
+  returnedItems: readonly string[],
+) {
+  return memory.logRetrieval({
+    repository_id: repositoryID,
+    session_id: ctx.sessionID,
+    issue_identifier: Memory.retrievalContext(ctx.sessionID)?.issueIdentifier,
+    tool,
+    query: queries.filter((query) => query.trim()).join("\n"),
+    returned_items: returnedItems,
   })
 }
 

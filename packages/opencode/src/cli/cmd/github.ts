@@ -30,6 +30,7 @@ import { Bus } from "../../bus"
 import { MessageV2 } from "../../session/message-v2"
 import { SessionPrompt } from "@/session/prompt"
 import { Git } from "@/git"
+import { Memory } from "@/memory/memory"
 import { setTimeout as sleep } from "node:timers/promises"
 import { Process } from "@/util/process"
 import { parseGitHubRemote } from "@/util/repository"
@@ -153,6 +154,11 @@ type UserEvent = (typeof USER_EVENTS)[number]
 type RepoEvent = (typeof REPO_EVENTS)[number]
 
 export { parseGitHubRemote }
+
+export function githubIssueIdentifier(input: { owner: string; repo: string; issueId?: number }) {
+  if (!input.issueId) return undefined
+  return `github.com/${input.owner}/${input.repo}#${input.issueId}`
+}
 
 /**
  * Extracts displayable text from assistant response parts.
@@ -488,6 +494,7 @@ export const GithubRunCommand = effectCmd({
       let octoGraph: typeof graphql
       let gitConfig: string
       let session: { id: SessionID; title: string; version: string }
+      let memoryRetrievalSessionID: SessionID | undefined
       let shareId: string | undefined
       let exitCode = 0
       type PromptFiles = Awaited<ReturnType<typeof getUserPrompt>>["promptFiles"]
@@ -562,6 +569,11 @@ export const GithubRunCommand = effectCmd({
             ],
           }),
         )
+        memoryRetrievalSessionID = session.id
+        Memory.setRetrievalContext({
+          sessionID: session.id,
+          context: { issueIdentifier: githubIssueIdentifier({ owner, repo, issueId }) },
+        })
         await subscribeSessionEvents()
         shareId = await (async () => {
           if (share === false) return
@@ -700,6 +712,7 @@ export const GithubRunCommand = effectCmd({
         // Also output the clean error message for the action to capture
         //core.setOutput("prepare_error", e.message);
       } finally {
+        if (memoryRetrievalSessionID) Memory.clearRetrievalContext(memoryRetrievalSessionID)
         if (!useGithubToken) {
           await restoreGitConfig()
           await revokeAppToken()
