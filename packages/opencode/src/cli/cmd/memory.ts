@@ -34,6 +34,11 @@ const IndexCommand = effectCmd({
         type: "boolean",
         default: true,
         describe: "allow GitHub enrichment (use --no-github to disable; indexing is offline-safe)",
+      })
+      .option("summaries", {
+        type: "number",
+        default: 200,
+        describe: "number of top active files to summarize; use 0 to skip summaries",
       }),
   handler: Effect.fn("Cli.memory.index")(function* (args) {
     const memory = yield* Memory.Service
@@ -44,12 +49,17 @@ const IndexCommand = effectCmd({
       cutoffTime: args["cutoff-time"],
       branch: args.branch,
       noGithub: args.github === false,
+      summaries: args.summaries,
     })
     console.log(`Repository: ${result.repository.identity}`)
     console.log(`Worktree: ${result.worktree}`)
     console.log(`Commits indexed: ${result.indexedCommits}`)
     console.log(`Commits skipped: ${result.skippedCommits}`)
     console.log(`File activity records: ${result.fileActivity}`)
+    console.log(`File summaries generated: ${result.summaries.generated}`)
+    console.log(`File summaries reused: ${result.summaries.reused}`)
+    console.log(`File summaries failed: ${result.summaries.failed}`)
+    result.summaries.failures.slice(0, 10).forEach((failure) => console.log(`   ${failure.path}: ${failure.message}`))
   }),
 })
 
@@ -108,10 +118,80 @@ const SearchCommitCommand = effectCmd({
   }),
 })
 
+const SearchSummaryCommand = effectCmd({
+  command: "summary <query>",
+  describe: "search repository file summaries",
+  builder: (yargs: Argv) =>
+    yargs
+      .positional("query", {
+        type: "string",
+        describe: "search query",
+      })
+      .option("limit", {
+        type: "number",
+        default: 5,
+        describe: "maximum results",
+      }),
+  handler: Effect.fn("Cli.memory.search.summary")(function* (args) {
+    const memory = yield* Memory.Service
+    if (!args.query) return yield* fail("Search query is required")
+    const current = yield* memory.currentRepository()
+    const repository = yield* memory.getRepository(current.identity)
+    if (!repository) return yield* fail(`No repository memory index found for ${current.identity}`)
+    const results = yield* memory.searchSummaryRows({ repository_id: repository.id, query: args.query, limit: args.limit })
+    console.log(`Repository: ${repository.identity}`)
+    console.log(`Query: ${args.query}`)
+    if (!results.length) {
+      console.log("No summary matches found.")
+      return
+    }
+    results.forEach((result, index) => {
+      console.log(`${index + 1}. ${result.path} score=${result.score.toFixed(3)} strength=${result.strength}`)
+      console.log(`   Summary: ${snippet(result.summary)}`)
+      const symbols = parseJsonArray(result.important_symbols)
+      if (symbols.length) console.log(`   Important symbols: ${symbols.join(", ")}`)
+    })
+  }),
+})
+
 const SearchCommand = cmd({
   command: "search",
   describe: "search repository memory",
-  builder: (yargs: Argv) => yargs.command(SearchCommitCommand).demandCommand(),
+  builder: (yargs: Argv) => yargs.command(SearchCommitCommand).command(SearchSummaryCommand).demandCommand(),
+  handler: () => {},
+})
+
+const ViewSummaryCommand = effectCmd({
+  command: "summary <path>",
+  describe: "view a cached repository file summary",
+  builder: (yargs: Argv) =>
+    yargs.positional("path", {
+      type: "string",
+      describe: "file path",
+    }),
+  handler: Effect.fn("Cli.memory.view.summary")(function* (args) {
+    const memory = yield* Memory.Service
+    if (!args.path) return yield* fail("Summary path is required")
+    const current = yield* memory.currentRepository()
+    const repository = yield* memory.getRepository(current.identity)
+    if (!repository) return yield* fail(`No repository memory index found for ${current.identity}`)
+    const summary = yield* memory.getFileSummary({ repository_id: repository.id, path: args.path, worktree: current.worktree })
+    if (!summary) return yield* fail(`File summary not found: ${args.path}`)
+    console.log(`Repository: ${repository.identity}`)
+    console.log(`Path: ${summary.path}`)
+    console.log(`Status: ${summary.missing ? "missing" : summary.stale ? "stale" : "current"}`)
+    console.log(`Model: ${summary.model_id ?? "unknown"}`)
+    const symbols = parseJsonArray(summary.important_symbols)
+    if (symbols.length) console.log(`Important symbols: ${symbols.join(", ")}`)
+    console.log("Summary:")
+    console.log(summary.summary)
+  }),
+})
+
+const ViewCommand = cmd({
+  command: "view",
+  describe: "view repository memory",
+  builder: (yargs: Argv) => yargs.command(ViewSummaryCommand).demandCommand(),
   handler: () => {},
 })
 
@@ -180,7 +260,14 @@ export const MemoryCommand = cmd({
   command: "memory",
   describe: "repository memory tools",
   builder: (yargs: Argv) =>
-    yargs.command(IndexCommand).command(StatusCommand).command(SearchCommand).command(ExamineCommand).command(ClearCommand).demandCommand(),
+    yargs
+      .command(IndexCommand)
+      .command(StatusCommand)
+      .command(SearchCommand)
+      .command(ViewCommand)
+      .command(ExamineCommand)
+      .command(ClearCommand)
+      .demandCommand(),
   handler: () => {},
 })
 
@@ -188,4 +275,10 @@ function parseJsonArray(input: string) {
   const parsed = JSON.parse(input) as unknown
   if (!Array.isArray(parsed)) return []
   return parsed.filter((item): item is string => typeof item === "string")
+}
+
+function snippet(input: string) {
+  const normalized = input.replaceAll("\n", " ")
+  if (normalized.length <= 180) return normalized
+  return `${normalized.slice(0, 177)}...`
 }

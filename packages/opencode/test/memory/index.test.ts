@@ -99,11 +99,11 @@ describe("Memory local git indexing", () => {
       expect(narrowed.indexedCommits).toBe(1)
       expect(status?.commits).toBe(1)
       expect(status?.file_activity).toBe(1)
-      expect(status?.summaries).toBe(1)
+      expect(status?.summaries).toBe(0)
       expect(staleMatches.some((match) => match.message === "add future memory")).toBe(false)
       expect(keptMatches[0].message).toBe("add middle memory")
       expect(JSON.parse(keptMatches[0].changed_files)).toEqual(["src/middle.ts"])
-      expect(summaries).toHaveLength(1)
+      expect(summaries).toHaveLength(0)
       expect(logs).toHaveLength(1)
     }),
   )

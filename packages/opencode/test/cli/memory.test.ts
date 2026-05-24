@@ -8,12 +8,12 @@ import { cliIt } from "../lib/cli-process"
 describe("opencode memory CLI", () => {
   cliIt.live(
     "indexes, searches, examines, and clears local commit memory",
-    ({ home, opencode }) =>
+    ({ home, llm, opencode }) =>
       Effect.gen(function* () {
         const hash = yield* Effect.promise(() => setupRepository(home))
         const env = { OPENCODE_DB: path.join(home, "memory.db") }
 
-        const indexed = yield* opencode.spawn(["memory", "index", "--max-commits", "10", "--no-github"], {
+        const indexed = yield* opencode.spawn(["memory", "index", "--max-commits", "10", "--no-github", "--summaries", "0"], {
           env,
           timeoutMs: 60_000,
         })
@@ -34,6 +34,24 @@ describe("opencode memory CLI", () => {
         opencode.expectExit(examine, 0, "memory examine commit")
         expect(examine.stdout).toContain("historical memory")
         expect(examine.stdout).toContain("src/auth.ts")
+
+        yield* llm.text(JSON.stringify({ summary: "Login redirect file summary", important_symbols: ["loginRedirect"] }))
+        const summarized = yield* opencode.spawn(["memory", "index", "--max-commits", "10", "--no-github", "--summaries", "1"], {
+          env,
+          timeoutMs: 60_000,
+        })
+        opencode.expectExit(summarized, 0, "memory index summaries")
+        expect(summarized.stdout).toContain("File summaries generated: 1")
+
+        const summarySearch = yield* opencode.spawn(["memory", "search", "summary", "redirect"], { env, timeoutMs: 60_000 })
+        opencode.expectExit(summarySearch, 0, "memory search summary")
+        expect(summarySearch.stdout).toContain("src/auth.ts")
+        expect(summarySearch.stdout).toContain("loginRedirect")
+
+        const summaryView = yield* opencode.spawn(["memory", "view", "summary", "src/auth.ts"], { env, timeoutMs: 60_000 })
+        opencode.expectExit(summaryView, 0, "memory view summary")
+        expect(summaryView.stdout).toContain("Status: current")
+        expect(summaryView.stdout).toContain("Login redirect file summary")
 
         const cleared = yield* opencode.spawn(["memory", "clear"], { env, timeoutMs: 60_000 })
         opencode.expectExit(cleared, 0, "memory clear")
