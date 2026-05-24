@@ -138,6 +138,22 @@ export type StatusResult = {
 
 export type CommitSearchResult = RankedDocument<typeof RepositoryMemoryCommitTable.$inferSelect>
 
+export type RetrievalLogInput = {
+  readonly repository_id: string
+  readonly session_id?: string
+  readonly issue_identifier?: string
+  readonly tool: string
+  readonly query: string
+  readonly returned_items: readonly string[]
+  readonly selected_items?: readonly string[]
+  readonly final_files?: readonly string[]
+  readonly outcome?: string
+}
+
+export type RetrievalContext = {
+  readonly issueIdentifier?: string
+}
+
 export interface Interface {
   readonly tables: {
     readonly repository: typeof RepositoryMemoryRepositoryTable
@@ -161,6 +177,7 @@ export interface Interface {
   readonly searchSummaries: (input: { repository_id: string; query: string; limit?: number }) => Effect.Effect<ReturnType<typeof rankDocuments>>
   readonly searchSummaryRows: (input: { repository_id: string; query: string; limit?: number }) => Effect.Effect<FileSummarySearchResult[]>
   readonly getFileSummary: (input: { repository_id: string; path: string; worktree?: string }) => Effect.Effect<FileSummaryViewResult | undefined>
+  readonly logRetrieval: (input: RetrievalLogInput) => Effect.Effect<void>
   readonly generateFileSummaries: (input: {
     readonly repository_id: string
     readonly worktree: string
@@ -171,6 +188,20 @@ export interface Interface {
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Memory") {}
+
+const retrievalContexts = new Map<string, RetrievalContext>()
+
+export function setRetrievalContext(input: { readonly sessionID: string; readonly context: RetrievalContext }) {
+  retrievalContexts.set(input.sessionID, input.context)
+}
+
+export function clearRetrievalContext(sessionID: string) {
+  retrievalContexts.delete(sessionID)
+}
+
+export function retrievalContext(sessionID: string) {
+  return retrievalContexts.get(sessionID)
+}
 
 export function identity(reference: string | Reference): RepositoryIdentity {
   const parsed = typeof reference === "string" ? parseRepositoryReference(reference) : reference
@@ -517,6 +548,29 @@ export const layer = Layer.effect(
       return { ...row, stale: row.source_hash !== source.source_hash, missing: false, current_source_hash: source.source_hash }
     })
 
+    const logRetrieval = Effect.fn("Memory.logRetrieval")(function* (input: RetrievalLogInput) {
+      const now = Date.now()
+      yield* db((d) =>
+        d
+          .insert(RepositoryMemoryRetrievalLogTable)
+          .values({
+            id: crypto.randomUUID(),
+            repository_id: input.repository_id,
+            session_id: input.session_id,
+            issue_identifier: input.issue_identifier,
+            tool: input.tool,
+            query: input.query,
+            returned_items: JSON.stringify(input.returned_items),
+            selected_items: input.selected_items ? JSON.stringify(input.selected_items) : undefined,
+            final_files: input.final_files ? JSON.stringify(input.final_files) : undefined,
+            outcome: input.outcome,
+            time_created: now,
+            time_updated: now,
+          })
+          .run(),
+      )
+    })
+
     const generateFileSummaries = Effect.fn("Memory.generateFileSummaries")(function* (input: {
       readonly repository_id: string
       readonly worktree: string
@@ -665,6 +719,7 @@ export const layer = Layer.effect(
       searchSummaries,
       searchSummaryRows,
       getFileSummary,
+      logRetrieval,
       generateFileSummaries,
     }
   }),
