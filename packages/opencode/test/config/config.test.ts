@@ -353,14 +353,36 @@ it.instance(
   { config: { shell: "bash" } },
 )
 
-test("rejects memory config field", () => {
-  try {
-    ConfigParse.schema(Config.Info, { memory: {} }, "test")
-    throw new Error("expected config parse to fail")
-  } catch (err) {
-    const error = err as { data?: { issues?: Array<{ code?: string; keys?: string[]; path?: string[] }> } }
-    expect(error.data?.issues?.[0]).toMatchObject({ code: "unrecognized_keys", keys: ["memory"], path: [] })
-  }
+test("parses memory config field", () => {
+  const config = ConfigParse.schema(
+    Config.Info,
+    {
+      memory: {
+        enabled: true,
+        index_on_start: false,
+        max_commits: 42,
+        summary_limit: 3,
+        search_commit_limit: 7,
+        search_summary_limit: 2,
+        include: ["src/**"],
+        exclude: ["dist/**"],
+        github: { enabled: true, fetch_linked_issues: false },
+      },
+    },
+    "test",
+  )
+
+  expect(config.memory).toEqual({
+    enabled: true,
+    index_on_start: false,
+    max_commits: 42,
+    summary_limit: 3,
+    search_commit_limit: 7,
+    search_summary_limit: 2,
+    include: ["src/**"],
+    exclude: ["dist/**"],
+    github: { enabled: true, fetch_linked_issues: false },
+  })
 })
 
 it.instance("updates config and preserves empty shell sentinel", () =>

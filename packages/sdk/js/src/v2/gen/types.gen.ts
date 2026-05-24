@@ -991,6 +991,10 @@ export type PermissionConfig =
       websearch?: PermissionActionConfig
       repo_clone?: PermissionRuleConfig
       repo_overview?: PermissionRuleConfig
+      memory_search_commit?: PermissionActionConfig
+      memory_examine_commit?: PermissionActionConfig
+      memory_search_summary?: PermissionActionConfig
+      memory_view_summary?: PermissionActionConfig
       lsp?: PermissionRuleConfig
       doom_loop?: PermissionActionConfig
       skill?: PermissionRuleConfig
@@ -1176,6 +1180,21 @@ export type McpRemoteConfig = {
   timeout?: number
 }
 
+export type MemoryConfig = {
+  enabled?: boolean
+  index_on_start?: boolean
+  max_commits?: number
+  summary_limit?: number
+  search_commit_limit?: number
+  search_summary_limit?: number
+  include?: Array<string>
+  exclude?: Array<string>
+  github?: {
+    enabled?: boolean
+    fetch_linked_issues?: boolean
+  }
+}
+
 /**
  * @deprecated Always uses stretch layout.
  */
@@ -1300,6 +1319,7 @@ export type Config = {
               }
             }
       }
+  memory?: MemoryConfig
   instructions?: Array<string>
   layout?: LayoutConfig
   permission?: PermissionConfig

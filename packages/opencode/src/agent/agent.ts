@@ -102,6 +102,12 @@ export const layer = Layer.effect(
           "*": "ask",
           ...Object.fromEntries(whitelistedDirs.map((dir) => [dir, "allow"])),
         } satisfies Record<string, "allow" | "ask" | "deny">
+        const memoryRetrievalPermissions = {
+          memory_search_commit: "allow",
+          memory_examine_commit: "allow",
+          memory_search_summary: "allow",
+          memory_view_summary: "allow",
+        } as const
 
         const defaults = Permission.fromConfig({
           "*": "allow",
@@ -115,6 +121,7 @@ export const layer = Layer.effect(
           plan_exit: "deny",
           repo_clone: "deny",
           repo_overview: "deny",
+          ...memoryRetrievalPermissions,
           // mirrors github.com/github/gitignore Node.gitignore pattern for .env files
           read: {
             "*": "allow",
@@ -192,6 +199,7 @@ export const layer = Layer.effect(
                 webfetch: "allow",
                 websearch: "allow",
                 read: "allow",
+                ...memoryRetrievalPermissions,
                 external_directory: readonlyExternalDirectory,
               }),
               user,
@@ -217,6 +225,7 @@ export const layer = Layer.effect(
                       read: "allow",
                       repo_clone: "allow",
                       repo_overview: "allow",
+                      ...memoryRetrievalPermissions,
                       external_directory: {
                         ...readonlyExternalDirectory,
                         [path.join(Global.Path.repos, "*")]: "allow",
