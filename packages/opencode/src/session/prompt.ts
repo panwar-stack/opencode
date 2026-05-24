@@ -78,6 +78,13 @@ IMPORTANT:
 - This tool provides your final answer - no further actions are taken after calling it`
 
 const STRUCTURED_OUTPUT_SYSTEM_PROMPT = `IMPORTANT: The user has requested structured output. You MUST use the StructuredOutput tool to provide your final response. Do NOT respond with plain text - you MUST call the StructuredOutput tool with your answer formatted according to the schema.`
+const MEMORY_WORKFLOW_SYSTEM_PROMPT = [
+  "Repository memory tools are available for this indexed repository.",
+  "Use them early for issue-like tasks, stack traces, regressions, migrations, validation bugs, serialization bugs, authentication bugs, and database behavior.",
+  "Search commits with two or three queries: likely old commit message, exact error text, and domain concept.",
+  "Search summaries for expected behavior or the failing subsystem, merge candidates with normal code search, and read current source before patching.",
+  "Do not treat old diff line numbers as current source line numbers.",
+].join("\n")
 const log = Log.create({ service: "session.prompt" })
 const elog = EffectLogger.create({ service: "session.prompt" })
 
@@ -1523,7 +1530,14 @@ export const layer = Layer.effect(
               instruction.system().pipe(Effect.orDie),
               MessageV2.toModelMessagesEffect(msgs, model),
             ])
-            const system = [...env, ...(teamLead ? [teamLead] : []), ...instructions, ...(skills ? [skills] : [])]
+            const memoryRule = tools.memory_search_commit ? MEMORY_WORKFLOW_SYSTEM_PROMPT : undefined
+            const system = [
+              ...env,
+              ...(teamLead ? [teamLead] : []),
+              ...(memoryRule ? [memoryRule] : []),
+              ...instructions,
+              ...(skills ? [skills] : []),
+            ]
             const format = lastUser.format ?? { type: "text" as const }
             if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
             const result = yield* handle.process({

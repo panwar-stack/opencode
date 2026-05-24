@@ -43,6 +43,9 @@ import { Shell } from "../../src/shell/shell"
 import { Snapshot } from "../../src/snapshot"
 import { ToolRegistry } from "@/tool/registry"
 import { Truncate } from "@/tool/truncate"
+import { Memory } from "@/memory/memory"
+import { RepositoryMemoryCommitTable } from "@/memory/memory.sql"
+import { tokenText } from "@/memory/search"
 import * as Log from "@opencode-ai/core/util/log"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import * as Database from "../../src/storage/db"
@@ -182,6 +185,7 @@ function makePrompt(input?: { processor?: "blocking" }) {
     AppFileSystem.defaultLayer,
     BackgroundJob.defaultLayer,
     Team.defaultLayer,
+    Memory.defaultLayer,
     status,
     SyncEvent.defaultLayer,
     EventV2Bridge.defaultLayer,
@@ -195,6 +199,7 @@ function makePrompt(input?: { processor?: "blocking" }) {
     Layer.provide(RepositoryCache.defaultLayer),
     Layer.provide(Git.defaultLayer),
     Layer.provide(Reference.defaultLayer),
+    Layer.provide(Memory.defaultLayer),
     Layer.provide(Ripgrep.defaultLayer),
     Layer.provide(Format.defaultLayer),
     Layer.provide(RuntimeFlags.layer({ experimentalEventSystem: true })),
@@ -1072,10 +1077,63 @@ it.live(
         const bodies = (yield* llm.inputs).map((input) => JSON.stringify(input))
         expect(bodies.some((body) => body.includes(["Historical", "review", "memory"].join(" ")))).toBe(false)
         expect(bodies.some((body) => body.includes("Prefer Effect FileSystem over raw fs/promises"))).toBe(false)
+        expect(bodies.some((body) => body.includes("Repository memory tools are available"))).toBe(false)
       }),
       {
         git: true,
         config: providerCfg,
+      },
+    ),
+  10_000,
+)
+
+it.live(
+  "injects concise memory workflow guidance only when memory is enabled and indexed",
+  () =>
+    provideTmpdirServer(
+      Effect.fnUntraced(function* ({ dir, llm }) {
+        const memory = yield* Memory.Service
+        const current = yield* memory.currentRepository(dir)
+        const repository = yield* memory.ensureRepository({ reference: current.provider === "file" ? pathToFileURL(dir).href : current.identity })
+        Database.use((db) =>
+          db
+            .insert(RepositoryMemoryCommitTable)
+            .values({
+              id: `${repository.id}-commit`,
+              repository_id: repository.id,
+              hash: "abc123",
+              message: "Fix auth validation regression",
+              author_time: Date.now(),
+              changed_files: JSON.stringify(["src/auth.ts"]),
+              diff: "diff --git a/src/auth.ts b/src/auth.ts",
+              token_text: tokenText("auth validation regression"),
+              time_created: Date.now(),
+              time_updated: Date.now(),
+            })
+            .run(),
+        )
+        const { prompt, chat } = yield* boot()
+        yield* llm.text("done")
+
+        yield* prompt.prompt({
+          sessionID: chat.id,
+          agent: "build",
+          model: ref,
+          parts: [{ type: "text", text: "debug auth validation" }],
+        })
+
+        const bodies = (yield* llm.inputs).map((input) => JSON.stringify(input))
+        expect(bodies.some((body) => body.includes("Repository memory tools are available"))).toBe(true)
+        expect(bodies.some((body) => body.includes("Search commits with two or three queries"))).toBe(true)
+        expect(bodies.some((body) => body.includes(["Historical", "review", "memory"].join(" ")))).toBe(false)
+        expect(bodies.some((body) => body.includes("diff --git a/src/auth.ts"))).toBe(false)
+      }),
+      {
+        git: true,
+        config: (url) => ({
+          ...providerCfg(url),
+          memory: { enabled: true },
+        }),
       },
     ),
   10_000,

@@ -55,6 +55,7 @@ import { SessionStatus } from "../../src/session/status"
 import { Snapshot } from "../../src/snapshot"
 import { ToolRegistry } from "@/tool/registry"
 import { Truncate } from "@/tool/truncate"
+import { Memory } from "@/memory/memory"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { Ripgrep } from "../../src/file/ripgrep"
@@ -131,6 +132,7 @@ function makeHttp() {
     AppFileSystem.defaultLayer,
     BackgroundJob.defaultLayer,
     Team.defaultLayer,
+    Memory.defaultLayer,
     status,
     SyncEvent.defaultLayer,
     EventV2Bridge.defaultLayer,
@@ -144,6 +146,7 @@ function makeHttp() {
     Layer.provide(RepositoryCache.defaultLayer),
     Layer.provide(Git.defaultLayer),
     Layer.provide(Reference.defaultLayer),
+    Layer.provide(Memory.defaultLayer),
     Layer.provide(Ripgrep.defaultLayer),
     Layer.provide(Format.defaultLayer),
     Layer.provide(RuntimeFlags.layer({ experimentalEventSystem: true })),

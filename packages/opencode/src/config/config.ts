@@ -30,6 +30,7 @@ import { ConfigFormatter } from "./formatter"
 import { ConfigLayout } from "./layout"
 import { ConfigLSP } from "./lsp"
 import { ConfigManaged } from "./managed"
+import { ConfigMemory } from "./memory"
 import { ConfigMCP } from "./mcp"
 import { ConfigModelID } from "./model-id"
 import { ConfigParse } from "./parse"
@@ -237,6 +238,9 @@ export const Info = Schema.Struct({
   lsp: Schema.optional(ConfigLSP.Info).annotate({
     description:
       "Enable or configure LSP servers. Omit or set to false to disable, true to enable built-ins, or an object to enable built-ins with overrides.",
+  }),
+  memory: Schema.optional(ConfigMemory.Info).annotate({
+    description: "Repository memory configuration. Agent tools remain disabled unless memory.enabled is true and an index exists.",
   }),
   instructions: Schema.optional(Schema.mutable(Schema.Array(Schema.String))).annotate({
     description: "Additional instruction files or patterns to include",

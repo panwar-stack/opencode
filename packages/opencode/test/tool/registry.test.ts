@@ -36,6 +36,7 @@ import { MessageID, SessionID } from "@/session/schema"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Team } from "@/team/team"
 import { Config } from "@/config/config"
+import { Memory } from "@/memory/memory"
 
 const node = CrossSpawnSpawner.defaultLayer
 const configLayer = (config: Config.Info = {}) =>
@@ -76,6 +77,7 @@ const registryLayer = (opts: RegistryLayerOptions = {}) =>
     .pipe(
       Layer.provide(Truncate.defaultLayer),
       Layer.provide(Team.defaultLayer),
+      Layer.provide(Memory.defaultLayer),
       Layer.provide(RuntimeFlags.layer(opts.flags ?? {})),
     )
 
@@ -115,6 +117,9 @@ const withBrokenPlugin = testEffect(
 )
 const teams = testEffect(
   Layer.mergeAll(registryLayer({ config: { experimental: { agent_teams: true } } }), node, Agent.defaultLayer),
+)
+const memoryEnabled = testEffect(
+  Layer.mergeAll(registryLayer({ config: { memory: { enabled: true } } }), node, Agent.defaultLayer, Memory.defaultLayer),
 )
 
 const teamToolIDs = [
@@ -209,6 +214,50 @@ describe("tool.registry", () => {
 
       expect(teamToolIDs.filter((id) => !ids.includes(id))).toEqual([])
     }),
+  )
+
+  it.instance("hides memory tools when memory config is disabled", () =>
+    Effect.gen(function* () {
+      const registry = yield* ToolRegistry.Service
+      const ids = yield* registry.ids()
+
+      expect(ids.filter((id) => id.startsWith("memory_"))).toEqual([])
+    }),
+    { git: true },
+  )
+
+  memoryEnabled.instance("hides memory tools when active repository has no index", () =>
+    Effect.gen(function* () {
+      const registry = yield* ToolRegistry.Service
+      const ids = yield* registry.ids()
+
+      expect(ids.filter((id) => id.startsWith("memory_"))).toEqual([])
+    }),
+    { git: true },
+  )
+
+  memoryEnabled.instance("shows memory tools only when enabled and indexed", () =>
+    Effect.gen(function* () {
+      const test = yield* TestInstance
+      const memory = yield* Memory.Service
+      const current = yield* memory.currentRepository(test.directory)
+      const repository = yield* memory.ensureRepository({ reference: current.provider === "file" ? pathToFileURL(test.directory).href : current.identity })
+      yield* memory.upsertCommits(repository.id, [
+        {
+          hash: "abc123",
+          message: "Fix repository memory lookup",
+          author_time: Date.now(),
+          changed_files: ["src/memory.ts"],
+          diff: "diff --git a/src/memory.ts b/src/memory.ts",
+          token_text: "repository memory lookup",
+        },
+      ])
+      const registry = yield* ToolRegistry.Service
+      const ids = yield* registry.ids()
+
+      expect(ids).toEqual(expect.arrayContaining(["memory_search_commit", "memory_examine_commit", "memory_search_summary", "memory_view_summary"]))
+    }),
+    { git: true },
   )
 
   it.instance("loads tools from .opencode/tool (singular)", () =>
