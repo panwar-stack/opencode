@@ -71,6 +71,7 @@ const QueryParameterSchemas: Record<string, OpenApiSchema> = {
   "GET /api/session start": { type: "number" },
   "GET /api/session roots": QueryBooleanOpenApi,
   "GET /api/session/{sessionID}/message limit": { type: "number" },
+  "GET /memory/commit/{hash} max_diff_bytes": { type: "number" },
 }
 
 const LegacyComponentDescriptions: Record<string, string> = {

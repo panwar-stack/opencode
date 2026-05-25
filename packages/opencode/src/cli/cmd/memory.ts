@@ -3,6 +3,7 @@ import { Effect } from "effect"
 import { cmd } from "./cmd"
 import { effectCmd, fail } from "../effect-cmd"
 import { Memory } from "@/memory/memory"
+import { MemoryEval } from "@/memory/eval"
 
 const IndexCommand = effectCmd({
   command: "index",
@@ -104,6 +105,13 @@ const SearchCommitCommand = effectCmd({
     const repository = yield* memory.getRepository(current.identity)
     if (!repository) return yield* fail(`No repository memory index found for ${current.identity}`)
     const results = yield* memory.searchCommitRows({ repository_id: repository.id, query: args.query, limit: args.limit })
+    yield* memory.logRetrieval({
+      repository_id: repository.id,
+      tool: "memory_cli_search_commit",
+      query: args.query,
+      returned_items: results.map((result) => result.hash),
+      final_files: unique(results.flatMap((result) => parseJsonArray(result.changed_files))),
+    })
     console.log(`Repository: ${repository.identity}`)
     console.log(`Query: ${args.query}`)
     if (!results.length) {
@@ -139,6 +147,13 @@ const SearchSummaryCommand = effectCmd({
     const repository = yield* memory.getRepository(current.identity)
     if (!repository) return yield* fail(`No repository memory index found for ${current.identity}`)
     const results = yield* memory.searchSummaryRows({ repository_id: repository.id, query: args.query, limit: args.limit })
+    yield* memory.logRetrieval({
+      repository_id: repository.id,
+      tool: "memory_cli_search_summary",
+      query: args.query,
+      returned_items: results.map((result) => result.path),
+      final_files: results.map((result) => result.path),
+    })
     console.log(`Repository: ${repository.identity}`)
     console.log(`Query: ${args.query}`)
     if (!results.length) {
@@ -177,6 +192,13 @@ const ViewSummaryCommand = effectCmd({
     if (!repository) return yield* fail(`No repository memory index found for ${current.identity}`)
     const summary = yield* memory.getFileSummary({ repository_id: repository.id, path: args.path, worktree: current.worktree })
     if (!summary) return yield* fail(`File summary not found: ${args.path}`)
+    yield* memory.logRetrieval({
+      repository_id: repository.id,
+      tool: "memory_cli_view_summary",
+      query: args.path,
+      returned_items: [summary.path],
+      final_files: [summary.path],
+    })
     console.log(`Repository: ${repository.identity}`)
     console.log(`Path: ${summary.path}`)
     console.log(`Status: ${summary.missing ? "missing" : summary.stale ? "stale" : "current"}`)
@@ -219,6 +241,13 @@ const ExamineCommitCommand = effectCmd({
       Effect.catch((error: Error) => fail(error.message)),
     )
     if (!commit) return yield* fail(`Commit memory not found: ${args.hash}`)
+    yield* memory.logRetrieval({
+      repository_id: repository.id,
+      tool: "memory_cli_examine_commit",
+      query: args.hash,
+      returned_items: [commit.hash],
+      final_files: parseJsonArray(commit.changed_files),
+    })
     const maxDiffBytes = args["max-diff-bytes"]
     const diff = commit.diff.slice(0, maxDiffBytes)
     console.log("Warning: this is historical memory. Verify against the current working tree before editing.")
@@ -256,6 +285,37 @@ const ClearCommand = effectCmd({
   }),
 })
 
+const EvalCommand = effectCmd({
+  command: "eval",
+  describe: "evaluate repository memory localization against historical issues",
+  builder: (yargs: Argv) =>
+    yargs
+      .option("issues", {
+        type: "string",
+        demandOption: true,
+        describe: "path to historical issues JSON",
+      })
+      .option("max-commits", {
+        type: "number",
+        default: 7_000,
+        describe: "maximum commits to index per issue",
+      })
+      .option("summaries", {
+        type: "number",
+        default: 200,
+        describe: "number of top active files to summarize; use 0 to skip summaries",
+      }),
+  handler: Effect.fn("Cli.memory.eval")(function* (args) {
+    const memory = yield* Memory.Service
+    const result = yield* MemoryEval.run(memory, {
+      issuesPath: args.issues,
+      maxCommits: args["max-commits"],
+      summaries: args.summaries,
+    }).pipe(Effect.catch((error: Error) => fail(error.message)))
+    MemoryEval.format(result).forEach((line) => console.log(line))
+  }),
+})
+
 export const MemoryCommand = cmd({
   command: "memory",
   describe: "repository memory tools",
@@ -267,6 +327,7 @@ export const MemoryCommand = cmd({
       .command(ViewCommand)
       .command(ExamineCommand)
       .command(ClearCommand)
+      .command(EvalCommand)
       .demandCommand(),
   handler: () => {},
 })
@@ -281,4 +342,8 @@ function snippet(input: string) {
   const normalized = input.replaceAll("\n", " ")
   if (normalized.length <= 180) return normalized
   return `${normalized.slice(0, 177)}...`
+}
+
+function unique(input: readonly string[]) {
+  return [...new Set(input)]
 }

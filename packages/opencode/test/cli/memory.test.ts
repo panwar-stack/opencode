@@ -35,6 +35,29 @@ describe("opencode memory CLI", () => {
         expect(examine.stdout).toContain("historical memory")
         expect(examine.stdout).toContain("src/auth.ts")
 
+        const issuesPath = path.join(home, "issues.json")
+        yield* Effect.promise(() =>
+          Bun.write(
+            issuesPath,
+            JSON.stringify([
+              {
+                id: "issue-login",
+                query: "login redirect",
+                cutoff_time: "2030-01-01T00:00:00Z",
+                expected_files: ["src/auth.ts"],
+              },
+            ]),
+          ),
+        )
+        const evaluated = yield* opencode.spawn(
+          ["memory", "eval", "--issues", issuesPath, "--max-commits", "10", "--summaries", "0"],
+          { env, timeoutMs: 60_000 },
+        )
+        opencode.expectExit(evaluated, 0, "memory eval")
+        expect(evaluated.stdout).toContain("Issues evaluated: 1")
+        expect(evaluated.stdout).toContain("Commit memory: accuracy@1=1/1 1.000")
+        expect(evaluated.stdout).toContain("Combined files: src/auth.ts")
+
         yield* llm.text(JSON.stringify({ summary: "Login redirect file summary", important_symbols: ["loginRedirect"] }))
         const summarized = yield* opencode.spawn(["memory", "index", "--max-commits", "10", "--no-github", "--summaries", "1"], {
           env,

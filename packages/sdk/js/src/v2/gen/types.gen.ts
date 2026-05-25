@@ -1739,6 +1739,114 @@ export type McpServerNotFoundError = {
   message: string
 }
 
+export type MemoryIndexRequest = {
+  max_commits?: number
+  since?: string
+  base_commit?: string
+  cutoff_time?: string
+  branch?: string
+  no_github?: boolean
+  summaries?: number
+}
+
+export type MemoryBackgroundJob = {
+  id: string
+  type: string
+  title?: string
+  status: "running" | "completed" | "error" | "cancelled"
+  started_at: number
+  completed_at?: number
+  output?: string
+  error?: string
+  metadata?: {
+    [key: string]: unknown
+  }
+}
+
+export type MemoryIndexResponse = {
+  job: MemoryBackgroundJob
+}
+
+export type MemoryStatusResponse = {
+  repository: string
+  indexed: boolean
+  commits: number
+  file_activity: number
+  summaries: number
+}
+
+export type MemorySearchRequest = {
+  query: string
+  limit?: number
+}
+
+export type MemoryCommitSearchItem = {
+  hash: string
+  message: string
+  changed_files: Array<string>
+  score: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  strength: "strong" | "weak"
+  issue_title?: string
+}
+
+export type MemoryCommitSearchResponse = {
+  repository: string
+  commits: Array<MemoryCommitSearchItem>
+}
+
+export type NotFoundError = {
+  name: "NotFoundError"
+  data: {
+    message: string
+  }
+}
+
+export type MemoryCommitResponse = {
+  repository: string
+  hash: string
+  message: string
+  changed_files: Array<string>
+  diff: string
+  truncated: boolean
+  issue_number?: number
+  issue_title?: string
+  issue_body?: string
+  warning: string
+}
+
+export type MemorySummarySearchItem = {
+  path: string
+  summary: string
+  important_symbols: Array<string>
+  source_hash: string
+  model_id?: string
+  score: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  strength: "strong" | "weak"
+}
+
+export type MemorySummarySearchResponse = {
+  repository: string
+  summaries: Array<MemorySummarySearchItem>
+}
+
+export type MemorySummaryResponse = {
+  repository: string
+  path: string
+  summary: string
+  important_symbols: Array<string>
+  source_hash: string
+  current_source_hash?: string
+  model_id?: string
+  time_generated: number
+  stale: boolean
+  missing: boolean
+}
+
+export type MemoryClearResponse = {
+  repository: string
+  cleared: boolean
+}
+
 export type ProjectNotFoundError = {
   _tag: "ProjectNotFoundError"
   projectID: string
@@ -1819,13 +1927,6 @@ export type ProviderAuthError1 = {
     field?: string
     message?: string
     kind?: string
-  }
-}
-
-export type NotFoundError = {
-  name: "NotFoundError"
-  data: {
-    message: string
   }
 }
 
@@ -5544,6 +5645,222 @@ export type McpDisconnectResponses = {
 }
 
 export type McpDisconnectResponse = McpDisconnectResponses[keyof McpDisconnectResponses]
+
+export type MemoryIndexData = {
+  body?: MemoryIndexRequest
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/memory/index"
+}
+
+export type MemoryIndexErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type MemoryIndexError = MemoryIndexErrors[keyof MemoryIndexErrors]
+
+export type MemoryIndexResponses = {
+  /**
+   * Memory indexing job
+   */
+  200: MemoryIndexResponse
+}
+
+export type MemoryIndexResponse2 = MemoryIndexResponses[keyof MemoryIndexResponses]
+
+export type MemoryStatusData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/memory/status"
+}
+
+export type MemoryStatusErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type MemoryStatusError = MemoryStatusErrors[keyof MemoryStatusErrors]
+
+export type MemoryStatusResponses = {
+  /**
+   * Repository memory status
+   */
+  200: MemoryStatusResponse
+}
+
+export type MemoryStatusResponse2 = MemoryStatusResponses[keyof MemoryStatusResponses]
+
+export type MemorySearchCommitData = {
+  body?: MemorySearchRequest
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/memory/search/commit"
+}
+
+export type MemorySearchCommitErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type MemorySearchCommitError = MemorySearchCommitErrors[keyof MemorySearchCommitErrors]
+
+export type MemorySearchCommitResponses = {
+  /**
+   * Commit memory search results
+   */
+  200: MemoryCommitSearchResponse
+}
+
+export type MemorySearchCommitResponse = MemorySearchCommitResponses[keyof MemorySearchCommitResponses]
+
+export type MemoryCommitData = {
+  body?: never
+  path: {
+    hash: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+    max_diff_bytes?: number
+  }
+  url: "/memory/commit/{hash}"
+}
+
+export type MemoryCommitErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type MemoryCommitError = MemoryCommitErrors[keyof MemoryCommitErrors]
+
+export type MemoryCommitResponses = {
+  /**
+   * Commit memory record
+   */
+  200: MemoryCommitResponse
+}
+
+export type MemoryCommitResponse2 = MemoryCommitResponses[keyof MemoryCommitResponses]
+
+export type MemorySearchSummaryData = {
+  body?: MemorySearchRequest
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/memory/search/summary"
+}
+
+export type MemorySearchSummaryErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type MemorySearchSummaryError = MemorySearchSummaryErrors[keyof MemorySearchSummaryErrors]
+
+export type MemorySearchSummaryResponses = {
+  /**
+   * File summary search results
+   */
+  200: MemorySummarySearchResponse
+}
+
+export type MemorySearchSummaryResponse = MemorySearchSummaryResponses[keyof MemorySearchSummaryResponses]
+
+export type MemorySummaryData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    path: string
+  }
+  url: "/memory/summary"
+}
+
+export type MemorySummaryErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type MemorySummaryError = MemorySummaryErrors[keyof MemorySummaryErrors]
+
+export type MemorySummaryResponses = {
+  /**
+   * File summary memory record
+   */
+  200: MemorySummaryResponse
+}
+
+export type MemorySummaryResponse2 = MemorySummaryResponses[keyof MemorySummaryResponses]
+
+export type MemoryClearData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/memory"
+}
+
+export type MemoryClearErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type MemoryClearError = MemoryClearErrors[keyof MemoryClearErrors]
+
+export type MemoryClearResponses = {
+  /**
+   * Repository memory clear result
+   */
+  200: MemoryClearResponse
+}
+
+export type MemoryClearResponse2 = MemoryClearResponses[keyof MemoryClearResponses]
 
 export type ProjectListData = {
   body?: never

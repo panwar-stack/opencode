@@ -102,6 +102,22 @@ import type {
   McpRemoteConfig,
   McpStatusErrors,
   McpStatusResponses,
+  MemoryClearErrors,
+  MemoryClearResponses,
+  MemoryCommitErrors,
+  MemoryCommitResponses,
+  MemoryIndexErrors,
+  MemoryIndexRequest,
+  MemoryIndexResponses,
+  MemorySearchCommitErrors,
+  MemorySearchCommitResponses,
+  MemorySearchRequest,
+  MemorySearchSummaryErrors,
+  MemorySearchSummaryResponses,
+  MemoryStatusErrors,
+  MemoryStatusResponses,
+  MemorySummaryErrors,
+  MemorySummaryResponses,
   OutputFormat,
   Part as Part2,
   PartDeleteErrors,
@@ -2248,6 +2264,247 @@ export class Mcp extends HeyApiClient {
   private _auth?: Auth2
   get auth(): Auth2 {
     return (this._auth ??= new Auth2({ client: this.client }))
+  }
+}
+
+export class Memory extends HeyApiClient {
+  /**
+   * Index repository memory
+   *
+   * Start a background job to index local repository commits and file summaries.
+   */
+  public index<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      memoryIndexRequest?: MemoryIndexRequest
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { key: "memoryIndexRequest", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<MemoryIndexResponses, MemoryIndexErrors, ThrowOnError>({
+      url: "/memory/index",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Get repository memory status
+   *
+   * Return commit, file activity, and summary counts for the active repository memory index.
+   */
+  public status<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<MemoryStatusResponses, MemoryStatusErrors, ThrowOnError>({
+      url: "/memory/status",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Search commit memory
+   *
+   * Search repository commit memory for historical localization hints.
+   */
+  public searchCommit<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      memorySearchRequest?: MemorySearchRequest
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { key: "memorySearchRequest", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<MemorySearchCommitResponses, MemorySearchCommitErrors, ThrowOnError>({
+      url: "/memory/search/commit",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Examine commit memory
+   *
+   * Inspect a historical commit memory record. Old diffs must be verified against current source before editing.
+   */
+  public commit<ThrowOnError extends boolean = false>(
+    parameters: {
+      hash: string
+      directory?: string
+      workspace?: string
+      max_diff_bytes?: number
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "hash" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "max_diff_bytes" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<MemoryCommitResponses, MemoryCommitErrors, ThrowOnError>({
+      url: "/memory/commit/{hash}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Search file summary memory
+   *
+   * Search cached high-activity file summaries for historical localization hints.
+   */
+  public searchSummary<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      memorySearchRequest?: MemorySearchRequest
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { key: "memorySearchRequest", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<MemorySearchSummaryResponses, MemorySearchSummaryErrors, ThrowOnError>(
+      {
+        url: "/memory/search/summary",
+        ...options,
+        ...params,
+        headers: {
+          "Content-Type": "application/json",
+          ...options?.headers,
+          ...params.headers,
+        },
+      },
+    )
+  }
+
+  /**
+   * View file summary memory
+   *
+   * Show the cached repository-memory summary for a known file path.
+   */
+  public summary<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      path: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<MemorySummaryResponses, MemorySummaryErrors, ThrowOnError>({
+      url: "/memory/summary",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Clear repository memory
+   *
+   * Clear repository memory for the active repository.
+   */
+  public clear<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<MemoryClearResponses, MemoryClearErrors, ThrowOnError>({
+      url: "/memory",
+      ...options,
+      ...params,
+    })
   }
 }
 
@@ -5405,6 +5662,11 @@ export class OpencodeClient extends HeyApiClient {
   private _mcp?: Mcp
   get mcp(): Mcp {
     return (this._mcp ??= new Mcp({ client: this.client }))
+  }
+
+  private _memory?: Memory
+  get memory(): Memory {
+    return (this._memory ??= new Memory({ client: this.client }))
   }
 
   private _project?: Project
