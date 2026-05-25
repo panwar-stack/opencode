@@ -211,6 +211,48 @@ describe("team", () => {
     ),
   )
 
+  it.live("create and list usage events", () =>
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const team = yield* Team.Service
+        const leadSessionID = "ses_test_lead_usage_events"
+        const info = yield* team.create({ name: "usage-events", goal: "Track events", leadSessionID })
+        const member = yield* team.addMember({
+          teamID: info.id,
+          sessionID: "ses_usage_member",
+          name: "usage-member",
+          agentType: "general",
+          rolePrompt: "Do usage work",
+        })
+
+        const first = yield* team.createUsageEvent({ teamID: info.id, type: "broadcast_sent" })
+        const second = yield* team.createUsageEvent({
+          teamID: info.id,
+          sessionID: leadSessionID,
+          memberID: member.id,
+          type: "plan_approved",
+          metadata: { member_name: member.name },
+        })
+        const events = yield* team.getUsageEvents(info.id)
+        const readableTeam = yield* team.get(info.id)
+
+        expect(events).toHaveLength(2)
+        expect(events[0]).toEqual(expect.objectContaining({ id: first.id, metadata: {} }))
+        expect(events[1]).toEqual(
+          expect.objectContaining({
+            id: second.id,
+            team_id: info.id,
+            session_id: leadSessionID,
+            member_id: member.id,
+            type: "plan_approved",
+            metadata: { member_name: member.name },
+          }),
+        )
+        expect(Option.isSome(readableTeam)).toBe(true)
+      }),
+    ),
+  )
+
   it.live("send and receive team messages", () =>
     provideTmpdirInstance(() =>
       Effect.gen(function* () {

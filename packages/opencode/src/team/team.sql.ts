@@ -103,3 +103,19 @@ export const TeamMessageRecipientTable = sqliteTable(
     recipient_idx: index("team_message_recipient_status_idx").on(table.team_id, table.recipient, table.delivery_status),
   }),
 )
+
+export const TeamUsageEventTable = sqliteTable(
+  "team_usage_event",
+  {
+    id: text().primaryKey(),
+    team_id: text().notNull(),
+    session_id: text(),
+    member_id: text(),
+    type: text({ enum: ["plan_approved", "plan_rejected", "broadcast_sent", "report_generated"] }).notNull(),
+    metadata: text({ mode: "json" }).$type<Record<string, unknown>>().notNull().default(sql`'{}'`),
+    time_created: integer().notNull(),
+  },
+  (table) => ({
+    team_idx: index("team_usage_event_team_idx").on(table.team_id, table.time_created),
+  }),
+)

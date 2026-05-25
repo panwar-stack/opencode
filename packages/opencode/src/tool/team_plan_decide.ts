@@ -55,6 +55,17 @@ export const TeamPlanDecideTool = Tool.define(
               recipients: [target.session_id],
               body: `PLAN APPROVED. Proceed with implementation.\n${params.feedback ?? ""}`,
             })
+            yield* team.createUsageEvent({
+              teamID: activeTeam.value.id,
+              sessionID: ctx.sessionID,
+              memberID: target.id,
+              type: "plan_approved",
+              metadata: {
+                member_name: target.name,
+                target_session_id: target.session_id,
+                feedback_provided: params.feedback !== undefined,
+              },
+            })
             const promptOps = ctx.extra?.promptOps as TaskPromptOps | undefined
             if (promptOps) {
               yield* wakeTeamSession(promptOps, target.session_id).pipe(Effect.ignore)
@@ -66,6 +77,17 @@ export const TeamPlanDecideTool = Tool.define(
             sender: ctx.sessionID,
             recipients: [target.session_id],
             body: `PLAN REJECTED.\n${params.feedback ?? "Please revise and resubmit."}`,
+          })
+          yield* team.createUsageEvent({
+            teamID: activeTeam.value.id,
+            sessionID: ctx.sessionID,
+            memberID: target.id,
+            type: "plan_rejected",
+            metadata: {
+              member_name: target.name,
+              target_session_id: target.session_id,
+              feedback_provided: params.feedback !== undefined,
+            },
           })
           const promptOps = ctx.extra?.promptOps as TaskPromptOps | undefined
           if (promptOps) {

@@ -275,6 +275,16 @@ export const TeamReportTool = Tool.define<typeof Parameters, Record<string, unkn
               ? `Mailbox reads captured for ${pct(messageRead.length, recipients.length).toFixed(1)}% of recipient deliveries.`
               : "No read-marked mailbox rows were found.",
           ]
+          const finalReport = activeMembers.length === 0 && startedMembers.length === 0 && blockedMembers.length === 0
+          if (finalReport) {
+            yield* team.createUsageEvent({
+              teamID: teams.id,
+              sessionID: ctx.sessionID,
+              memberID: Option.isSome(context) && context.value.team.id === teams.id ? context.value.member?.id : undefined,
+              type: "report_generated",
+              metadata: { generated_at: Date.now() },
+            })
+          }
 
           const output = [
             "# Team Effectiveness Report",

@@ -45,6 +45,13 @@ export const TeamBroadcastTool = Tool.define(
             body: params.body,
           })
           const lead = ctx.sessionID === context.value.team.lead_session_id
+          yield* team.createUsageEvent({
+            teamID: context.value.team.id,
+            sessionID: ctx.sessionID,
+            memberID: context.value.member?.id,
+            type: "broadcast_sent",
+            metadata: { message_id: msg.id, recipient_count: recipients.length, lead_sender: lead },
+          })
           const promptOps = ctx.extra?.promptOps as TaskPromptOps | undefined
           if (promptOps) {
             yield* Effect.forEach(

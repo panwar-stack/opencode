@@ -5,10 +5,29 @@ import { Bus } from "@/bus"
 import { BusEvent } from "@/bus/bus-event"
 import { TuiEvent } from "@/cli/cmd/tui/event"
 import { Context, Effect, Layer, Schema, Option } from "effect"
-import { eq, and } from "drizzle-orm"
-import { TeamTable, TeamMemberTable, TeamTaskTable, TeamMessageTable, TeamMessageRecipientTable } from "./team.sql"
+import { eq, and, asc } from "drizzle-orm"
+import {
+  TeamTable,
+  TeamMemberTable,
+  TeamTaskTable,
+  TeamMessageTable,
+  TeamMessageRecipientTable,
+  TeamUsageEventTable,
+} from "./team.sql"
 
 const toOption = <T>(v: T | null | undefined): Option.Option<T> => (v != null ? Option.some(v) : Option.none())
+
+export type UsageEventType = "plan_approved" | "plan_rejected" | "broadcast_sent" | "report_generated"
+
+export type UsageEvent = {
+  id: string
+  team_id: string
+  session_id?: string
+  member_id?: string
+  type: UsageEventType
+  metadata: Record<string, unknown>
+  time_created: number
+}
 
 export interface Interface {
   create: (input: { name: string; goal: string; leadSessionID: string }) => Effect.Effect<any>
@@ -47,6 +66,14 @@ export interface Interface {
   getMessages: (teamID: string) => Effect.Effect<any[]>
   getPendingMessages: (recipientSession: string, teamID: string) => Effect.Effect<any[]>
   markMessageDelivered: (messageID: string, recipientSession?: string) => Effect.Effect<void>
+  createUsageEvent: (input: {
+    teamID: string
+    sessionID?: string
+    memberID?: string
+    type: UsageEventType
+    metadata?: Record<string, unknown>
+  }) => Effect.Effect<UsageEvent>
+  getUsageEvents: (teamID: string) => Effect.Effect<UsageEvent[]>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Team") {}
@@ -624,6 +651,59 @@ export const layer = Layer.effect(
       )
     })
 
+    const createUsageEvent = Effect.fn("Team.createUsageEvent")(function* (input: {
+      teamID: string
+      sessionID?: string
+      memberID?: string
+      type: UsageEventType
+      metadata?: Record<string, unknown>
+    }) {
+      const event = {
+        id: crypto.randomUUID(),
+        team_id: input.teamID,
+        session_id: input.sessionID,
+        member_id: input.memberID,
+        type: input.type,
+        metadata: input.metadata ?? {},
+        time_created: Date.now(),
+      }
+      Database.use(() =>
+        db()
+          .insert(TeamUsageEventTable)
+          .values({
+            id: event.id,
+            team_id: event.team_id,
+            session_id: event.session_id ?? null,
+            member_id: event.member_id ?? null,
+            type: event.type,
+            metadata: event.metadata,
+            time_created: event.time_created,
+          })
+          .run(),
+      )
+      return event
+    })
+
+    const getUsageEvents = Effect.fn("Team.getUsageEvents")(function* (teamID: string) {
+      return Database.use(() =>
+        db()
+          .select()
+          .from(TeamUsageEventTable)
+          .where(eq(TeamUsageEventTable.team_id, teamID))
+          .orderBy(asc(TeamUsageEventTable.time_created), asc(TeamUsageEventTable.id))
+          .all()
+          .map((row) => ({
+            id: row.id,
+            team_id: row.team_id,
+            session_id: row.session_id ?? undefined,
+            member_id: row.member_id ?? undefined,
+            type: row.type,
+            metadata: row.metadata,
+            time_created: row.time_created,
+          })),
+      )
+    })
+
     return Service.of({
       create,
       getActive,
@@ -642,6 +722,8 @@ export const layer = Layer.effect(
       getMessages,
       getPendingMessages,
       markMessageDelivered,
+      createUsageEvent,
+      getUsageEvents,
     })
   }).pipe(Effect.withSpan("Team.layer")),
 )

@@ -6,7 +6,9 @@ import { MessageV2 } from "@/session/message-v2"
 import { MessageID, PartID } from "@/session/schema"
 import { Session } from "@/session/session"
 import { Team } from "@/team/team"
+import { TeamBroadcastTool } from "@/tool/team_broadcast"
 import { TeamGetMessagesTool } from "@/tool/team_get_messages"
+import { TeamPlanDecideTool } from "@/tool/team_plan_decide"
 import { Truncate } from "@/tool/truncate"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { ModelID, ProviderID } from "@/provider/schema"
@@ -191,6 +193,103 @@ describe("tool.team_get_messages", () => {
           expect(result.title).toBe("Team Messages")
           expect(result.output).toContain("Implementation is complete.")
           expect(result.metadata.count).toBe(1)
+        }),
+      { config: { experimental: { agent_teams: true } } },
+    ),
+  )
+})
+
+describe("team message usage events", () => {
+  it.live("records broadcast events after successful sends", () =>
+    provideTmpdirInstance(
+      () =>
+        Effect.gen(function* () {
+          const team = yield* Team.Service
+          const { lead, assistant, info } = yield* seed()
+          const tool = yield* TeamBroadcastTool
+          const def = yield* tool.init()
+
+          const result = yield* def.execute({ body: "Scope changed." }, context({ lead, assistant }))
+          const events = yield* team.getUsageEvents(info.id)
+
+          expect(result.title).toBe("Broadcast Sent")
+          expect(events).toHaveLength(1)
+          expect(events[0]).toEqual(
+            expect.objectContaining({
+              team_id: info.id,
+              session_id: lead.id,
+              type: "broadcast_sent",
+              metadata: expect.objectContaining({ recipient_count: 1, lead_sender: true }),
+            }),
+          )
+          expect(events[0].metadata.message_id).toBe(result.metadata.messageID)
+        }),
+      { config: { experimental: { agent_teams: true } } },
+    ),
+  )
+
+  it.live("records plan approval events", () =>
+    provideTmpdirInstance(
+      () =>
+        Effect.gen(function* () {
+          const team = yield* Team.Service
+          const { lead, assistant, info, member } = yield* seed()
+          const tool = yield* TeamPlanDecideTool
+          const def = yield* tool.init()
+
+          const result = yield* def.execute(
+            { member_name: member.name, decision: "approve", feedback: "Proceed." },
+            context({ lead, assistant }),
+          )
+          const events = yield* team.getUsageEvents(info.id)
+
+          expect(result.title).toBe("Plan Approved")
+          expect(events).toHaveLength(1)
+          expect(events[0]).toEqual(
+            expect.objectContaining({
+              team_id: info.id,
+              session_id: lead.id,
+              member_id: member.id,
+              type: "plan_approved",
+              metadata: expect.objectContaining({
+                member_name: member.name,
+                target_session_id: member.session_id,
+                feedback_provided: true,
+              }),
+            }),
+          )
+        }),
+      { config: { experimental: { agent_teams: true } } },
+    ),
+  )
+
+  it.live("records plan rejection events", () =>
+    provideTmpdirInstance(
+      () =>
+        Effect.gen(function* () {
+          const team = yield* Team.Service
+          const { lead, assistant, info, member } = yield* seed()
+          const tool = yield* TeamPlanDecideTool
+          const def = yield* tool.init()
+
+          const result = yield* def.execute({ member_name: member.name, decision: "reject" }, context({ lead, assistant }))
+          const events = yield* team.getUsageEvents(info.id)
+
+          expect(result.title).toBe("Plan Rejected")
+          expect(events).toHaveLength(1)
+          expect(events[0]).toEqual(
+            expect.objectContaining({
+              team_id: info.id,
+              session_id: lead.id,
+              member_id: member.id,
+              type: "plan_rejected",
+              metadata: expect.objectContaining({
+                member_name: member.name,
+                target_session_id: member.session_id,
+                feedback_provided: false,
+              }),
+            }),
+          )
         }),
       { config: { experimental: { agent_teams: true } } },
     ),

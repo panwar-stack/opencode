@@ -67,6 +67,7 @@ describe("tool.team_report", () => {
           expect(evalReport.team_id).toBe(info.id)
           expect(evalReport.summary.root_cause_count).toBe(1)
           expect(evalReport.findings.some((finding) => finding.category === "execution.cancelled_member")).toBe(true)
+          expect((yield* team.getUsageEvents(info.id)).map((event) => event.type)).toEqual(["report_generated"])
         }),
       { config: { experimental: { agent_teams: true } } },
     ),
@@ -102,6 +103,38 @@ describe("tool.team_report", () => {
           expect(result.output).toContain("- top root causes: none")
           expect(evalReport.summary.root_cause_count).toBe(0)
           expect(evalReport.nodes.some((node) => node.id === `team:${info.id}`)).toBe(true)
+        }),
+      { config: { experimental: { agent_teams: true } } },
+    ),
+  )
+
+  it.live("does not record report events for interim reports", () =>
+    provideTmpdirInstance(
+      () =>
+        Effect.gen(function* () {
+          const sessions = yield* Session.Service
+          const team = yield* Team.Service
+          const lead = yield* sessions.create({ title: "Lead" })
+          const info = yield* team.create({
+            name: "interim-report-team",
+            goal: "Evaluate interim report",
+            leadSessionID: lead.id,
+          })
+          const worker = yield* team.addMember({
+            teamID: info.id,
+            sessionID: "ses_report_active_worker",
+            name: "worker",
+            agentType: "general",
+            rolePrompt: "Do the work",
+          })
+          yield* team.updateMemberStatus(worker.id, "active")
+
+          const tool = yield* TeamReportTool
+          const def = yield* tool.init()
+          const result = yield* def.execute({ team_id: info.id }, context(lead.id))
+
+          expect(result.title).toBe("Team Report: interim-report-team")
+          expect(yield* team.getUsageEvents(info.id)).toEqual([])
         }),
       { config: { experimental: { agent_teams: true } } },
     ),
