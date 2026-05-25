@@ -140,8 +140,14 @@ OpenCode permissions are keyed by tool name, plus a couple of safety guards:
 - `question` — asking the user questions during execution
 - `webfetch` — fetching a URL (matches the URL)
 - `websearch` — web search (matches the query)
+- `memory_search_commit` — searching repository commit memory
+- `memory_examine_commit` — inspecting a retrieved historical commit memory record
+- `memory_search_summary` — searching cached repository file summaries
+- `memory_view_summary` — viewing a cached repository file summary
 - `external_directory` — triggered when a tool touches paths outside the project working directory
 - `doom_loop` — triggered when the same tool call repeats 3 times with identical input
+
+Repository memory permissions only apply after the memory tools are available. Agent memory tools require `memory.enabled: true` and an existing index for the active repository. Memory results are historical hints; verify against current source before editing.
 
 ---
 

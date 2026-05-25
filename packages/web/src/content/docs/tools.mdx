@@ -214,6 +214,82 @@ Load a [skill](/docs/skills) (a `SKILL.md` file) and return its content in the c
 
 ---
 
+### memory_search_commit
+
+Search repository commit memory for past changes related to one or more natural-language, error-text, code-symbol, or file-path queries.
+
+```json title="opencode.json" {4}
+{
+  "$schema": "https://opencode.ai/config.json",
+  "permission": {
+    "memory_search_commit": "allow"
+  }
+}
+```
+
+This returns ranked historical commits with hashes, messages, changed files, scores, linked issue titles when available, and whether the match is strong.
+
+:::note
+Repository memory tools are available to agents only when `memory.enabled` is `true` and an index exists for the active repository. Memory is historical, so treat results as localization hints and verify against current source before editing.
+:::
+
+---
+
+### memory_examine_commit
+
+Inspect a retrieved commit memory record.
+
+```json title="opencode.json" {4}
+{
+  "$schema": "https://opencode.ai/config.json",
+  "permission": {
+    "memory_examine_commit": "allow"
+  }
+}
+```
+
+This returns the historical diff, linked issue details when available, changed files, and tests touched. Old line numbers may not match current source.
+
+:::caution
+Commit memory is historical. Read current files before patching.
+:::
+
+---
+
+### memory_search_summary
+
+Search cached high-activity file summaries by behavior, subsystem, error, function, or file path.
+
+```json title="opencode.json" {4}
+{
+  "$schema": "https://opencode.ai/config.json",
+  "permission": {
+    "memory_search_summary": "allow"
+  }
+}
+```
+
+This returns ranked file paths with cached summaries, important symbols, scores, and whether the match is strong.
+
+---
+
+### memory_view_summary
+
+Show the cached repository-memory summary for a known file path.
+
+```json title="opencode.json" {4}
+{
+  "$schema": "https://opencode.ai/config.json",
+  "permission": {
+    "memory_view_summary": "allow"
+  }
+}
+```
+
+This returns the cached summary, important symbols, source hash, generation time, and stale or missing status.
+
+---
+
 ### todowrite
 
 Manage todo lists during coding sessions.

@@ -135,6 +135,12 @@ Learn more in the [agent teams docs](https://opencode.ai/docs/agent-teams).
 
 `opencode export` now includes child sessions recursively, so exported JSON captures subagent and teammate work along with the lead session.
 
+#### Repository Memory
+
+Repository memory indexes local git history and high-activity file summaries so agents can use historical localization hints before reading source. Enable it with `"memory": { "enabled": true }` and create an index with `opencode memory index`. Memory is historical, so agents must verify every hint against current source before editing.
+
+Learn more in the [memory docs](https://opencode.ai/docs/memory).
+
 ### Documentation
 
 For more info on how to configure OpenCode, [**head over to our docs**](https://opencode.ai/docs).

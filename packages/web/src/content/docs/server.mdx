@@ -231,6 +231,22 @@ The opencode server exposes the following APIs.
 
 ---
 
+### Memory
+
+These endpoints support [repository memory](/docs/memory). Memory results are historical hints; verify commit diffs and summaries against the current working tree before editing.
+
+| Method   | Path                              | Description                               | Response                                                                 |
+| -------- | --------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------ |
+| `POST`   | `/memory/index`                   | Start a background repository index job   | <a href={typesV2Url}><code>MemoryIndexResponse</code></a>                |
+| `GET`    | `/memory/status`                  | Get repository memory status              | <a href={typesV2Url}><code>MemoryStatusResponse</code></a>               |
+| `POST`   | `/memory/search/commit`           | Search historical commit memory           | <a href={typesV2Url}><code>MemoryCommitSearchResponse</code></a>         |
+| `GET`    | `/memory/commit/:hash`            | Examine a historical commit memory record | <a href={typesV2Url}><code>MemoryCommitResponse</code></a>               |
+| `POST`   | `/memory/search/summary`          | Search cached file summary memory         | <a href={typesV2Url}><code>MemorySummarySearchResponse</code></a>        |
+| `GET`    | `/memory/summary?path=<file-path>` | View a cached file summary                | <a href={typesV2Url}><code>MemorySummaryResponse</code></a>              |
+| `DELETE` | `/memory`                         | Clear memory for the active repository    | <a href={typesV2Url}><code>MemoryClearResponse</code></a>                |
+
+---
+
 ### Agents
 
 | Method | Path     | Description               | Response                                    |
