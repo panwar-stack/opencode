@@ -3,6 +3,7 @@ import { Effect, Layer } from "effect"
 import type { LanguageModelV3 } from "@ai-sdk/provider"
 
 type StreamTextOptions = {
+  readonly maxOutputTokens?: number
   readonly providerOptions?: unknown
   readonly messages: readonly { readonly role: string }[]
 }
@@ -85,6 +86,7 @@ describe("Memory default summary generator", () => {
         },
         messages: [{ role: "user" }],
       })
+      expect("maxOutputTokens" in request).toBe(false)
       expect(request.messages.some((message) => message.role === "system")).toBe(false)
     }),
   )
