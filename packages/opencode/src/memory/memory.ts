@@ -1116,7 +1116,7 @@ function defaultSummaryGenerator() {
           const result = streamText({
             model: language,
             maxRetries: 0,
-            maxOutputTokens: 1_200,
+            ...(isOpenaiOauth ? {} : { maxOutputTokens: 1_200 }),
             providerOptions: isOpenaiOauth
               ? ProviderTransform.providerOptions(model, { instructions: SUMMARY_SYSTEM_PROMPT, store: false })
               : undefined,
