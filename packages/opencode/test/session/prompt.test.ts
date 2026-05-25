@@ -1088,7 +1088,7 @@ it.live(
 )
 
 it.live(
-  "injects concise memory workflow guidance only when memory is enabled and indexed",
+  "injects concise memory workflow guidance by default when memory is indexed",
   () =>
     provideTmpdirServer(
       Effect.fnUntraced(function* ({ dir, llm }) {
@@ -1128,13 +1128,7 @@ it.live(
         expect(bodies.some((body) => body.includes(["Historical", "review", "memory"].join(" ")))).toBe(false)
         expect(bodies.some((body) => body.includes("diff --git a/src/auth.ts"))).toBe(false)
       }),
-      {
-        git: true,
-        config: (url) => ({
-          ...providerCfg(url),
-          memory: { enabled: true },
-        }),
-      },
+      { git: true, config: providerCfg },
     ),
   10_000,
 )

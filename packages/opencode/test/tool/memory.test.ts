@@ -53,7 +53,7 @@ const it = testEffect(
 const registryIt = testEffect(Layer.mergeAll(ToolRegistry.defaultLayer, Memory.defaultLayer))
 
 describe("tool.memory", () => {
-  registryIt.instance("does not expose memory tools to wildcard permissions when memory is disabled", () =>
+  registryIt.instance("does not expose memory tools to wildcard permissions until the active repository is indexed", () =>
     Effect.gen(function* () {
       const registry = yield* ToolRegistry.Service
       const tools = yield* registry.tools({
@@ -67,8 +67,21 @@ describe("tool.memory", () => {
     { git: true },
   )
 
-  registryIt.instance("does not expose memory tools until the active repository is indexed", () =>
+  registryIt.instance("does not expose memory tools when memory is disabled even if the active repository is indexed", () =>
     Effect.gen(function* () {
+      const test = yield* TestInstance
+      const memory = yield* Memory.Service
+      const repository = yield* memory.ensureRepository({ reference: pathToFileURL(test.directory).href })
+      yield* memory.upsertCommits(repository.id, [
+        {
+          hash: "abc123",
+          message: "Index exists but memory is disabled",
+          author_time: Date.now(),
+          changed_files: ["src/tool/registry.ts"],
+          diff: "diff --git a/src/tool/registry.ts b/src/tool/registry.ts",
+          token_text: tokenText("disabled memory index"),
+        },
+      ])
       const registry = yield* ToolRegistry.Service
       const tools = yield* registry.tools({
         providerID: ProviderID.make("test"),
@@ -78,10 +91,10 @@ describe("tool.memory", () => {
 
       expect(tools.filter((tool) => tool.id.startsWith("memory_"))).toEqual([])
     }),
-    { git: true, config: { memory: { enabled: true } } },
+    { git: true, config: { memory: { enabled: false } } },
   )
 
-  registryIt.instance("exposes memory tools when enabled and the active repository is indexed", () =>
+  registryIt.instance("exposes memory tools by default when the active repository is indexed", () =>
     Effect.gen(function* () {
       const test = yield* TestInstance
       const memory = yield* Memory.Service
@@ -107,7 +120,7 @@ describe("tool.memory", () => {
         expect.arrayContaining(["memory_search_commit", "memory_examine_commit", "memory_search_summary", "memory_view_summary"]),
       )
     }),
-    { git: true, config: { memory: { enabled: true } } },
+    { git: true },
   )
 
   it.live("searches commits and marks weak results cautiously", () =>

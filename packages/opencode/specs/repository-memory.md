@@ -27,7 +27,7 @@ This is a new subsystem, not a resurrection of the removed GitHub review-memory 
 ## Non-Negotiables
 
 - Memory retrieval must form hypotheses only. Agent-facing instructions and tool descriptions must say that old diffs and summaries cannot be patched directly without current source verification.
-- Do not reintroduce unconditional `Historical review memory` prompt injection. Prefer explicit tools plus a short prompt rule when memory is enabled.
+- Do not reintroduce unconditional `Historical review memory` prompt injection. Prefer explicit tools plus a short prompt rule when memory tools are available.
 - Do not depend on dense retrieval in the first pass. Use sparse BM25-style scoring with an identifier-aware tokenizer.
 - Do not require GitHub credentials to index local commit history. Linked GitHub issue title/body is optional enrichment when a token and remote identity are available.
 - Do not index future information during evaluation. The indexer must support a cutoff commit or cutoff timestamp so historical issue evaluation can restrict records to data available before the issue arrived.
@@ -255,7 +255,7 @@ memory_view_summary
 Tool permissions:
 
 - Memory tools must not be exposed just because built-in agents have wildcard permissions. Gate them by config and index availability in `packages/opencode/src/tool/registry.ts`, or add explicit deny-by-default permission rules that override wildcard allow when memory is disabled.
-- Read-only retrieval tools default to allowed for built-in agents only when `memory.enabled` is true and an index exists for the active repository.
+- Read-only retrieval tools default to allowed for built-in agents only when repository memory is not disabled and an index exists for the active repository.
 - Indexing and clearing are CLI/API operations in the first pass, not model-callable tools.
 - If an indexing tool is added later, default it to ask or deny.
 
@@ -275,7 +275,7 @@ Use `packages/opencode/src/cli/cmd/github.ts` as the first GitHub integration po
 Behavior:
 
 - During `opencode github run`, resolve the repository identity from the GitHub event and current remote.
-- If memory is enabled and an index exists, make memory tools available and add a concise prompt rule telling the agent to use repository memory for localization hints, then verify with current source.
+- If repository memory is not disabled and an index exists, make memory tools available and add a concise prompt rule telling the agent to use repository memory for localization hints, then verify with current source.
 - Do not automatically dump retrieved memory into every prompt.
 - For issue and PR events, pass issue/PR number and title into retrieval logs when available.
 - Do not index GitHub data during every action run by default. Indexing must be explicit through CLI/API or a config option.
@@ -311,7 +311,7 @@ memory?: {
 
 Defaults:
 
-- `enabled`: `false`. Running `opencode memory index` creates data but does not automatically expose agent tools unless config enables memory.
+- `enabled`: `true`. Set `memory.enabled` to `false` to disable repository memory. Running `opencode memory index` creates data, but agent tools still require an existing index.
 - `index_on_start`: `false`.
 - `max_commits`: `7000`.
 - `summary_limit`: `200`.
@@ -445,9 +445,9 @@ Confirm summary prompts include responsibility, inputs/outputs, dependencies, co
 
 ### PR 4: Agent Tools And Prompt Rule
 
-- Add `packages/opencode/src/config/memory.ts` and expose `memory?: ConfigMemory.Info` from `packages/opencode/src/config/config.ts` with `memory.enabled` defaulting to false.
+- Add `packages/opencode/src/config/memory.ts` and expose `memory?: ConfigMemory.Info` from `packages/opencode/src/config/config.ts` with `memory.enabled` defaulting to true.
 - Add built-in tools `memory_search_commit`, `memory_examine_commit`, `memory_search_summary`, and `memory_view_summary`.
-- Register the tools in `packages/opencode/src/tool/registry.ts` and expose them through `packages/opencode/src/session/tools.ts` only when `memory.enabled` is true and an index exists for the active repository.
+- Register the tools in `packages/opencode/src/tool/registry.ts` and expose them through `packages/opencode/src/session/tools.ts` only when repository memory is not disabled and an index exists for the active repository.
 - Add explicit tests proving disabled memory tools are absent or denied even when an agent has wildcard `*`: `allow` permissions.
 - Add default read-only permissions in `packages/opencode/src/agent/agent.ts` only after config/index gating prevents accidental exposure.
 - Add a concise memory workflow rule near prompt assembly in `packages/opencode/src/session/prompt.ts`, but do not inject retrieved memory content automatically.
@@ -476,7 +476,7 @@ Verification:
 
 Review:
 
-Confirm GitHub runs can use existing memory without hidden indexing, config defaults keep memory opt-in, and generated SDK types expose only the new repository-memory config shape.
+Confirm GitHub runs can use existing memory without hidden indexing, config defaults keep memory enabled, and generated SDK types expose only the new repository-memory config shape.
 
 ### PR 6: HTTP API And Evaluation Harness
 
@@ -509,6 +509,6 @@ Confirm API requests match CLI behavior, background indexing reports stable stat
 
 ## Open Questions
 
-- Should repository memory be opt-in until after evaluation? Default recommendation: yes. Keep `memory.enabled` false by default and make `opencode memory index` the explicit activation path.
+- Should repository memory remain enabled by default? Default recommendation: yes. Agent tools still require an existing index, and users can set `memory.enabled` to `false` to disable repository memory.
 - Should GitHub linked issue enrichment use direct GitHub API calls or the `gh` CLI? Default recommendation: use the existing GitHub HTTP/auth approach in `packages/opencode/src/cli/cmd/github.ts` where possible, and do not add a required `gh` dependency.
 - Should summary generation be part of `opencode memory index` by default? Default recommendation: yes, but allow `--summaries 0` and continue successfully when model-backed summary generation is unavailable.

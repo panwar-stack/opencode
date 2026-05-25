@@ -5,7 +5,7 @@ import { Schema } from "effect"
 
 export const Info = Schema.Struct({
   enabled: Schema.optional(Schema.Boolean).annotate({
-    description: "Expose repository memory tools and prompt guidance when an index exists (default: false)",
+    description: "Expose repository memory tools and prompt guidance when an index exists (default: true)",
   }),
   index_on_start: Schema.optional(Schema.Boolean).annotate({
     description: "Index repository memory automatically when a project starts (default: false)",
@@ -38,5 +38,5 @@ export const Info = Schema.Struct({
 export type Info = Schema.Schema.Type<typeof Info>
 
 export function enabled(config: Info | undefined) {
-  return config?.enabled === true
+  return config?.enabled !== false
 }

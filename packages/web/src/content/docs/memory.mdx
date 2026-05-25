@@ -9,14 +9,16 @@ Memory is historical. Treat commit diffs and cached summaries as clues, then ver
 
 ---
 
-## Enable
+## Availability
 
-Agent tools are only exposed when repository memory is enabled and an index exists for the active repository.
+Repository memory is enabled by default. Agent tools are only exposed when an index exists for the active repository.
+
+Disable repository memory in config:
 
 ```json title="opencode.json"
 {
   "memory": {
-    "enabled": true
+    "enabled": false
   }
 }
 ```
@@ -65,7 +67,6 @@ Summary generation uses your configured OpenCode model/provider. If summaries ca
 ```json title="opencode.json"
 {
   "memory": {
-    "enabled": true,
     "max_commits": 7000,
     "summary_limit": 200,
     "search_commit_limit": 20,
@@ -76,7 +77,7 @@ Summary generation uses your configured OpenCode model/provider. If summaries ca
 
 | Field | Description |
 | ----- | ----------- |
-| `enabled` | Expose repository memory tools and prompt guidance when an index exists. Defaults to `false`. |
+| `enabled` | Expose repository memory tools and prompt guidance when an index exists. Defaults to `true`; set to `false` to disable. |
 | `max_commits` | Maximum commits to index. Defaults to `7000`. |
 | `summary_limit` | Maximum file summaries to maintain. Defaults to `200`. |
 | `search_commit_limit` | Default limit for `memory_search_commit`. Defaults to `20`. |
@@ -86,7 +87,7 @@ Summary generation uses your configured OpenCode model/provider. If summaries ca
 
 ## Agent Tools
 
-When `memory.enabled` is `true` and the active repository has an index, OpenCode can expose these read-only tools to agents:
+When repository memory is not disabled and the active repository has an index, OpenCode can expose these read-only tools to agents:
 
 | Tool | Description |
 | ---- | ----------- |
