@@ -18,7 +18,16 @@ describe("opencode memory CLI", () => {
           timeoutMs: 60_000,
         })
         opencode.expectExit(indexed, 0, "memory index")
+        expect(indexed.stdout).toContain("Repository: ")
+        expect(indexed.stdout).toContain("Worktree: ")
         expect(indexed.stdout).toContain("Commits indexed: 1")
+        expect(indexed.stdout).toContain("Commits skipped: ")
+        expect(indexed.stdout).toContain("File activity records: 1")
+        expect(indexed.stdout).toContain("File summaries generated: 0")
+        expect(indexed.stdout).toContain("File summaries reused: 0")
+        expect(indexed.stdout).toContain("File summaries failed: 0")
+        expect(indexed.stdout).not.toContain("Memory index complete")
+        expect(indexed.stderr).toContain("Memory index complete")
 
         const status = yield* opencode.spawn(["memory", "status"], { env, timeoutMs: 60_000 })
         opencode.expectExit(status, 0, "memory status")
@@ -64,7 +73,11 @@ describe("opencode memory CLI", () => {
           timeoutMs: 60_000,
         })
         opencode.expectExit(summarized, 0, "memory index summaries")
+        expect(summarized.stdout).toContain("Commits indexed: 1")
+        expect(summarized.stdout).toContain("File activity records: 1")
         expect(summarized.stdout).toContain("File summaries generated: 1")
+        expect(summarized.stdout).not.toContain("Memory index complete")
+        expect(summarized.stderr).toContain("Memory index complete")
 
         const summarySearch = yield* opencode.spawn(["memory", "search", "summary", "redirect"], { env, timeoutMs: 60_000 })
         opencode.expectExit(summarySearch, 0, "memory search summary")
