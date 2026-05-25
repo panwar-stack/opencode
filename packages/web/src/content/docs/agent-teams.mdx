@@ -48,6 +48,15 @@ for auth, another explorer teammate for routes, then spawn an implementer that
 depends on both explorers.
 ```
 
+For non-trivial work, the recommended workflow is:
+
+- create shared tasks for multi-step work
+- assign owners before implementation starts
+- use dependencies when one task or teammate needs another result
+- use plan mode for risky or broad edits
+- broadcast scope changes or key discoveries
+- run a final `team_report`
+
 ---
 
 ## Concepts
@@ -125,6 +134,7 @@ These tools are used by OpenCode agents when agent teams are enabled.
 | `team_task_update`  | Update a task status or assignee.                                                       |
 | `team_plan_submit`  | Submit a teammate plan for lead approval.                                               |
 | `team_plan_decide`  | Approve or reject a teammate plan.                                                      |
+| `team_report`       | Generate a post-session effectiveness report with usage metrics and findings.           |
 | `team_shutdown`     | Close the active team and cancel active teammates.                                      |
 
 ---
@@ -158,6 +168,7 @@ The OpenCode server exposes read and shutdown endpoints for agent teams.
 | ------ | --------------------------- | ----------------------------------------------- |
 | `GET`  | `/team?sessionID=<session>` | Get the active team for a lead session.         |
 | `GET`  | `/team/{teamID}`            | Get a team by ID.                               |
+| `GET`  | `/team/{teamID}/eval`       | Get a team evaluation report.                   |
 | `GET`  | `/team/{teamID}/tasks`      | List shared team tasks.                         |
 | `GET`  | `/team/{teamID}/messages`   | List team messages.                             |
 | `POST` | `/team/{teamID}/shutdown`   | Shut down the team and cancel active teammates. |

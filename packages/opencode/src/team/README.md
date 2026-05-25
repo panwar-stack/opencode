@@ -21,7 +21,7 @@ So when you read the code, do not look for a central "team scheduler" that owns 
 
 ## Important Files
 
-- `src/team/team.sql.ts`: database schema for teams, members, tasks, messages, and per-recipient delivery.
+- `src/team/team.sql.ts`: database schema for teams, members, tasks, messages, per-recipient delivery, and usage events.
 - `src/team/team.ts`: core service for creating teams, adding members, updating status, tasks, messages, and shutdown.
 - `src/tool/team_create.ts`: tool that makes the current session the lead.
 - `src/tool/team_spawn.ts`: tool that creates and runs teammate child sessions.
@@ -46,10 +46,16 @@ There is only one active team per lead session. The schema enforces this with a 
 The lead is responsible for:
 
 - creating the team
+- creating shared tasks for multi-step work
+- assigning owners before implementation starts
 - spawning teammates
+- using dependencies when one task or teammate needs another result
 - receiving start, waiting, completion, and blocker updates
+- using plan mode for risky or broad edits
+- broadcasting scope changes or key discoveries
 - approving or rejecting plan-mode work
 - coordinating follow-up work
+- running a final `team_report` for non-trivial sessions
 - shutting down the team when needed
 
 The lead is still just a normal assistant session. It does these things by choosing team tools in response to the user's request.
@@ -256,6 +262,26 @@ Claiming a task enforces task dependency IDs. A pending task cannot be claimed u
 
 Use this for shared work tracking inside a team. Use `depends_on` / `wait_for` when one teammate should not start until another teammate completes.
 
+## Usage Metrics And Shallow Usage
+
+Team evaluation computes deterministic usage metrics from persisted team state. These metrics do not judge teammate output quality; they check whether the lead modeled coordination work.
+
+The usage summary contains:
+
+- `work_item_count`: `max(task_count, member_count)`
+- `task_count`: shared tasks in `team_task`
+- `member_count`: teammates in `team_member`
+- `dependency_count`: members or tasks with non-empty `dependency_ids`
+- `plan_mode_member_count`: members spawned with `plan_mode: true`
+- `plan_approval_count`: persisted `plan_approved` usage events
+- `broadcast_count`: persisted `broadcast_sent` usage events
+- `final_report_generated`: true when a final `team_report` persisted a `report_generated` event
+- `shallow_usage`: true when teammates were spawned but no shared tasks, dependencies, plan approvals, or final report were recorded
+
+Rollups in `team_report` use teams with at least one teammate as the denominator. The report includes percentages for task-list usage, dependency modeling, plan-mode usage, final report generation, and shallow usage.
+
+The shallow-usage anti-pattern is "spawn teammates and summarize" without modeling work. It is surfaced as a finding, not blocked at runtime. A non-trivial team with at least three work items also gets findings when it has no shared tasks or when a completed team has no final report.
+
 ## Status Events And UI
 
 The service publishes bus events for team lifecycle and member updates:
@@ -297,6 +323,8 @@ Tool calls are still the primary way models create teams, spawn teammates, and c
 `GET /team?sessionID=<session>` only resolves active teams. For a closed historical team, pass `teamID` directly or recover it from a completed `team_create` / `team_report` tool part in the lead session transcript.
 
 `team_report` is a tool, not a direct HTTP endpoint. The formatted markdown report is stored in the completed tool part at `GET /session/:sessionID/message`; structured metadata includes the full eval report at `state.metadata.eval`.
+
+The report also includes a `Team usage` section and stores current-team usage metrics at `state.metadata.usage` plus rollup percentages at `state.metadata.usage_rollup`.
 
 For local debugging, `script/fetch-team-report.sh` wraps the common flow:
 
