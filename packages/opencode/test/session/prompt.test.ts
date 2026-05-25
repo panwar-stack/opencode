@@ -1032,7 +1032,9 @@ it.live("injects team orchestration guidance for primary lead sessions when agen
           (body) =>
             body.includes("Agent team orchestration is enabled") &&
             body.includes("team_create") &&
-            body.includes("team_spawn"),
+            body.includes("team_spawn") &&
+            body.includes("Lead checklist") &&
+            body.includes("run a final team report"),
         ),
       ).toBe(true)
     }),

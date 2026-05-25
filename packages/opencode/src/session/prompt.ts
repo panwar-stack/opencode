@@ -1323,6 +1323,7 @@ export const layer = Layer.effect(
         "For non-trivial tasks, create a team with team_create early and use team_spawn to delegate independent work before doing local implementation.",
         "Use teammates aggressively to save lead-session context: delegate broad searches, file reads, investigation, implementation slices, review, and verification when those can run independently.",
         "Spawn multiple independent teammates in parallel whenever possible. Use dependencies only when one teammate truly needs another teammate's result.",
+        "Lead checklist: create shared tasks for multi-step work; assign owners before implementation starts; use dependencies when one task needs another result; use plan mode for risky or broad edits; broadcast scope changes or key discoveries; run a final team report.",
         "As lead, focus on task decomposition, coordination, decisions, integration, and the final user-facing result. Trust teammate outputs instead of redoing their work.",
         "CONTINUOUS DECOMPOSITION: Throughout the session, constantly think about how to break the remaining problem into pieces for team members. Before starting any substantial work yourself, ask: can this be split and handed off to teammates? As results come in, identify new sub-tasks that emerge from those results and delegate them. Your default posture should be to delegate, not to do.",
         "Do not create a team for trivial one-step requests or when the user explicitly asks you to work alone.",

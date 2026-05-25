@@ -9,6 +9,8 @@ Use this aggressively for independent research, file reading, implementation sli
 Prefer several focused teammates over one broad teammate when the work can proceed in parallel.
 Spawn multiple independent teammates in one parallel tool-call batch whenever possible.
 Use depends_on or wait_for when this teammate must wait for one or more teammate names/session IDs to complete before starting.
+For risky or broad edits, set plan_mode so the teammate must submit a plan for lead approval before implementation.
+Before implementation starts on multi-step team work, make sure shared tasks have owners; use team_task_create dependencies when one task needs another result.
 
 After teammate results return, check team_get_messages ONCE for any pending handoff or blocker messages before deciding the next coordination step. You will be automatically woken when teammates send you messages — DO NOT poll team_get_messages in a loop.
 

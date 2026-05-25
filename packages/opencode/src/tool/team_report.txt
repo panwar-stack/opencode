@@ -6,4 +6,6 @@ Use this after team orchestration to see:
 - mailbox/message delivery behavior
 - session cost and token impact
 
+Run a final team report for non-trivial team sessions after coordination, implementation, review, and verification are complete.
+
 Pass compare_session_ids with lead session IDs from earlier direct or subagent-only runs to benchmark outcomes.

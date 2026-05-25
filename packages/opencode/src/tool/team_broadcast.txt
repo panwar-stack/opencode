@@ -3,4 +3,5 @@ This sends the same message to every active teammate at once, and to the lead wh
 When the lead broadcasts to teammates, this call waits for woken teammate run(s) to finish.
 When a teammate broadcasts, delivery stays asynchronous so teammate work is not blocked.
 Use this for announcements, goal changes, or urgent coordination.
+Use this to broadcast scope changes or key discoveries that affect multiple teammates.
 Do not use this for routine "are you still working?" checks. Busy teammates process broadcasts at their next prompt boundary, and teammates should proactively wake the lead with progress, blockers, or results.

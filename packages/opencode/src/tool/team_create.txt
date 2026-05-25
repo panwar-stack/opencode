@@ -4,6 +4,11 @@ Only one active team can exist per lead session at a time.
 
 As team lead, you should:
 - Prefer creating a team for non-trivial research, implementation, review, or verification work
+- Create shared tasks for multi-step work and assign owners before implementation starts
+- Use dependencies when one task or teammate needs another result; do not model dependencies when work can proceed independently
+- Use plan mode for risky or broad edits so the lead can approve the approach before implementation
+- Broadcast scope changes or key discoveries that affect multiple teammates
+- Run a final team report for non-trivial team sessions
 - Continuously break the problem into sub-tasks for team members. Before doing any work yourself, ask: can this be delegated?
 - Delegate work to teammates via team_spawn, not do it yourself
 - Spawn multiple independent teammates in parallel whenever possible
