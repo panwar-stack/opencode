@@ -3414,6 +3414,482 @@
         ]
       }
     },
+    "/memory/index": {
+      "post": {
+        "tags": ["memory"],
+        "operationId": "memory.index",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Memory indexing job",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryIndexResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Start a background job to index local repository commits and file summaries.",
+        "summary": "Index repository memory",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemoryIndexRequest"
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.memory.index({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/memory/status": {
+      "get": {
+        "tags": ["memory"],
+        "operationId": "memory.status",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Repository memory status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryStatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Return commit, file activity, and summary counts for the active repository memory index.",
+        "summary": "Get repository memory status",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.memory.status({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/memory/search/commit": {
+      "post": {
+        "tags": ["memory"],
+        "operationId": "memory.searchCommit",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Commit memory search results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryCommitSearchResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Search repository commit memory for historical localization hints.",
+        "summary": "Search commit memory",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemorySearchRequest"
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.memory.searchCommit({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/memory/commit/{hash}": {
+      "get": {
+        "tags": ["memory"],
+        "operationId": "memory.commit",
+        "parameters": [
+          {
+            "name": "hash",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "max_diff_bytes",
+            "in": "query",
+            "schema": {
+              "type": "number"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Commit memory record",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryCommitResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Inspect a historical commit memory record. Old diffs must be verified against current source before editing.",
+        "summary": "Examine commit memory",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.memory.commit({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/memory/search/summary": {
+      "post": {
+        "tags": ["memory"],
+        "operationId": "memory.searchSummary",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "File summary search results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemorySummarySearchResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Search cached high-activity file summaries for historical localization hints.",
+        "summary": "Search file summary memory",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemorySearchRequest"
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.memory.searchSummary({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/memory/summary": {
+      "get": {
+        "tags": ["memory"],
+        "operationId": "memory.summary",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "File summary memory record",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemorySummaryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Show the cached repository-memory summary for a known file path.",
+        "summary": "View file summary memory",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.memory.summary({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/memory": {
+      "delete": {
+        "tags": ["memory"],
+        "operationId": "memory.clear",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Repository memory clear result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryClearResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Clear repository memory for the active repository.",
+        "summary": "Clear repository memory",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.memory.clear({\n  ...\n})"
+          }
+        ]
+      }
+    },
     "/project": {
       "get": {
         "tags": ["project"],
@@ -5582,11 +6058,18 @@
             }
           },
           "400": {
-            "description": "Bad request",
+            "description": "BadRequest | InvalidRequestError",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BadRequestError"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/effect_HttpApiError_BadRequest"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
                 }
               }
             }
@@ -5653,11 +6136,18 @@
             }
           },
           "400": {
-            "description": "Bad request",
+            "description": "BadRequest | InvalidRequestError",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BadRequestError"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/effect_HttpApiError_BadRequest"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
                 }
               }
             }
@@ -5754,11 +6244,18 @@
             }
           },
           "400": {
-            "description": "Bad request",
+            "description": "BadRequest | InvalidRequestError",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BadRequestError"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/effect_HttpApiError_BadRequest"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
                 }
               }
             }
@@ -5853,11 +6350,18 @@
             }
           },
           "400": {
-            "description": "Bad request",
+            "description": "BadRequest | InvalidRequestError",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BadRequestError"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/effect_HttpApiError_BadRequest"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
                 }
               }
             }
@@ -9384,11 +9888,18 @@
             }
           },
           "400": {
-            "description": "Bad request",
+            "description": "BadRequest | InvalidRequestError",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BadRequestError"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/effect_HttpApiError_BadRequest"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
                 }
               }
             }
@@ -9430,11 +9941,18 @@
             }
           },
           "400": {
-            "description": "Bad request",
+            "description": "BadRequest | InvalidRequestError",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BadRequestError"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/effect_HttpApiError_BadRequest"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
                 }
               }
             }
@@ -9476,11 +9994,18 @@
             }
           },
           "400": {
-            "description": "Bad request",
+            "description": "BadRequest | InvalidRequestError",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BadRequestError"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/effect_HttpApiError_BadRequest"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
                 }
               }
             }
@@ -9526,11 +10051,18 @@
             }
           },
           "400": {
-            "description": "Bad request",
+            "description": "BadRequest | InvalidRequestError",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BadRequestError"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/effect_HttpApiError_BadRequest"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
                 }
               }
             }
@@ -9576,11 +10108,18 @@
             }
           },
           "400": {
-            "description": "Bad request",
+            "description": "BadRequest | InvalidRequestError",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BadRequestError"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/effect_HttpApiError_BadRequest"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
                 }
               }
             }
@@ -9623,11 +10162,18 @@
             }
           },
           "400": {
-            "description": "Bad request",
+            "description": "BadRequest | InvalidRequestError",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BadRequestError"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/effect_HttpApiError_BadRequest"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
                 }
               }
             }
@@ -14132,6 +14678,18 @@
               "repo_overview": {
                 "$ref": "#/components/schemas/PermissionRuleConfig"
               },
+              "memory_search_commit": {
+                "$ref": "#/components/schemas/PermissionActionConfig"
+              },
+              "memory_examine_commit": {
+                "$ref": "#/components/schemas/PermissionActionConfig"
+              },
+              "memory_search_summary": {
+                "$ref": "#/components/schemas/PermissionActionConfig"
+              },
+              "memory_view_summary": {
+                "$ref": "#/components/schemas/PermissionActionConfig"
+              },
               "lsp": {
                 "$ref": "#/components/schemas/PermissionRuleConfig"
               },
@@ -14562,6 +15120,58 @@
         "required": ["type", "url"],
         "additionalProperties": false
       },
+      "MemoryConfig": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "index_on_start": {
+            "type": "boolean"
+          },
+          "max_commits": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "summary_limit": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "search_commit_limit": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "search_summary_limit": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "include": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "exclude": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "github": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "fetch_linked_issues": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
       "LayoutConfig": {
         "type": "string",
         "enum": ["auto", "stretch"],
@@ -14908,6 +15518,9 @@
               }
             ],
             "description": "Enable or configure LSP servers. Omit or set to false to disable, true to enable built-ins, or an object to enable built-ins with overrides."
+          },
+          "memory": {
+            "$ref": "#/components/schemas/MemoryConfig"
           },
           "instructions": {
             "type": "array",
@@ -16159,6 +16772,377 @@
         "required": ["_tag", "name", "message"],
         "additionalProperties": false
       },
+      "MemoryIndexRequest": {
+        "type": "object",
+        "properties": {
+          "max_commits": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "since": {
+            "type": "string"
+          },
+          "base_commit": {
+            "type": "string"
+          },
+          "cutoff_time": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "no_github": {
+            "type": "boolean"
+          },
+          "summaries": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "MemoryBackgroundJob": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["running", "completed", "error", "cancelled"]
+          },
+          "started_at": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "completed_at": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "output": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object"
+          }
+        },
+        "required": ["id", "type", "status", "started_at"],
+        "additionalProperties": false
+      },
+      "MemoryIndexResponse": {
+        "type": "object",
+        "properties": {
+          "job": {
+            "$ref": "#/components/schemas/MemoryBackgroundJob"
+          }
+        },
+        "required": ["job"],
+        "additionalProperties": false
+      },
+      "MemoryStatusResponse": {
+        "type": "object",
+        "properties": {
+          "repository": {
+            "type": "string"
+          },
+          "indexed": {
+            "type": "boolean"
+          },
+          "commits": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "file_activity": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "summaries": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": ["repository", "indexed", "commits", "file_activity", "summaries"],
+        "additionalProperties": false
+      },
+      "MemorySearchRequest": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": ["query"],
+        "additionalProperties": false
+      },
+      "MemoryCommitSearchItem": {
+        "type": "object",
+        "properties": {
+          "hash": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "changed_files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["NaN"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["-Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          },
+          "strength": {
+            "type": "string",
+            "enum": ["strong", "weak"]
+          },
+          "issue_title": {
+            "type": "string"
+          }
+        },
+        "required": ["hash", "message", "changed_files", "score", "strength"],
+        "additionalProperties": false
+      },
+      "MemoryCommitSearchResponse": {
+        "type": "object",
+        "properties": {
+          "repository": {
+            "type": "string"
+          },
+          "commits": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MemoryCommitSearchItem"
+            }
+          }
+        },
+        "required": ["repository", "commits"],
+        "additionalProperties": false
+      },
+      "NotFoundError": {
+        "type": "object",
+        "required": ["name", "data"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "enum": ["NotFoundError"]
+          },
+          "data": {
+            "type": "object",
+            "required": ["message"],
+            "properties": {
+              "message": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "MemoryCommitResponse": {
+        "type": "object",
+        "properties": {
+          "repository": {
+            "type": "string"
+          },
+          "hash": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "changed_files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "diff": {
+            "type": "string"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "issue_number": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "issue_title": {
+            "type": "string"
+          },
+          "issue_body": {
+            "type": "string"
+          },
+          "warning": {
+            "type": "string"
+          }
+        },
+        "required": ["repository", "hash", "message", "changed_files", "diff", "truncated", "warning"],
+        "additionalProperties": false
+      },
+      "MemorySummarySearchItem": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "important_symbols": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "source_hash": {
+            "type": "string"
+          },
+          "model_id": {
+            "type": "string"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["NaN"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["-Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          },
+          "strength": {
+            "type": "string",
+            "enum": ["strong", "weak"]
+          }
+        },
+        "required": ["path", "summary", "important_symbols", "source_hash", "score", "strength"],
+        "additionalProperties": false
+      },
+      "MemorySummarySearchResponse": {
+        "type": "object",
+        "properties": {
+          "repository": {
+            "type": "string"
+          },
+          "summaries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MemorySummarySearchItem"
+            }
+          }
+        },
+        "required": ["repository", "summaries"],
+        "additionalProperties": false
+      },
+      "MemorySummaryResponse": {
+        "type": "object",
+        "properties": {
+          "repository": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "important_symbols": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "source_hash": {
+            "type": "string"
+          },
+          "current_source_hash": {
+            "type": "string"
+          },
+          "model_id": {
+            "type": "string"
+          },
+          "time_generated": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "stale": {
+            "type": "boolean"
+          },
+          "missing": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "repository",
+          "path",
+          "summary",
+          "important_symbols",
+          "source_hash",
+          "time_generated",
+          "stale",
+          "missing"
+        ],
+        "additionalProperties": false
+      },
+      "MemoryClearResponse": {
+        "type": "object",
+        "properties": {
+          "repository": {
+            "type": "string"
+          },
+          "cleared": {
+            "type": "boolean"
+          }
+        },
+        "required": ["repository", "cleared"],
+        "additionalProperties": false
+      },
       "ProjectNotFoundError": {
         "type": "object",
         "properties": {
@@ -16402,26 +17386,6 @@
           }
         },
         "required": ["name", "data"],
-        "additionalProperties": false
-      },
-      "NotFoundError": {
-        "type": "object",
-        "required": ["name", "data"],
-        "properties": {
-          "name": {
-            "type": "string",
-            "enum": ["NotFoundError"]
-          },
-          "data": {
-            "type": "object",
-            "required": ["message"],
-            "properties": {
-              "message": {
-                "type": "string"
-              }
-            }
-          }
-        },
         "additionalProperties": false
       },
       "SessionRoot": {
@@ -16963,7 +17927,10 @@
               "messaging.missing_progress",
               "integration.context_loss",
               "integration.premature_shutdown",
-              "structure.unexpected_or_missing_edge"
+              "structure.unexpected_or_missing_edge",
+              "shallow_usage",
+              "missing_task_list",
+              "missing_final_report"
             ]
           },
           "node_id": {
@@ -17006,6 +17973,190 @@
           }
         },
         "required": ["id", "severity", "category", "node_id", "message", "time_created", "root_cause"],
+        "additionalProperties": false
+      },
+      "TeamUsageMetrics": {
+        "type": "object",
+        "properties": {
+          "work_item_count": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["NaN"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["-Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          },
+          "task_count": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["NaN"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["-Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          },
+          "member_count": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["NaN"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["-Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          },
+          "dependency_count": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["NaN"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["-Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          },
+          "plan_mode_member_count": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["NaN"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["-Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          },
+          "plan_approval_count": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["NaN"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["-Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          },
+          "broadcast_count": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["NaN"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["-Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          },
+          "final_report_generated": {
+            "type": "boolean"
+          },
+          "shallow_usage": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "work_item_count",
+          "task_count",
+          "member_count",
+          "dependency_count",
+          "plan_mode_member_count",
+          "plan_approval_count",
+          "broadcast_count",
+          "final_report_generated",
+          "shallow_usage"
+        ],
         "additionalProperties": false
       },
       "TeamEvalReport": {
@@ -17195,6 +18346,9 @@
                     "enum": ["Infinity", "-Infinity", "NaN"]
                   }
                 ]
+              },
+              "usage": {
+                "$ref": "#/components/schemas/TeamUsageMetrics"
               }
             },
             "required": [
@@ -17203,7 +18357,8 @@
               "root_cause_count",
               "propagated_failure_count",
               "structural_deviation_count",
-              "longest_dependency_chain"
+              "longest_dependency_chain",
+              "usage"
             ],
             "additionalProperties": false
           }
@@ -23673,6 +24828,10 @@
     {
       "name": "mcp",
       "description": "Experimental HttpApi MCP routes."
+    },
+    {
+      "name": "memory",
+      "description": "Repository memory HttpApi routes."
     },
     {
       "name": "project",

@@ -35,6 +35,7 @@ describe("team HttpApi", () => {
         rolePrompt: "Do the work",
       })
       yield* team.updateMemberStatus(member.id, "completed", "done")
+      yield* team.createUsageEvent({ teamID: info.id, type: "report_generated" })
 
       const response = yield* request(`${TeamPaths.root}/${info.id}/eval`, {
         headers: { "x-opencode-directory": test.directory },
@@ -57,7 +58,14 @@ describe("team HttpApi", () => {
             to: `result:${member.session_id}`,
           }),
         ]),
-        summary: expect.objectContaining({ root_cause_count: 0 }),
+        summary: expect.objectContaining({
+          root_cause_count: 0,
+          usage: expect.objectContaining({
+            member_count: 1,
+            task_count: 0,
+            final_report_generated: true,
+          }),
+        }),
       })
     }),
   )

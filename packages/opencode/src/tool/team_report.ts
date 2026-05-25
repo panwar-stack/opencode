@@ -8,7 +8,7 @@ import { Database } from "@/storage/db"
 import { TeamTable, TeamMessageRecipientTable } from "@/team/team.sql"
 import { SessionTable } from "@/session/session.sql"
 import { SessionID } from "@/session/schema"
-import { TeamEval, type TeamEvalFindingSeverity } from "@/team/eval"
+import { TeamEval, type TeamEvalFindingSeverity, type TeamUsageMetrics } from "@/team/eval"
 
 const Parameters = Schema.Struct({
   team_id: Schema.optional(Schema.String).annotate({
@@ -28,6 +28,17 @@ const Parameters = Schema.Struct({
 
 function pct(value: number, total: number) {
   return total === 0 ? 0 : (value / total) * 100
+}
+
+function usageRollup(metrics: TeamUsageMetrics[]) {
+  return {
+    team_session_count: metrics.length,
+    task_list_usage_percent: pct(metrics.filter((item) => item.task_count > 0).length, metrics.length),
+    dependency_modeling_percent: pct(metrics.filter((item) => item.dependency_count > 0).length, metrics.length),
+    plan_mode_usage_percent: pct(metrics.filter((item) => item.plan_mode_member_count > 0).length, metrics.length),
+    final_report_percent: pct(metrics.filter((item) => item.final_report_generated).length, metrics.length),
+    shallow_usage_percent: pct(metrics.filter((item) => item.shallow_usage).length, metrics.length),
+  }
 }
 
 function durationText(ms: number) {
@@ -107,7 +118,6 @@ export const TeamReportTool = Tool.define<typeof Parameters, Record<string, unkn
           const members = yield* team.getMembers(teams.id)
           const tasks = yield* team.getTasks(teams.id)
           const messages = yield* team.getMessages(teams.id)
-          const evalReport = yield* TeamEval.build(teams.id)
           const recipients = Database.use(() =>
             Database.Client()
               .select()
@@ -173,6 +183,25 @@ export const TeamReportTool = Tool.define<typeof Parameters, Record<string, unkn
           const activeMembers = members.filter((member) => member.status === "active")
           const startedMembers = members.filter((member) => member.status === "starting")
           const completedRuntime = completedMembers.map((member) => member.time_updated - member.time_created)
+          const finalReport = activeMembers.length === 0 && startedMembers.length === 0 && blockedMembers.length === 0
+          if (finalReport) {
+            yield* team.createUsageEvent({
+              teamID: teams.id,
+              sessionID: ctx.sessionID,
+              memberID: Option.isSome(context) && context.value.team.id === teams.id ? context.value.member?.id : undefined,
+              type: "report_generated",
+              metadata: { generated_at: Date.now() },
+            })
+          }
+          const evalReport = yield* TeamEval.build(teams.id)
+          const rollupReports = yield* Effect.forEach(
+            Database.use(() => Database.Client().select().from(TeamTable).all()),
+            (row) => TeamEval.build(row.id),
+            { concurrency: "unbounded" },
+          )
+          const rollup = usageRollup(
+            rollupReports.map((report) => report.summary.usage).filter((usage) => usage.member_count > 0),
+          )
           const memberRuntimeP50 = median(completedRuntime)
           const memberRuntimeAvg =
             completedRuntime.length === 0
@@ -275,16 +304,7 @@ export const TeamReportTool = Tool.define<typeof Parameters, Record<string, unkn
               ? `Mailbox reads captured for ${pct(messageRead.length, recipients.length).toFixed(1)}% of recipient deliveries.`
               : "No read-marked mailbox rows were found.",
           ]
-          const finalReport = activeMembers.length === 0 && startedMembers.length === 0 && blockedMembers.length === 0
-          if (finalReport) {
-            yield* team.createUsageEvent({
-              teamID: teams.id,
-              sessionID: ctx.sessionID,
-              memberID: Option.isSome(context) && context.value.team.id === teams.id ? context.value.member?.id : undefined,
-              type: "report_generated",
-              metadata: { generated_at: Date.now() },
-            })
-          }
+          const usage = evalReport.summary.usage
 
           const output = [
             "# Team Effectiveness Report",
@@ -315,6 +335,17 @@ export const TeamReportTool = Tool.define<typeof Parameters, Record<string, unkn
             `- completed: ${completedTasks.length} (${pct(completedTasks.length, tasks.length).toFixed(1)}%)`,
             `- cancelled: ${canceledTasks.length} (${pct(canceledTasks.length, tasks.length).toFixed(1)}%)`,
             `- with dependencies: ${taskDependencyDefined.length} (${pct(taskDependencyDefined.length, tasks.length).toFixed(1)}%)`,
+            "",
+            "## Team usage",
+            `- work items: ${usage.work_item_count}`,
+            `- tasks: ${usage.task_count}`,
+            `- members: ${usage.member_count}`,
+            `- dependencies: ${usage.dependency_count}`,
+            `- plan-mode members: ${usage.plan_mode_member_count}`,
+            `- plan approvals: ${usage.plan_approval_count}`,
+            `- broadcasts: ${usage.broadcast_count}`,
+            `- final report generated: ${usage.final_report_generated ? "yes" : "no"}`,
+            `- shallow usage: ${usage.shallow_usage ? "yes" : "no"}`,
             "",
             "## Messaging",
             `- messages: ${messages.length}`,
@@ -383,6 +414,8 @@ export const TeamReportTool = Tool.define<typeof Parameters, Record<string, unkn
                 cost: teamSessionCost,
                 tokens: teamSessionTokens,
               },
+              usage,
+              usage_rollup: rollup,
               eval: evalReport,
             },
             output,

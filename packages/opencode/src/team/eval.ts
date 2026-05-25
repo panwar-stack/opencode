@@ -1,7 +1,14 @@
 import { Database } from "@/storage/db"
 import { Effect, Schema } from "effect"
 import { eq } from "drizzle-orm"
-import { TeamTable, TeamMemberTable, TeamTaskTable, TeamMessageTable, TeamMessageRecipientTable } from "./team.sql"
+import {
+  TeamTable,
+  TeamMemberTable,
+  TeamTaskTable,
+  TeamMessageTable,
+  TeamMessageRecipientTable,
+  TeamUsageEventTable,
+} from "./team.sql"
 
 export type TeamEvalNodeType = "team" | "member" | "task" | "message" | "session_step" | "tool_call" | "result"
 
@@ -28,6 +35,9 @@ export type TeamEvalFindingCategory =
   | "integration.context_loss"
   | "integration.premature_shutdown"
   | "structure.unexpected_or_missing_edge"
+  | "shallow_usage"
+  | "missing_task_list"
+  | "missing_final_report"
 
 export type TeamEvalNode = {
   id: string
@@ -60,6 +70,22 @@ export type TeamEvalFinding = {
   metadata?: Record<string, unknown>
 }
 
+export type TeamUsageMetrics = {
+  work_item_count: number
+  task_count: number
+  member_count: number
+  dependency_count: number
+  plan_mode_member_count: number
+  plan_approval_count: number
+  broadcast_count: number
+  final_report_generated: boolean
+  shallow_usage: boolean
+}
+
+type UsageMetricMember = { dependency_ids: string[] | null; plan_mode: boolean }
+type UsageMetricTask = { dependency_ids: string[] | null }
+type UsageMetricEvent = { type: string }
+
 export type TeamEvalReport = {
   team_id: string
   generated_at: number
@@ -73,6 +99,7 @@ export type TeamEvalReport = {
     propagated_failure_count: number
     structural_deviation_count: number
     longest_dependency_chain: number
+    usage: TeamUsageMetrics
   }
 }
 
@@ -87,6 +114,7 @@ type MemberRow = typeof TeamMemberTable.$inferSelect
 type TaskRow = typeof TeamTaskTable.$inferSelect
 type MessageRow = typeof TeamMessageTable.$inferSelect
 type MessageRecipientRow = typeof TeamMessageRecipientTable.$inferSelect
+type UsageEventRow = typeof TeamUsageEventTable.$inferSelect
 type RawFinding = Omit<TeamEvalFinding, "root_cause" | "propagated_from">
 
 export const build = Effect.fn("TeamEval.build")(function* (
@@ -105,6 +133,7 @@ export const build = Effect.fn("TeamEval.build")(function* (
         .from(TeamMessageRecipientTable)
         .where(eq(TeamMessageRecipientTable.team_id, teamID))
         .all(),
+      usageEvents: db.select().from(TeamUsageEventTable).where(eq(TeamUsageEventTable.team_id, teamID)).all(),
     }
   })
 
@@ -116,6 +145,7 @@ export const build = Effect.fn("TeamEval.build")(function* (
     sortRows(rows.tasks),
     sortRows(rows.messages),
     sortRows(rows.recipients),
+    sortRows(rows.usageEvents),
     Date.now(),
     options?.expectedEdges ?? [],
   )
@@ -127,6 +157,7 @@ function reportFromRows(
   tasks: TaskRow[],
   messages: MessageRow[],
   recipients: MessageRecipientRow[],
+  usageEvents: UsageEventRow[],
   generatedAt: number,
   expectedEdges: TeamEvalExpectedEdge[],
 ): TeamEvalReport {
@@ -256,7 +287,8 @@ function reportFromRows(
     ),
   ])
   const structuralDeviation = structuralDeviationCount(edges, expectedEdges)
-  const rawFindings = deterministicFindings(team, members, tasks, messages, recipients, structuralDeviation)
+  const usage = usageMetrics(members, tasks, usageEvents)
+  const rawFindings = deterministicFindings(team, members, tasks, messages, recipients, structuralDeviation, usage)
   const attributed = attributeFindings(rawFindings, nodes, edges)
   const allEdges = [...edges, ...attributed.edges]
 
@@ -273,7 +305,32 @@ function reportFromRows(
       propagated_failure_count: attributed.findings.filter((finding) => finding.propagated_from !== undefined).length,
       structural_deviation_count: structuralDeviation,
       longest_dependency_chain: longestDependencyChain(edges),
+      usage,
     },
+  }
+}
+
+export function usageMetrics(
+  members: UsageMetricMember[],
+  tasks: UsageMetricTask[],
+  usageEvents: UsageMetricEvent[],
+): TeamUsageMetrics {
+  const dependencyCount =
+    members.filter((member) => (member.dependency_ids ?? []).length > 0).length +
+    tasks.filter((task) => (task.dependency_ids ?? []).length > 0).length
+  const planApprovalCount = usageEvents.filter((event) => event.type === "plan_approved").length
+  const finalReportGenerated = usageEvents.some((event) => event.type === "report_generated")
+  return {
+    work_item_count: Math.max(tasks.length, members.length),
+    task_count: tasks.length,
+    member_count: members.length,
+    dependency_count: dependencyCount,
+    plan_mode_member_count: members.filter((member) => member.plan_mode).length,
+    plan_approval_count: planApprovalCount,
+    broadcast_count: usageEvents.filter((event) => event.type === "broadcast_sent").length,
+    final_report_generated: finalReportGenerated,
+    shallow_usage:
+      members.length > 0 && tasks.length === 0 && dependencyCount === 0 && planApprovalCount === 0 && !finalReportGenerated,
   }
 }
 
@@ -284,6 +341,7 @@ function deterministicFindings(
   messages: MessageRow[],
   recipients: MessageRecipientRow[],
   structuralDeviation: number,
+  usage: TeamUsageMetrics,
 ) {
   const memberBySession = new Map(members.map((member) => [member.session_id, member]))
   const taskByID = new Map(tasks.map((task) => [task.id, task]))
@@ -393,6 +451,27 @@ function deterministicFindings(
           metadata: { structural_deviation_count: structuralDeviation },
         })
       : undefined,
+    usage.shallow_usage
+      ? finding("shallow_usage", "warning", nodeID("team", team.id), team.time_updated, {
+          message: "Team used teammates without shared tasks, dependencies, plan approvals, or a final report.",
+          suffix: "shallow-usage",
+          metadata: usage,
+        })
+      : undefined,
+    usage.work_item_count >= 3 && usage.task_count === 0
+      ? finding("missing_task_list", "warning", nodeID("team", team.id), team.time_updated, {
+          message: `Team has ${usage.work_item_count} work item(s) but no shared tasks.`,
+          suffix: "missing-task-list",
+          metadata: usage,
+        })
+      : undefined,
+    isCompletedTeam(team, members) && usage.work_item_count >= 3 && !usage.final_report_generated
+      ? finding("missing_final_report", "warning", nodeID("team", team.id), team.time_updated, {
+          message: "Non-trivial completed team has no final team_report event.",
+          suffix: "missing-final-report",
+          metadata: usage,
+        })
+      : undefined,
   ].filter(isDefined)
 }
 
@@ -485,6 +564,11 @@ function sortRows<T extends { id: string; time_created: number }>(rows: T[]) {
 
 function hasResult(member: MemberRow) {
   return member.result !== null && member.result.trim().length > 0
+}
+
+function isCompletedTeam(team: TeamRow, members: MemberRow[]) {
+  if (team.status !== "closed") return false
+  return members.every((member) => !["active", "starting", "blocked"].includes(member.status))
 }
 
 function finding(

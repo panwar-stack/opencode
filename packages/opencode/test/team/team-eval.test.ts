@@ -280,6 +280,7 @@ describe("team eval", () => {
           agentType: "general",
           rolePrompt: "Complete second independent work",
         })
+        yield* team.createTask({ teamID: info.id, description: "Track completed work" })
 
         yield* team.updateMemberStatus(first.id, "completed", "first result")
         yield* team.updateMemberStatus(second.id, "completed", "second result")
@@ -302,6 +303,161 @@ describe("team eval", () => {
             to: node("member", second.session_id),
           }),
         )
+      }),
+    ),
+  )
+
+  it.live("summarizes usage metrics from deterministic team state", () =>
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const team = yield* Team.Service
+        const info = yield* team.create({
+          name: "eval-usage-metrics",
+          goal: "Summarize usage",
+          leadSessionID: "ses_eval_usage_metrics_lead",
+        })
+        const planner = yield* team.addMember({
+          teamID: info.id,
+          sessionID: "ses_eval_usage_metrics_planner",
+          name: "planner",
+          agentType: "general",
+          rolePrompt: "Plan first",
+          planMode: true,
+        })
+        yield* team.addMember({
+          teamID: info.id,
+          sessionID: "ses_eval_usage_metrics_builder",
+          name: "builder",
+          agentType: "general",
+          rolePrompt: "Build second",
+          dependencyIDs: [planner.session_id],
+        })
+        const firstTask = yield* team.createTask({ teamID: info.id, description: "Plan task" })
+        yield* team.createTask({ teamID: info.id, description: "Build task", dependencyIDs: [firstTask.id] })
+        yield* team.createUsageEvent({ teamID: info.id, memberID: planner.id, type: "plan_approved" })
+        yield* team.createUsageEvent({ teamID: info.id, type: "broadcast_sent" })
+        yield* team.createUsageEvent({ teamID: info.id, type: "report_generated" })
+
+        const report = yield* TeamEval.build(info.id)
+
+        expect(report.summary.usage).toEqual({
+          work_item_count: 2,
+          task_count: 2,
+          member_count: 2,
+          dependency_count: 2,
+          plan_mode_member_count: 1,
+          plan_approval_count: 1,
+          broadcast_count: 1,
+          final_report_generated: true,
+          shallow_usage: false,
+        })
+      }),
+    ),
+  )
+
+  it.live("detects shallow usage", () =>
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const team = yield* Team.Service
+        const info = yield* team.create({
+          name: "eval-shallow-usage",
+          goal: "Detect shallow usage",
+          leadSessionID: "ses_eval_shallow_usage_lead",
+        })
+        yield* team.addMember({
+          teamID: info.id,
+          sessionID: "ses_eval_shallow_usage_member",
+          name: "worker",
+          agentType: "general",
+          rolePrompt: "Do work",
+        })
+
+        const report = yield* TeamEval.build(info.id)
+
+        expect(report.summary.usage.shallow_usage).toBe(true)
+        expect(categories(report)).toContain("shallow_usage")
+      }),
+    ),
+  )
+
+  it.live("detects missing task lists for non-trivial teams", () =>
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const team = yield* Team.Service
+        const info = yield* team.create({
+          name: "eval-missing-task-list",
+          goal: "Detect missing tasks",
+          leadSessionID: "ses_eval_missing_task_list_lead",
+        })
+        yield* team.addMember({
+          teamID: info.id,
+          sessionID: "ses_eval_missing_task_list_a",
+          name: "a",
+          agentType: "general",
+          rolePrompt: "Do A",
+        })
+        yield* team.addMember({
+          teamID: info.id,
+          sessionID: "ses_eval_missing_task_list_b",
+          name: "b",
+          agentType: "general",
+          rolePrompt: "Do B",
+        })
+        yield* team.addMember({
+          teamID: info.id,
+          sessionID: "ses_eval_missing_task_list_c",
+          name: "c",
+          agentType: "general",
+          rolePrompt: "Do C",
+        })
+        yield* team.createUsageEvent({ teamID: info.id, type: "report_generated" })
+
+        const report = yield* TeamEval.build(info.id)
+
+        expect(categories(report)).toContain("missing_task_list")
+        expect(report.summary.usage.work_item_count).toBe(3)
+      }),
+    ),
+  )
+
+  it.live("detects missing final reports for non-trivial completed teams", () =>
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const team = yield* Team.Service
+        const info = yield* team.create({
+          name: "eval-missing-final-report",
+          goal: "Detect missing final report",
+          leadSessionID: "ses_eval_missing_final_report_lead",
+        })
+        const first = yield* team.addMember({
+          teamID: info.id,
+          sessionID: "ses_eval_missing_final_report_a",
+          name: "a",
+          agentType: "general",
+          rolePrompt: "Do A",
+        })
+        const second = yield* team.addMember({
+          teamID: info.id,
+          sessionID: "ses_eval_missing_final_report_b",
+          name: "b",
+          agentType: "general",
+          rolePrompt: "Do B",
+        })
+        const third = yield* team.addMember({
+          teamID: info.id,
+          sessionID: "ses_eval_missing_final_report_c",
+          name: "c",
+          agentType: "general",
+          rolePrompt: "Do C",
+        })
+        yield* team.updateMemberStatus(first.id, "completed", "a result")
+        yield* team.updateMemberStatus(second.id, "completed", "b result")
+        yield* team.updateMemberStatus(third.id, "completed", "c result")
+        closeTeam(info.id)
+
+        const report = yield* TeamEval.build(info.id)
+
+        expect(categories(report)).toContain("missing_final_report")
       }),
     ),
   )

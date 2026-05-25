@@ -10,11 +10,13 @@ import { TeamReportTool } from "@/tool/team_report"
 import type * as Tool from "@/tool/tool"
 import { Truncate } from "@/tool/truncate"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
+import { resetDatabase } from "../fixture/db"
 import { disposeAllInstances, provideTmpdirInstance } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 
 afterEach(async () => {
   await disposeAllInstances()
+  await resetDatabase()
 })
 
 const it = testEffect(
@@ -57,6 +59,8 @@ describe("tool.team_report", () => {
 
           expect(result.title).toBe("Team Report: report-team")
           expect(result.output).toContain("## Team throughput")
+          expect(result.output).toContain("## Team usage")
+          expect(result.output).toContain("- final report generated: yes")
           expect(result.output).toContain("## Cost and latency")
           expect(result.output).toContain("## Evaluation")
           expect(result.output).toContain("- root causes: 1")
@@ -64,6 +68,7 @@ describe("tool.team_report", () => {
           expect(result.output).toContain("error execution.cancelled_member")
           expect(result.metadata.team_id).toBe(info.id)
           expect(result.metadata.throughput).toEqual(expect.objectContaining({ member_count: 1 }))
+          expect(result.metadata.usage).toEqual(expect.objectContaining({ final_report_generated: true }))
           expect(evalReport.team_id).toBe(info.id)
           expect(evalReport.summary.root_cause_count).toBe(1)
           expect(evalReport.findings.some((finding) => finding.category === "execution.cancelled_member")).toBe(true)
@@ -101,6 +106,7 @@ describe("tool.team_report", () => {
 
           expect(result.output).toContain("- root causes: 0")
           expect(result.output).toContain("- top root causes: none")
+          expect(result.metadata.usage).toEqual(expect.objectContaining({ shallow_usage: false }))
           expect(evalReport.summary.root_cause_count).toBe(0)
           expect(evalReport.nodes.some((node) => node.id === `team:${info.id}`)).toBe(true)
         }),
@@ -134,7 +140,64 @@ describe("tool.team_report", () => {
           const result = yield* def.execute({ team_id: info.id }, context(lead.id))
 
           expect(result.title).toBe("Team Report: interim-report-team")
+          expect(result.output).toContain("- final report generated: no")
+          expect(result.metadata.usage).toEqual(expect.objectContaining({ final_report_generated: false }))
           expect(yield* team.getUsageEvents(info.id)).toEqual([])
+        }),
+      { config: { experimental: { agent_teams: true } } },
+    ),
+  )
+
+  it.live("rolls up usage percentages across teams with members", () =>
+    provideTmpdirInstance(
+      () =>
+        Effect.gen(function* () {
+          const sessions = yield* Session.Service
+          const team = yield* Team.Service
+          yield* team.create({ name: "empty-team", goal: "Exclude from rollup", leadSessionID: "ses_report_empty_lead" })
+          const shallowLead = yield* sessions.create({ title: "Shallow Lead" })
+          const shallow = yield* team.create({
+            name: "shallow-team",
+            goal: "No task list",
+            leadSessionID: shallowLead.id,
+          })
+          yield* team.addMember({
+            teamID: shallow.id,
+            sessionID: "ses_report_rollup_shallow_worker",
+            name: "shallow-worker",
+            agentType: "general",
+            rolePrompt: "Do shallow work",
+          })
+          const lead = yield* sessions.create({ title: "Lead" })
+          const info = yield* team.create({
+            name: "rollup-report-team",
+            goal: "Evaluate rollup",
+            leadSessionID: lead.id,
+          })
+          const worker = yield* team.addMember({
+            teamID: info.id,
+            sessionID: "ses_report_rollup_worker",
+            name: "worker",
+            agentType: "general",
+            rolePrompt: "Do the work",
+            planMode: true,
+          })
+          const firstTask = yield* team.createTask({ teamID: info.id, description: "First task" })
+          yield* team.createTask({ teamID: info.id, description: "Second task", dependencyIDs: [firstTask.id] })
+          yield* team.updateMemberStatus(worker.id, "completed", "work complete")
+
+          const tool = yield* TeamReportTool
+          const def = yield* tool.init()
+          const result = yield* def.execute({ team_id: info.id }, context(lead.id))
+
+          expect(result.metadata.usage_rollup).toEqual({
+            team_session_count: 2,
+            task_list_usage_percent: 50,
+            dependency_modeling_percent: 50,
+            plan_mode_usage_percent: 50,
+            final_report_percent: 50,
+            shallow_usage_percent: 50,
+          })
         }),
       { config: { experimental: { agent_teams: true } } },
     ),

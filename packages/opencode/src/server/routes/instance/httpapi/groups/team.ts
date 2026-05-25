@@ -85,6 +85,9 @@ const TeamEvalFindingCategorySchema = Schema.Literals([
   "integration.context_loss",
   "integration.premature_shutdown",
   "structure.unexpected_or_missing_edge",
+  "shallow_usage",
+  "missing_task_list",
+  "missing_final_report",
 ])
 
 const TeamEvalMetadataSchema = Schema.Record(Schema.String, Schema.Unknown)
@@ -120,6 +123,18 @@ const TeamEvalFindingSchema = Schema.Struct({
   metadata: Schema.optional(Schema.UndefinedOr(TeamEvalMetadataSchema)),
 }).annotate({ identifier: "TeamEvalFinding" })
 
+const TeamUsageMetricsSchema = Schema.Struct({
+  work_item_count: Schema.Number,
+  task_count: Schema.Number,
+  member_count: Schema.Number,
+  dependency_count: Schema.Number,
+  plan_mode_member_count: Schema.Number,
+  plan_approval_count: Schema.Number,
+  broadcast_count: Schema.Number,
+  final_report_generated: Schema.Boolean,
+  shallow_usage: Schema.Boolean,
+}).annotate({ identifier: "TeamUsageMetrics" })
+
 const TeamEvalReportSchema = Schema.Struct({
   team_id: Schema.String,
   generated_at: Schema.Number,
@@ -133,6 +148,7 @@ const TeamEvalReportSchema = Schema.Struct({
     propagated_failure_count: Schema.Number,
     structural_deviation_count: Schema.Number,
     longest_dependency_chain: Schema.Number,
+    usage: TeamUsageMetricsSchema,
   }),
 }).annotate({ identifier: "TeamEvalReport" })
 
