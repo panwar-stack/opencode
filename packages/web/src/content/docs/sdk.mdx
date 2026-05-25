@@ -5,6 +5,7 @@ description: Type-safe JS client for opencode server.
 
 import config from "../../../config.mjs"
 export const typesUrl = `${config.github}/blob/dev/packages/sdk/js/src/gen/types.gen.ts`
+export const typesV2Url = `${config.github}/blob/dev/packages/sdk/js/src/v2/gen/types.gen.ts`
 
 The opencode JS/TS SDK provides a type-safe client for interacting with the server.
 Use it to build integrations and control opencode programmatically.
@@ -391,6 +392,44 @@ const content = await client.file.read({
   query: { path: "src/index.ts" },
 })
 ```
+
+---
+
+### Memory
+
+Repository memory methods search historical commit memory and cached file summaries in the v2 SDK. Use results as localization hints and verify against current source before editing.
+
+| Method | Description | Response |
+| ------ | ----------- | -------- |
+| `memory.index({ memoryIndexRequest? })` | Start a background repository index job | <a href={typesV2Url}><code>MemoryIndexResponse</code></a> |
+| `memory.status()` | Get repository memory status | <a href={typesV2Url}><code>MemoryStatusResponse</code></a> |
+| `memory.searchCommit({ memorySearchRequest })` | Search historical commit memory | <a href={typesV2Url}><code>MemoryCommitSearchResponse</code></a> |
+| `memory.commit({ hash, max_diff_bytes? })` | Examine a historical commit memory record | <a href={typesV2Url}><code>MemoryCommitResponse</code></a> |
+| `memory.searchSummary({ memorySearchRequest })` | Search cached file summary memory | <a href={typesV2Url}><code>MemorySummarySearchResponse</code></a> |
+| `memory.summary({ path })` | View a cached file summary | <a href={typesV2Url}><code>MemorySummaryResponse</code></a> |
+| `memory.clear()` | Clear memory for the active repository | <a href={typesV2Url}><code>MemoryClearResponse</code></a> |
+
+#### Examples
+
+```javascript
+import { createOpencodeClient } from "@opencode-ai/sdk/v2"
+
+const client = createOpencodeClient({
+  baseUrl: "http://localhost:4096",
+})
+
+await client.memory.index({
+  memoryIndexRequest: { max_commits: 7000, summaries: 200 },
+})
+
+const status = await client.memory.status()
+
+const commits = await client.memory.searchCommit({
+  memorySearchRequest: { query: "authentication regression", limit: 5 },
+})
+```
+
+Agent-facing memory tools are separate from the SDK. They require `memory.enabled` to be `true` and an index for the active repository.
 
 ---
 

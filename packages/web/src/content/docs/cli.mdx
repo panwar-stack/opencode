@@ -220,6 +220,100 @@ opencode github run
 
 ---
 
+### memory
+
+Index and search repository memory.
+
+```bash
+opencode memory [command]
+```
+
+Repository memory stores historical commit data, file activity, and cached summaries for the current repository. Use it to localize likely files for issue-like tasks, regressions, stack traces, migrations, and similar debugging work.
+
+:::caution
+Memory is historical. Treat retrieved commits and summaries as localization hints only, and verify against the current working tree before editing.
+:::
+
+#### index
+
+Index local git history and generate file summaries.
+
+```bash
+opencode memory index
+```
+
+##### Flags
+
+| Flag                                          | Description                                                                     |
+| --------------------------------------------- | ------------------------------------------------------------------------------- |
+| <nobr><code>{"--max-commits"}</code></nobr> | Maximum commits to index (default: `7000`)                                      |
+| <nobr><code>{"--since"}</code></nobr>        | Only index commits since this git date                                          |
+| <nobr><code>{"--base-commit"}</code></nobr>  | Exclusive cutoff commit                                                         |
+| <nobr><code>{"--cutoff-time"}</code></nobr>  | Exclusive ISO cutoff timestamp                                                  |
+| <nobr><code>{"--branch"}</code></nobr>       | Branch or revision to index                                                     |
+| <nobr><code>{"--github"}</code></nobr>       | Allow linked issue-number lookup from commit messages; use `--no-github` to disable. Indexing is offline-safe |
+| <nobr><code>{"--summaries"}</code></nobr>    | Number of top active files to summarize; use `0` to skip summaries              |
+
+#### status
+
+Show counts for the active repository memory index.
+
+```bash
+opencode memory status
+```
+
+#### search
+
+Search indexed commits or cached file summaries.
+
+```bash
+opencode memory search commit "auth regression" --limit 20
+opencode memory search summary "serialization error" --limit 5
+```
+
+#### examine
+
+Inspect a stored commit memory record and its historical diff.
+
+```bash
+opencode memory examine commit <hash> --max-diff-bytes 50000
+```
+
+#### view
+
+Show a cached file summary for a repository-relative path.
+
+```bash
+opencode memory view summary packages/opencode/src/example.ts
+```
+
+#### clear
+
+Clear repository memory for the current repository, or for a specific repository identity.
+
+```bash
+opencode memory clear
+opencode memory clear --repository github.com/owner/repo
+```
+
+#### eval
+
+Evaluate repository memory localization against historical issues.
+
+```bash
+opencode memory eval --issues issues.json
+```
+
+##### Flags
+
+| Flag                                          | Description                                                        |
+| --------------------------------------------- | ------------------------------------------------------------------ |
+| <nobr><code>{"--issues"}</code></nobr>      | Path to historical issues JSON                                     |
+| <nobr><code>{"--max-commits"}</code></nobr> | Maximum commits to index per issue (default: `7000`)               |
+| <nobr><code>{"--summaries"}</code></nobr>    | Number of top active files to summarize; use `0` to skip summaries |
+
+---
+
 ### mcp
 
 Manage Model Context Protocol servers.

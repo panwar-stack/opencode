@@ -1,0 +1,116 @@
+---
+title: Memory
+description: Use repository memory to search historical commits and file summaries.
+---
+
+Repository memory indexes local git history and high-activity file summaries so OpenCode can find historical localization hints before reading source.
+
+Memory is historical. Treat commit diffs and cached summaries as clues, then verify every result against the current working tree before editing.
+
+---
+
+## Enable
+
+Agent tools are only exposed when repository memory is enabled and an index exists for the active repository.
+
+```json title="opencode.json"
+{
+  "memory": {
+    "enabled": true
+  }
+}
+```
+
+You can create or refresh the index from a git worktree:
+
+```bash
+opencode memory index
+```
+
+Indexing uses local git history and works without GitHub credentials. When GitHub lookup is enabled, OpenCode can record linked issue numbers found in commit messages.
+
+---
+
+## CLI
+
+```bash
+opencode memory index [--max-commits 7000] [--summaries 200] [--since <date>] [--base-commit <hash>] [--cutoff-time <iso>] [--branch <name>] [--no-github]
+opencode memory status
+opencode memory search commit <query> [--limit 20]
+opencode memory examine commit <hash> [--max-diff-bytes 50000]
+opencode memory search summary <query> [--limit 5]
+opencode memory view summary <path>
+opencode memory clear [--repository <identity>]
+opencode memory eval --issues <path> [--max-commits 7000] [--summaries 200]
+```
+
+### Index options
+
+| Flag | Description |
+| ---- | ----------- |
+| `--max-commits` | Maximum commits to index. Defaults to `7000`. |
+| `--summaries` | Number of top active files to summarize. Use `0` to skip summaries. Defaults to `200`. |
+| `--since` | Only index commits since a git date. |
+| `--base-commit` | Exclusive cutoff commit. The cutoff commit itself is not indexed. |
+| `--cutoff-time` | Exclusive ISO cutoff timestamp. |
+| `--branch` | Branch or revision to index. |
+| `--no-github` | Disable linked issue-number lookup from commit messages. |
+
+Summary generation uses your configured OpenCode model/provider. If summaries cannot be generated, commit memory and file activity can still be indexed and used.
+
+---
+
+## Config
+
+```json title="opencode.json"
+{
+  "memory": {
+    "enabled": true,
+    "max_commits": 7000,
+    "summary_limit": 200,
+    "search_commit_limit": 20,
+    "search_summary_limit": 5
+  }
+}
+```
+
+| Field | Description |
+| ----- | ----------- |
+| `enabled` | Expose repository memory tools and prompt guidance when an index exists. Defaults to `false`. |
+| `max_commits` | Maximum commits to index. Defaults to `7000`. |
+| `summary_limit` | Maximum file summaries to maintain. Defaults to `200`. |
+| `search_commit_limit` | Default limit for `memory_search_commit`. Defaults to `20`. |
+| `search_summary_limit` | Default limit for `memory_search_summary`. Defaults to `5`. |
+
+---
+
+## Agent Tools
+
+When `memory.enabled` is `true` and the active repository has an index, OpenCode can expose these read-only tools to agents:
+
+| Tool | Description |
+| ---- | ----------- |
+| `memory_search_commit` | Search historical commit memory by natural language, error text, code symbol, or file path. |
+| `memory_examine_commit` | Inspect a retrieved historical commit diff. |
+| `memory_search_summary` | Search cached summaries for high-activity files. |
+| `memory_view_summary` | View the cached summary for a known repository-relative file path. |
+
+Agents should use memory early for issue-like tasks, regressions, stack traces, migrations, validation bugs, serialization bugs, authentication bugs, and database behavior. Results are localization hints, not source of truth.
+
+---
+
+## HTTP API
+
+Repository memory is also available through the [server API](/docs/server):
+
+| Method | Path | Description |
+| ------ | ---- | ----------- |
+| `POST` | `/memory/index` | Start a background job to index repository memory. |
+| `GET` | `/memory/status` | Get commit, file activity, and summary counts. |
+| `POST` | `/memory/search/commit` | Search commit memory. |
+| `GET` | `/memory/commit/:hash` | Examine a historical commit memory record. |
+| `POST` | `/memory/search/summary` | Search file summary memory. |
+| `GET` | `/memory/summary?path=<file-path>` | View a cached file summary. |
+| `DELETE` | `/memory` | Clear memory for the active repository. |
+
+The generated [SDK](/docs/sdk) exposes the same endpoints from the server OpenAPI schema.

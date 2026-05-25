@@ -353,6 +353,39 @@ You can manage the tools an LLM can use through the `tools` option.
 
 ---
 
+### Memory
+
+Repository memory lets OpenCode index historical commits, file activity, and cached summaries for the active repository. It is disabled by default.
+
+```json title="opencode.json"
+{
+  "$schema": "https://opencode.ai/config.json",
+  "memory": {
+    "enabled": true,
+    "max_commits": 7000,
+    "summary_limit": 200,
+    "search_commit_limit": 20,
+    "search_summary_limit": 5
+  }
+}
+```
+
+Available options:
+
+- `enabled` - Expose repository memory tools and prompt guidance when an index exists. Defaults to `false`.
+- `max_commits` - Maximum commits to index. Defaults to `7000`.
+- `summary_limit` - Maximum file summaries to maintain. Defaults to `200`.
+- `search_commit_limit` - Default result limit for `memory_search_commit`. Defaults to `20`.
+- `search_summary_limit` - Default result limit for `memory_search_summary`. Defaults to `5`.
+
+Run [`opencode memory index`](/docs/cli#memory) to create the index. Agent memory tools require both `memory.enabled: true` and an existing index for the active repository.
+
+:::caution
+Repository memory is historical. Retrieved commits and summaries are hints; always verify against current source before editing.
+:::
+
+---
+
 ### Models
 
 You can configure the providers and models you want to use in your OpenCode config through the `provider`, `model` and `small_model` options.
