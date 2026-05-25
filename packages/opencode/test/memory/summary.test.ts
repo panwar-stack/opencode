@@ -17,9 +17,15 @@ describe("Memory file summaries", () => {
     Effect.gen(function* () {
       const tmp = yield* Effect.promise(() => tmpdir({ git: true }))
       yield* Effect.addFinalizer(() => Effect.promise(() => tmp[Symbol.asyncDispose]()))
-      yield* Effect.promise(() => createCommit(tmp.path, "src/auth.ts", "export const loginRedirect = true\n", "fix login redirect"))
-      yield* Effect.promise(() => createCommit(tmp.path, "src/catalog.ts", "export const catalog = true\n", "add catalog"))
-      yield* Effect.promise(() => createCommit(tmp.path, "src/auth.ts", "export const loginRedirect = 'fixed'\n", "update login redirect"))
+      yield* Effect.promise(() =>
+        createCommit(tmp.path, "src/auth.ts", "export const loginRedirect = true\n", "fix login redirect"),
+      )
+      yield* Effect.promise(() =>
+        createCommit(tmp.path, "src/catalog.ts", "export const catalog = true\n", "add catalog"),
+      )
+      yield* Effect.promise(() =>
+        createCommit(tmp.path, "src/auth.ts", "export const loginRedirect = 'fixed'\n", "update login redirect"),
+      )
 
       const memory = yield* Memory.Service
       const result = yield* memory.indexLocalRepository({
@@ -30,7 +36,11 @@ describe("Memory file summaries", () => {
         summaryGenerator: summaryGenerator("Login redirect responsibility", ["loginRedirect"]),
       })
       const matches = yield* memory.searchSummaryRows({ repository_id: result.repository.id, query: "redirect" })
-      const summary = yield* memory.getFileSummary({ repository_id: result.repository.id, path: "src/auth.ts", worktree: tmp.path })
+      const summary = yield* memory.getFileSummary({
+        repository_id: result.repository.id,
+        path: "src/auth.ts",
+        worktree: tmp.path,
+      })
 
       expect(result.summaries).toMatchObject({ requested: 1, generated: 1, reused: 0, failed: 0 })
       expect(matches[0].path).toBe("src/auth.ts")
@@ -45,7 +55,9 @@ describe("Memory file summaries", () => {
     Effect.gen(function* () {
       const tmp = yield* Effect.promise(() => tmpdir({ git: true }))
       yield* Effect.addFinalizer(() => Effect.promise(() => tmp[Symbol.asyncDispose]()))
-      yield* Effect.promise(() => createCommit(tmp.path, "src/auth.ts", "export const loginRedirect = true\n", "fix login redirect"))
+      yield* Effect.promise(() =>
+        createCommit(tmp.path, "src/auth.ts", "export const loginRedirect = true\n", "fix login redirect"),
+      )
       const memory = yield* Memory.Service
       const first = yield* memory.indexLocalRepository({
         worktree: tmp.path,
@@ -61,10 +73,16 @@ describe("Memory file summaries", () => {
         generator: summaryGenerator("unused summary", ["unused"]),
       })
       const before = Database.use((db) =>
-        db.select().from(RepositoryMemoryFileSummaryTable).where(eq(RepositoryMemoryFileSummaryTable.repository_id, first.repository.id)).get(),
+        db
+          .select()
+          .from(RepositoryMemoryFileSummaryTable)
+          .where(eq(RepositoryMemoryFileSummaryTable.repository_id, first.repository.id))
+          .get(),
       )
 
-      yield* Effect.promise(() => Bun.write(path.join(tmp.path, "src/auth.ts"), "export const loginRedirect = 'changed'\n"))
+      yield* Effect.promise(() =>
+        Bun.write(path.join(tmp.path, "src/auth.ts"), "export const loginRedirect = 'changed'\n"),
+      )
       const refreshed = yield* memory.generateFileSummaries({
         repository_id: first.repository.id,
         worktree: tmp.path,
@@ -72,7 +90,11 @@ describe("Memory file summaries", () => {
         generator: summaryGenerator("refreshed summary", ["loginRedirect"]),
       })
       const after = Database.use((db) =>
-        db.select().from(RepositoryMemoryFileSummaryTable).where(eq(RepositoryMemoryFileSummaryTable.repository_id, first.repository.id)).get(),
+        db
+          .select()
+          .from(RepositoryMemoryFileSummaryTable)
+          .where(eq(RepositoryMemoryFileSummaryTable.repository_id, first.repository.id))
+          .get(),
       )
 
       expect(first.summaries.generated).toBe(1)
@@ -113,7 +135,8 @@ describe("Memory file summaries", () => {
         cutoffTime: "2024-01-02T00:00:00Z",
         noGithub: true,
         summaries: 1,
-        summaryGenerator: (input) => Effect.succeed({ summary: input.content, important_symbols: [], model_id: "test/model" }),
+        summaryGenerator: (input) =>
+          Effect.succeed({ summary: input.content, important_symbols: [], model_id: "test/model" }),
       })
       const summary = yield* memory.getFileSummary({ repository_id: result.repository.id, path: "src/auth.ts" })
 
@@ -153,7 +176,8 @@ describe("Memory file summaries", () => {
         maxCommits: 10,
         noGithub: true,
         summaries: 1,
-        summaryGenerator: (input) => Effect.succeed({ summary: input.content, important_symbols: [], model_id: "test/model" }),
+        summaryGenerator: (input) =>
+          Effect.succeed({ summary: input.content, important_symbols: [], model_id: "test/model" }),
       })
       const futureMatches = yield* memory.searchSummaryRows({ repository_id: full.repository.id, query: "future" })
       const narrowed = yield* memory.indexLocalRepository({
@@ -165,7 +189,10 @@ describe("Memory file summaries", () => {
         summaryGenerator: () => Effect.fail(new Error("summary unavailable")),
       })
       const staleMatches = yield* memory.searchSummaryRows({ repository_id: narrowed.repository.id, query: "future" })
-      const commitMatches = yield* memory.searchCommitRows({ repository_id: narrowed.repository.id, query: "historical login redirect" })
+      const commitMatches = yield* memory.searchCommitRows({
+        repository_id: narrowed.repository.id,
+        query: "historical login redirect",
+      })
 
       expect(futureMatches).toHaveLength(1)
       expect(narrowed.summaries).toMatchObject({ requested: 1, generated: 0, reused: 0, failed: 1 })
@@ -178,7 +205,9 @@ describe("Memory file summaries", () => {
     Effect.gen(function* () {
       const tmp = yield* Effect.promise(() => tmpdir({ git: true }))
       yield* Effect.addFinalizer(() => Effect.promise(() => tmp[Symbol.asyncDispose]()))
-      yield* Effect.promise(() => createCommit(tmp.path, "src/auth.ts", "export const loginRedirect = true\n", "fix login redirect"))
+      yield* Effect.promise(() =>
+        createCommit(tmp.path, "src/auth.ts", "export const loginRedirect = true\n", "fix login redirect"),
+      )
 
       const memory = yield* Memory.Service
       const result = yield* memory.indexLocalRepository({
@@ -193,6 +222,38 @@ describe("Memory file summaries", () => {
       expect(result.summaries).toMatchObject({ requested: 1, generated: 0, reused: 0, failed: 1 })
       expect(result.summaries.failures[0]).toEqual({ path: "src/auth.ts", message: "summary service unavailable" })
       expect(matches[0].message).toBe("fix login redirect")
+    }),
+  )
+
+  it.live("omits summary progress when summary indexing is disabled", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.promise(() => tmpdir({ git: true }))
+      yield* Effect.addFinalizer(() => Effect.promise(() => tmp[Symbol.asyncDispose]()))
+      yield* Effect.promise(() =>
+        createCommit(tmp.path, "src/auth.ts", "export const loginRedirect = true\n", "fix login redirect"),
+      )
+
+      const progress: Memory.IndexProgress[] = []
+      const memory = yield* Memory.Service
+      yield* memory.indexLocalRepository({
+        worktree: tmp.path,
+        maxCommits: 10,
+        noGithub: true,
+        summaries: 0,
+        onProgress: (event) =>
+          Effect.sync(() => {
+            progress.push(event)
+          }),
+      })
+
+      expect(progress).toEqual([
+        { phase: "resolve" },
+        { phase: "crawl", current: 0, total: 2 },
+        { phase: "crawl", current: 1, total: 2 },
+        { phase: "crawl", current: 2, total: 2 },
+        { phase: "store", indexed: 1, skipped: 1 },
+        { phase: "activity" },
+      ])
     }),
   )
 })

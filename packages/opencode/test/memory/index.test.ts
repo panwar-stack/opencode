@@ -5,7 +5,11 @@ import { describe, expect } from "bun:test"
 import { eq } from "drizzle-orm"
 import { Cause, Effect, Exit, Layer } from "effect"
 import { Memory } from "@/memory/memory"
-import { RepositoryMemoryCommitTable, RepositoryMemoryFileSummaryTable, RepositoryMemoryRetrievalLogTable } from "@/memory/memory.sql"
+import {
+  RepositoryMemoryCommitTable,
+  RepositoryMemoryFileSummaryTable,
+  RepositoryMemoryRetrievalLogTable,
+} from "@/memory/memory.sql"
 import { Database } from "@/storage/db"
 import { tokenText } from "@/memory/search"
 import { testEffect } from "../lib/effect"
@@ -18,7 +22,9 @@ describe("Memory local git indexing", () => {
     Effect.gen(function* () {
       const tmp = yield* Effect.promise(() => tmpdir({ git: true }))
       yield* Effect.addFinalizer(() => Effect.promise(() => tmp[Symbol.asyncDispose]()))
-      yield* Effect.promise(() => createCommit(tmp.path, "src/auth.ts", "export const loginRedirect = true\n", "fix login redirect"))
+      yield* Effect.promise(() =>
+        createCommit(tmp.path, "src/auth.ts", "export const loginRedirect = true\n", "fix login redirect"),
+      )
       yield* Effect.promise(() => createCommit(tmp.path, "bun.lock", "lock\n", "update lockfile"))
 
       const memory = yield* Memory.Service
@@ -35,18 +41,76 @@ describe("Memory local git indexing", () => {
     }),
   )
 
+  it.live("emits ordered progress events while indexing local memory", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.promise(() => tmpdir({ git: true }))
+      yield* Effect.addFinalizer(() => Effect.promise(() => tmp[Symbol.asyncDispose]()))
+      yield* Effect.promise(() =>
+        createCommit(tmp.path, "src/auth.ts", "export const loginRedirect = true\n", "fix login redirect"),
+      )
+
+      const progress: Memory.IndexProgress[] = []
+      const memory = yield* Memory.Service
+      yield* memory.indexLocalRepository({
+        worktree: tmp.path,
+        maxCommits: 10,
+        noGithub: true,
+        summaries: 1,
+        summaryGenerator: () =>
+          Effect.succeed({
+            summary: "Login redirect responsibility",
+            important_symbols: ["loginRedirect"],
+            model_id: "test/model",
+          }),
+        onProgress: (event) =>
+          Effect.sync(() => {
+            progress.push(event)
+          }),
+      })
+
+      expect(progress).toEqual([
+        { phase: "resolve" },
+        { phase: "crawl", current: 0, total: 2 },
+        { phase: "crawl", current: 1, total: 2 },
+        { phase: "crawl", current: 2, total: 2 },
+        { phase: "store", indexed: 1, skipped: 1 },
+        { phase: "activity" },
+        { phase: "summaries", current: 0, total: 1 },
+        { phase: "summaries", current: 1, total: 1 },
+      ])
+    }),
+  )
+
   it.live("replaces repository commit and file activity rows when re-indexing a cutoff window", () =>
     Effect.gen(function* () {
       const tmp = yield* Effect.promise(() => tmpdir({ git: true }))
       yield* Effect.addFinalizer(() => Effect.promise(() => tmp[Symbol.asyncDispose]()))
       yield* Effect.promise(() =>
-        createCommit(tmp.path, "src/old.ts", "export const oldMemory = true\n", "add old memory", "2024-01-01T00:00:00Z"),
+        createCommit(
+          tmp.path,
+          "src/old.ts",
+          "export const oldMemory = true\n",
+          "add old memory",
+          "2024-01-01T00:00:00Z",
+        ),
       )
       yield* Effect.promise(() =>
-        createCommit(tmp.path, "src/middle.ts", "export const middleMemory = true\n", "add middle memory", "2024-01-02T00:00:00Z"),
+        createCommit(
+          tmp.path,
+          "src/middle.ts",
+          "export const middleMemory = true\n",
+          "add middle memory",
+          "2024-01-02T00:00:00Z",
+        ),
       )
       yield* Effect.promise(() =>
-        createCommit(tmp.path, "src/future.ts", "export const futureMemory = true\n", "add future memory", "2024-01-03T00:00:00Z"),
+        createCommit(
+          tmp.path,
+          "src/future.ts",
+          "export const futureMemory = true\n",
+          "add future memory",
+          "2024-01-03T00:00:00Z",
+        ),
       )
 
       const memory = yield* Memory.Service
@@ -86,13 +150,27 @@ describe("Memory local git indexing", () => {
         noGithub: true,
       })
       const status = yield* memory.status(narrowed.repository.identity)
-      const staleMatches = yield* memory.searchCommitRows({ repository_id: narrowed.repository.id, query: "futureMemory" })
-      const keptMatches = yield* memory.searchCommitRows({ repository_id: narrowed.repository.id, query: "middleMemory" })
+      const staleMatches = yield* memory.searchCommitRows({
+        repository_id: narrowed.repository.id,
+        query: "futureMemory",
+      })
+      const keptMatches = yield* memory.searchCommitRows({
+        repository_id: narrowed.repository.id,
+        query: "middleMemory",
+      })
       const summaries = Database.use((db) =>
-        db.select().from(RepositoryMemoryFileSummaryTable).where(eq(RepositoryMemoryFileSummaryTable.repository_id, narrowed.repository.id)).all(),
+        db
+          .select()
+          .from(RepositoryMemoryFileSummaryTable)
+          .where(eq(RepositoryMemoryFileSummaryTable.repository_id, narrowed.repository.id))
+          .all(),
       )
       const logs = Database.use((db) =>
-        db.select().from(RepositoryMemoryRetrievalLogTable).where(eq(RepositoryMemoryRetrievalLogTable.repository_id, narrowed.repository.id)).all(),
+        db
+          .select()
+          .from(RepositoryMemoryRetrievalLogTable)
+          .where(eq(RepositoryMemoryRetrievalLogTable.repository_id, narrowed.repository.id))
+          .all(),
       )
 
       expect(full.indexedCommits).toBe(3)
@@ -113,20 +191,51 @@ describe("Memory local git indexing", () => {
       const tmp = yield* Effect.promise(() => tmpdir({ git: true }))
       yield* Effect.addFinalizer(() => Effect.promise(() => tmp[Symbol.asyncDispose]()))
       yield* Effect.promise(() =>
-        createCommit(tmp.path, "src/prior.ts", "export const priorMemory = true\n", "add prior memory", "2024-01-01T00:00:00Z"),
+        createCommit(
+          tmp.path,
+          "src/prior.ts",
+          "export const priorMemory = true\n",
+          "add prior memory",
+          "2024-01-01T00:00:00Z",
+        ),
       )
       yield* Effect.promise(() =>
-        createCommit(tmp.path, "src/cutoff.ts", "export const cutoffMemory = true\n", "add cutoff memory", "2024-01-02T00:00:00Z"),
+        createCommit(
+          tmp.path,
+          "src/cutoff.ts",
+          "export const cutoffMemory = true\n",
+          "add cutoff memory",
+          "2024-01-02T00:00:00Z",
+        ),
       )
-      const baseCommit = yield* Effect.promise(() => $`git rev-parse HEAD`.cwd(tmp.path).text().then((hash) => hash.trim()))
+      const baseCommit = yield* Effect.promise(() =>
+        $`git rev-parse HEAD`
+          .cwd(tmp.path)
+          .text()
+          .then((hash) => hash.trim()),
+      )
       yield* Effect.promise(() =>
-        createCommit(tmp.path, "src/future.ts", "export const futureMemory = true\n", "add future memory", "2024-01-03T00:00:00Z"),
+        createCommit(
+          tmp.path,
+          "src/future.ts",
+          "export const futureMemory = true\n",
+          "add future memory",
+          "2024-01-03T00:00:00Z",
+        ),
       )
 
       const memory = yield* Memory.Service
-      const result = yield* memory.indexLocalRepository({ worktree: tmp.path, maxCommits: 10, baseCommit, noGithub: true })
+      const result = yield* memory.indexLocalRepository({
+        worktree: tmp.path,
+        maxCommits: 10,
+        baseCommit,
+        noGithub: true,
+      })
       const priorMatches = yield* memory.searchCommitRows({ repository_id: result.repository.id, query: "priorMemory" })
-      const cutoffMatches = yield* memory.searchCommitRows({ repository_id: result.repository.id, query: "cutoffMemory" })
+      const cutoffMatches = yield* memory.searchCommitRows({
+        repository_id: result.repository.id,
+        query: "cutoffMemory",
+      })
 
       expect(result.indexedCommits).toBe(1)
       expect(priorMatches[0].message).toBe("add prior memory")
@@ -146,7 +255,8 @@ describe("Memory local git indexing", () => {
       const result = yield* memory.getCommit({ repository_id: repository.id, hash: "abc" }).pipe(Effect.exit)
 
       expect(Exit.isFailure(result)).toBe(true)
-      if (Exit.isFailure(result)) expect(Cause.squash(result.cause)).toMatchObject({ message: "Ambiguous commit hash prefix: abc" })
+      if (Exit.isFailure(result))
+        expect(Cause.squash(result.cause)).toMatchObject({ message: "Ambiguous commit hash prefix: abc" })
     }),
   )
 
@@ -155,7 +265,13 @@ describe("Memory local git indexing", () => {
       const tmp = yield* Effect.promise(() => tmpdir({ git: true }))
       yield* Effect.addFinalizer(() => Effect.promise(() => tmp[Symbol.asyncDispose]()))
       yield* Effect.promise(() =>
-        createCommit(tmp.path, "src/linked.ts", "export const linkedIssue = true\n", "fix linked issue (#42)", "2024-01-01T00:00:00Z"),
+        createCommit(
+          tmp.path,
+          "src/linked.ts",
+          "export const linkedIssue = true\n",
+          "fix linked issue (#42)",
+          "2024-01-01T00:00:00Z",
+        ),
       )
       yield* Effect.promise(() => createMergeCommit(tmp.path))
 
@@ -220,5 +336,7 @@ async function createMergeCommit(dir: string) {
   await $`git checkout -b feature-linked-issue`.cwd(dir).quiet()
   await createCommit(dir, "src/merge-linked.ts", "export const mergeLinkedIssue = true\n", "add merge linked issue")
   await $`git checkout master`.cwd(dir).quiet()
-  await $`git merge --no-ff feature-linked-issue -m ${"Merge pull request #77 from feature-linked-issue"}`.cwd(dir).quiet()
+  await $`git merge --no-ff feature-linked-issue -m ${"Merge pull request #77 from feature-linked-issue"}`
+    .cwd(dir)
+    .quiet()
 }

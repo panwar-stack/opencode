@@ -2,6 +2,7 @@ import type { Argv } from "yargs"
 import { Effect } from "effect"
 import { cmd } from "./cmd"
 import { effectCmd, fail } from "../effect-cmd"
+import * as Prompt from "../effect/prompt"
 import { Memory } from "@/memory/memory"
 import { MemoryEval } from "@/memory/eval"
 
@@ -43,15 +44,39 @@ const IndexCommand = effectCmd({
       }),
   handler: Effect.fn("Cli.memory.index")(function* (args) {
     const memory = yield* Memory.Service
-    const result = yield* memory.indexLocalRepository({
-      maxCommits: args["max-commits"],
-      since: args.since,
-      baseCommit: args["base-commit"],
-      cutoffTime: args["cutoff-time"],
-      branch: args.branch,
-      noGithub: args.github === false,
-      summaries: args.summaries,
-    })
+    const spinner = Prompt.spinner({ output: process.stderr })
+    yield* spinner.start("Resolving repository...")
+    const result = yield* memory
+      .indexLocalRepository({
+        maxCommits: args["max-commits"],
+        since: args.since,
+        baseCommit: args["base-commit"],
+        cutoffTime: args["cutoff-time"],
+        branch: args.branch,
+        noGithub: args.github === false,
+        summaries: args.summaries,
+        onProgress: (progress) => {
+          if (progress.phase === "resolve") return spinner.message("Resolving repository...")
+          if (progress.phase === "crawl") {
+            if (progress.current !== undefined && progress.total !== undefined) {
+              return spinner.message(`Crawling commits ${progress.current}/${progress.total}...`)
+            }
+            return spinner.message("Crawling commits...")
+          }
+          if (progress.phase === "store") return spinner.message("Writing memory index...")
+          if (progress.phase === "activity") return spinner.message("Computing file activity...")
+          if (progress.current !== undefined && progress.total !== undefined) {
+            return spinner.message(`Generating file summaries ${progress.current}/${progress.total}...`)
+          }
+          return spinner.message("Generating file summaries...")
+        },
+      })
+      .pipe(
+        Effect.catchCause((cause) =>
+          spinner.stop("Memory index failed", 1).pipe(Effect.ignore, Effect.andThen(Effect.failCause(cause))),
+        ),
+      )
+    yield* spinner.stop("Memory index complete")
     console.log(`Repository: ${result.repository.identity}`)
     console.log(`Worktree: ${result.worktree}`)
     console.log(`Commits indexed: ${result.indexedCommits}`)

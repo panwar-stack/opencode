@@ -99,9 +99,16 @@ export type SummaryIndexResult = {
   readonly failures: readonly { readonly path: string; readonly message: string }[]
 }
 
+export type IndexProgress =
+  | { readonly phase: "resolve" }
+  | { readonly phase: "crawl"; readonly current?: number; readonly total?: number }
+  | { readonly phase: "store"; readonly indexed: number; readonly skipped: number }
+  | { readonly phase: "activity" }
+  | { readonly phase: "summaries"; readonly current?: number; readonly total?: number }
+
 export type FileSummarySearchResult = RankedDocument<typeof RepositoryMemoryFileSummaryTable.$inferSelect>
 
-export type FileSummaryViewResult = (typeof RepositoryMemoryFileSummaryTable.$inferSelect) & {
+export type FileSummaryViewResult = typeof RepositoryMemoryFileSummaryTable.$inferSelect & {
   readonly stale: boolean
   readonly missing: boolean
   readonly current_source_hash?: string
@@ -118,6 +125,7 @@ export type IndexOptions = {
   readonly maxFiles?: number
   readonly summaries?: number
   readonly summaryGenerator?: SummaryGenerator
+  readonly onProgress?: (progress: IndexProgress) => Effect.Effect<void>
 }
 
 export type IndexResult = {
@@ -163,20 +171,47 @@ export interface Interface {
     readonly retrievalLog: typeof RepositoryMemoryRetrievalLogTable
   }
   readonly identity: (reference: string | Reference) => Effect.Effect<RepositoryIdentity>
-  readonly getRepository: (identity: string) => Effect.Effect<typeof RepositoryMemoryRepositoryTable.$inferSelect | undefined>
-  readonly ensureRepository: (input: RepositoryInput) => Effect.Effect<typeof RepositoryMemoryRepositoryTable.$inferSelect>
+  readonly getRepository: (
+    identity: string,
+  ) => Effect.Effect<typeof RepositoryMemoryRepositoryTable.$inferSelect | undefined>
+  readonly ensureRepository: (
+    input: RepositoryInput,
+  ) => Effect.Effect<typeof RepositoryMemoryRepositoryTable.$inferSelect>
   readonly currentRepository: (worktree?: string) => Effect.Effect<RepositoryIdentity & { readonly worktree: string }>
   readonly indexLocalRepository: (input?: IndexOptions) => Effect.Effect<IndexResult>
   readonly upsertCommits: (repository_id: string, commits: readonly CommitInput[]) => Effect.Effect<number>
   readonly upsertFileActivity: (repository_id: string, files: readonly FileActivityInput[]) => Effect.Effect<number>
   readonly status: (identity: string) => Effect.Effect<StatusResult | undefined>
   readonly clearRepository: (identity: string) => Effect.Effect<boolean>
-  readonly getCommit: (input: { repository_id: string; hash: string }) => Effect.Effect<typeof RepositoryMemoryCommitTable.$inferSelect | undefined, Error>
-  readonly searchCommitRows: (input: { repository_id: string; query: string; limit?: number }) => Effect.Effect<CommitSearchResult[]>
-  readonly searchCommits: (input: { repository_id: string; query: string; limit?: number }) => Effect.Effect<ReturnType<typeof rankDocuments>>
-  readonly searchSummaries: (input: { repository_id: string; query: string; limit?: number }) => Effect.Effect<ReturnType<typeof rankDocuments>>
-  readonly searchSummaryRows: (input: { repository_id: string; query: string; limit?: number }) => Effect.Effect<FileSummarySearchResult[]>
-  readonly getFileSummary: (input: { repository_id: string; path: string; worktree?: string }) => Effect.Effect<FileSummaryViewResult | undefined>
+  readonly getCommit: (input: {
+    repository_id: string
+    hash: string
+  }) => Effect.Effect<typeof RepositoryMemoryCommitTable.$inferSelect | undefined, Error>
+  readonly searchCommitRows: (input: {
+    repository_id: string
+    query: string
+    limit?: number
+  }) => Effect.Effect<CommitSearchResult[]>
+  readonly searchCommits: (input: {
+    repository_id: string
+    query: string
+    limit?: number
+  }) => Effect.Effect<ReturnType<typeof rankDocuments>>
+  readonly searchSummaries: (input: {
+    repository_id: string
+    query: string
+    limit?: number
+  }) => Effect.Effect<ReturnType<typeof rankDocuments>>
+  readonly searchSummaryRows: (input: {
+    repository_id: string
+    query: string
+    limit?: number
+  }) => Effect.Effect<FileSummarySearchResult[]>
+  readonly getFileSummary: (input: {
+    repository_id: string
+    path: string
+    worktree?: string
+  }) => Effect.Effect<FileSummaryViewResult | undefined>
   readonly logRetrieval: (input: RetrievalLogInput) => Effect.Effect<void>
   readonly generateFileSummaries: (input: {
     readonly repository_id: string
@@ -184,6 +219,7 @@ export interface Interface {
     readonly limit?: number
     readonly generator?: SummaryGenerator
     readonly source?: SummarySourceReader
+    readonly onProgress?: IndexOptions["onProgress"]
   }) => Effect.Effect<SummaryIndexResult>
 }
 
@@ -205,7 +241,8 @@ export function retrievalContext(sessionID: string) {
 
 export function identity(reference: string | Reference): RepositoryIdentity {
   const parsed = typeof reference === "string" ? parseRepositoryReference(reference) : reference
-  if (!parsed) throw new Error("Repository must be a git URL, host/path reference, GitHub owner/repo shorthand, or file URL")
+  if (!parsed)
+    throw new Error("Repository must be a git URL, host/path reference, GitHub owner/repo shorthand, or file URL")
   return {
     identity: repositoryCacheIdentity(parsed),
     provider: parsed.host === "github.com" ? "github" : parsed.host === "file" ? "file" : parsed.host,
@@ -221,7 +258,11 @@ export const layer = Layer.effect(
 
     const getRepository = Effect.fn("Memory.getRepository")(function* (repositoryIdentity: string) {
       return yield* db((d) =>
-        d.select().from(RepositoryMemoryRepositoryTable).where(eq(RepositoryMemoryRepositoryTable.identity, repositoryIdentity)).get(),
+        d
+          .select()
+          .from(RepositoryMemoryRepositoryTable)
+          .where(eq(RepositoryMemoryRepositoryTable.identity, repositoryIdentity))
+          .get(),
       )
     })
 
@@ -313,7 +354,10 @@ export const layer = Layer.effect(
     ) {
       const now = Date.now()
       yield* db((d) =>
-        d.delete(RepositoryMemoryFileActivityTable).where(eq(RepositoryMemoryFileActivityTable.repository_id, repository_id)).run(),
+        d
+          .delete(RepositoryMemoryFileActivityTable)
+          .where(eq(RepositoryMemoryFileActivityTable.repository_id, repository_id))
+          .run(),
       )
       if (!files.length) return 0
       yield* db((d) =>
@@ -336,13 +380,19 @@ export const layer = Layer.effect(
       return files.length
     })
 
-    const pruneFileSummaries = Effect.fn("Memory.pruneFileSummaries")(function* (repository_id: string, paths: readonly string[]) {
+    const pruneFileSummaries = Effect.fn("Memory.pruneFileSummaries")(function* (
+      repository_id: string,
+      paths: readonly string[],
+    ) {
       yield* db((d) =>
         d
           .delete(RepositoryMemoryFileSummaryTable)
           .where(
             paths.length
-              ? and(eq(RepositoryMemoryFileSummaryTable.repository_id, repository_id), not(inArray(RepositoryMemoryFileSummaryTable.path, [...paths])))
+              ? and(
+                  eq(RepositoryMemoryFileSummaryTable.repository_id, repository_id),
+                  not(inArray(RepositoryMemoryFileSummaryTable.path, [...paths])),
+                )
               : eq(RepositoryMemoryFileSummaryTable.repository_id, repository_id),
           )
           .run(),
@@ -356,6 +406,7 @@ export const layer = Layer.effect(
     })
 
     const indexLocalRepository = Effect.fn("Memory.indexLocalRepository")(function* (input: IndexOptions = {}) {
+      if (input.onProgress) yield* input.onProgress({ phase: "resolve" })
       const current = yield* currentRepository(input.worktree)
       const branch = input.branch ?? (yield* git(current.worktree, ["rev-parse", "--abbrev-ref", "HEAD"]))
       const repository = yield* ensureRepository({
@@ -371,25 +422,31 @@ export const layer = Layer.effect(
         branch: branch.trim(),
         noGithub: input.noGithub,
         maxFiles: input.maxFiles ?? DEFAULT_INDEX_LIMITS.maxChangedFiles,
+        onProgress: input.onProgress,
       })
+      if (input.onProgress)
+        yield* input.onProgress({ phase: "store", indexed: commits.indexed.length, skipped: commits.skipped })
       yield* db((d) =>
         d.delete(RepositoryMemoryCommitTable).where(eq(RepositoryMemoryCommitTable.repository_id, repository.id)).run(),
       )
       yield* upsertCommits(repository.id, commits.indexed)
+      if (input.onProgress) yield* input.onProgress({ phase: "activity" })
       const activity = fileActivity(commits.indexed)
       yield* upsertFileActivity(repository.id, activity)
       const summaryLimit = input.summaries ?? DEFAULT_CORPUS_LIMITS.summaries
-      const summaries = summaryLimit <= 0
-        ? yield* pruneFileSummaries(repository.id, []).pipe(
-            Effect.map(() => ({ requested: 0, generated: 0, reused: 0, failed: 0, failures: [] })),
-          )
-        : yield* generateFileSummaries({
-            repository_id: repository.id,
-            worktree: current.worktree,
-            limit: summaryLimit,
-            generator: input.summaryGenerator,
-            source: summarySourceFromCommits(current.worktree, commits.indexed),
-          })
+      const summaries =
+        summaryLimit <= 0
+          ? yield* pruneFileSummaries(repository.id, []).pipe(
+              Effect.map(() => ({ requested: 0, generated: 0, reused: 0, failed: 0, failures: [] })),
+            )
+          : yield* generateFileSummaries({
+              repository_id: repository.id,
+              worktree: current.worktree,
+              limit: summaryLimit,
+              generator: input.summaryGenerator,
+              source: summarySourceFromCommits(current.worktree, commits.indexed),
+              onProgress: input.onProgress,
+            })
       return {
         repository,
         worktree: current.worktree,
@@ -404,21 +461,24 @@ export const layer = Layer.effect(
       const repository = yield* getRepository(repositoryIdentity)
       if (!repository) return undefined
       const counts = yield* db((d) => ({
-        commits: d
-          .select({ count: sql<number>`count(*)` })
-          .from(RepositoryMemoryCommitTable)
-          .where(eq(RepositoryMemoryCommitTable.repository_id, repository.id))
-          .get()?.count ?? 0,
-        file_activity: d
-          .select({ count: sql<number>`count(*)` })
-          .from(RepositoryMemoryFileActivityTable)
-          .where(eq(RepositoryMemoryFileActivityTable.repository_id, repository.id))
-          .get()?.count ?? 0,
-        summaries: d
-          .select({ count: sql<number>`count(*)` })
-          .from(RepositoryMemoryFileSummaryTable)
-          .where(eq(RepositoryMemoryFileSummaryTable.repository_id, repository.id))
-          .get()?.count ?? 0,
+        commits:
+          d
+            .select({ count: sql<number>`count(*)` })
+            .from(RepositoryMemoryCommitTable)
+            .where(eq(RepositoryMemoryCommitTable.repository_id, repository.id))
+            .get()?.count ?? 0,
+        file_activity:
+          d
+            .select({ count: sql<number>`count(*)` })
+            .from(RepositoryMemoryFileActivityTable)
+            .where(eq(RepositoryMemoryFileActivityTable.repository_id, repository.id))
+            .get()?.count ?? 0,
+        summaries:
+          d
+            .select({ count: sql<number>`count(*)` })
+            .from(RepositoryMemoryFileSummaryTable)
+            .where(eq(RepositoryMemoryFileSummaryTable.repository_id, repository.id))
+            .get()?.count ?? 0,
       }))
       return { repository, ...counts }
     })
@@ -426,7 +486,9 @@ export const layer = Layer.effect(
     const clearRepository = Effect.fn("Memory.clearRepository")(function* (repositoryIdentity: string) {
       const repository = yield* getRepository(repositoryIdentity)
       if (!repository) return false
-      yield* db((d) => d.delete(RepositoryMemoryRepositoryTable).where(eq(RepositoryMemoryRepositoryTable.id, repository.id)).run())
+      yield* db((d) =>
+        d.delete(RepositoryMemoryRepositoryTable).where(eq(RepositoryMemoryRepositoryTable.id, repository.id)).run(),
+      )
       return true
     })
 
@@ -436,7 +498,10 @@ export const layer = Layer.effect(
           .select()
           .from(RepositoryMemoryCommitTable)
           .where(
-            and(eq(RepositoryMemoryCommitTable.repository_id, input.repository_id), like(RepositoryMemoryCommitTable.hash, `${input.hash}%`)),
+            and(
+              eq(RepositoryMemoryCommitTable.repository_id, input.repository_id),
+              like(RepositoryMemoryCommitTable.hash, `${input.hash}%`),
+            ),
           )
           .orderBy(desc(RepositoryMemoryCommitTable.author_time))
           .limit(2)
@@ -474,7 +539,16 @@ export const layer = Layer.effect(
       const ranked = yield* searchCommits(input)
       if (!ranked.length) return []
       const rows = yield* db((d) =>
-        d.select().from(RepositoryMemoryCommitTable).where(inArray(RepositoryMemoryCommitTable.id, ranked.map((item) => item.id))).all(),
+        d
+          .select()
+          .from(RepositoryMemoryCommitTable)
+          .where(
+            inArray(
+              RepositoryMemoryCommitTable.id,
+              ranked.map((item) => item.id),
+            ),
+          )
+          .all(),
       )
       return ranked
         .map((item) => {
@@ -494,7 +568,10 @@ export const layer = Layer.effect(
         input.query,
         yield* db((d) =>
           d
-            .select({ id: RepositoryMemoryFileSummaryTable.id, token_text: RepositoryMemoryFileSummaryTable.token_text })
+            .select({
+              id: RepositoryMemoryFileSummaryTable.id,
+              token_text: RepositoryMemoryFileSummaryTable.token_text,
+            })
             .from(RepositoryMemoryFileSummaryTable)
             .where(eq(RepositoryMemoryFileSummaryTable.repository_id, input.repository_id))
             .orderBy(desc(RepositoryMemoryFileSummaryTable.time_generated))
@@ -513,7 +590,16 @@ export const layer = Layer.effect(
       const ranked = yield* searchSummaries(input)
       if (!ranked.length) return []
       const rows = yield* db((d) =>
-        d.select().from(RepositoryMemoryFileSummaryTable).where(inArray(RepositoryMemoryFileSummaryTable.id, ranked.map((item) => item.id))).all(),
+        d
+          .select()
+          .from(RepositoryMemoryFileSummaryTable)
+          .where(
+            inArray(
+              RepositoryMemoryFileSummaryTable.id,
+              ranked.map((item) => item.id),
+            ),
+          )
+          .all(),
       )
       return ranked
         .map((item) => {
@@ -533,7 +619,12 @@ export const layer = Layer.effect(
         d
           .select()
           .from(RepositoryMemoryFileSummaryTable)
-          .where(and(eq(RepositoryMemoryFileSummaryTable.repository_id, input.repository_id), eq(RepositoryMemoryFileSummaryTable.path, input.path)))
+          .where(
+            and(
+              eq(RepositoryMemoryFileSummaryTable.repository_id, input.repository_id),
+              eq(RepositoryMemoryFileSummaryTable.path, input.path),
+            ),
+          )
           .get(),
       )
       if (!row) return undefined
@@ -545,7 +636,12 @@ export const layer = Layer.effect(
         }),
       )
       if (!source) return { ...row, stale: true, missing: true }
-      return { ...row, stale: row.source_hash !== source.source_hash, missing: false, current_source_hash: source.source_hash }
+      return {
+        ...row,
+        stale: row.source_hash !== source.source_hash,
+        missing: false,
+        current_source_hash: source.source_hash,
+      }
     })
 
     const logRetrieval = Effect.fn("Memory.logRetrieval")(function* (input: RetrievalLogInput) {
@@ -577,6 +673,7 @@ export const layer = Layer.effect(
       readonly limit?: number
       readonly generator?: SummaryGenerator
       readonly source?: SummarySourceReader
+      readonly onProgress?: IndexOptions["onProgress"]
     }) {
       const limit = input.limit ?? DEFAULT_CORPUS_LIMITS.summaries
       if (limit <= 0) {
@@ -588,15 +685,36 @@ export const layer = Layer.effect(
           .select()
           .from(RepositoryMemoryFileActivityTable)
           .where(eq(RepositoryMemoryFileActivityTable.repository_id, input.repository_id))
-          .orderBy(desc(RepositoryMemoryFileActivityTable.edit_count), desc(RepositoryMemoryFileActivityTable.last_modified), asc(RepositoryMemoryFileActivityTable.path))
+          .orderBy(
+            desc(RepositoryMemoryFileActivityTable.edit_count),
+            desc(RepositoryMemoryFileActivityTable.last_modified),
+            asc(RepositoryMemoryFileActivityTable.path),
+          )
           .limit(limit)
           .all(),
       )
-      yield* pruneFileSummaries(input.repository_id, files.map((file) => file.path))
+      yield* pruneFileSummaries(
+        input.repository_id,
+        files.map((file) => file.path),
+      )
+      if (input.onProgress) yield* input.onProgress({ phase: "summaries", current: 0, total: files.length })
       const generator = input.generator ?? (yield* defaultSummaryGenerator())
+      let completed = 0
       const results = yield* Effect.forEach(
         files,
-        (file) => summarizeFile(input.repository_id, input.source ?? worktreeSummarySource(input.worktree), file, generator),
+        (file) =>
+          Effect.gen(function* () {
+            const result = yield* summarizeFile(
+              input.repository_id,
+              input.source ?? worktreeSummarySource(input.worktree),
+              file,
+              generator,
+            )
+            completed++
+            if (input.onProgress)
+              yield* input.onProgress({ phase: "summaries", current: completed, total: files.length })
+            return result
+          }),
         { concurrency: 2 },
       )
       return {
@@ -604,7 +722,9 @@ export const layer = Layer.effect(
         generated: results.filter((result) => result.type === "generated").length,
         reused: results.filter((result) => result.type === "reused").length,
         failed: results.filter((result) => result.type === "failed").length,
-        failures: results.flatMap((result) => (result.type === "failed" ? [{ path: result.path, message: result.message }] : [])),
+        failures: results.flatMap((result) =>
+          result.type === "failed" ? [{ path: result.path, message: result.message }] : [],
+        ),
       }
     })
 
@@ -624,7 +744,12 @@ export const layer = Layer.effect(
         yield* db((d) =>
           d
             .delete(RepositoryMemoryFileSummaryTable)
-            .where(and(eq(RepositoryMemoryFileSummaryTable.repository_id, repository_id), eq(RepositoryMemoryFileSummaryTable.path, file.path)))
+            .where(
+              and(
+                eq(RepositoryMemoryFileSummaryTable.repository_id, repository_id),
+                eq(RepositoryMemoryFileSummaryTable.path, file.path),
+              ),
+            )
             .run(),
         )
         return source
@@ -633,7 +758,12 @@ export const layer = Layer.effect(
         d
           .select()
           .from(RepositoryMemoryFileSummaryTable)
-          .where(and(eq(RepositoryMemoryFileSummaryTable.repository_id, repository_id), eq(RepositoryMemoryFileSummaryTable.path, file.path)))
+          .where(
+            and(
+              eq(RepositoryMemoryFileSummaryTable.repository_id, repository_id),
+              eq(RepositoryMemoryFileSummaryTable.path, file.path),
+            ),
+          )
           .get(),
       )
       if (existing?.source_hash === source.source_hash) {
@@ -641,7 +771,12 @@ export const layer = Layer.effect(
           d
             .update(RepositoryMemoryFileSummaryTable)
             .set({ time_generated: Date.now(), time_updated: Date.now() })
-            .where(and(eq(RepositoryMemoryFileSummaryTable.repository_id, repository_id), eq(RepositoryMemoryFileSummaryTable.path, file.path)))
+            .where(
+              and(
+                eq(RepositoryMemoryFileSummaryTable.repository_id, repository_id),
+                eq(RepositoryMemoryFileSummaryTable.path, file.path),
+              ),
+            )
             .run(),
         )
         return { type: "reused" as const, path: file.path }
@@ -663,7 +798,12 @@ export const layer = Layer.effect(
         yield* db((d) =>
           d
             .delete(RepositoryMemoryFileSummaryTable)
-            .where(and(eq(RepositoryMemoryFileSummaryTable.repository_id, repository_id), eq(RepositoryMemoryFileSummaryTable.path, file.path)))
+            .where(
+              and(
+                eq(RepositoryMemoryFileSummaryTable.repository_id, repository_id),
+                eq(RepositoryMemoryFileSummaryTable.path, file.path),
+              ),
+            )
             .run(),
         )
         return generated
@@ -672,7 +812,12 @@ export const layer = Layer.effect(
       yield* db((d) =>
         d
           .delete(RepositoryMemoryFileSummaryTable)
-          .where(and(eq(RepositoryMemoryFileSummaryTable.repository_id, repository_id), eq(RepositoryMemoryFileSummaryTable.path, file.path)))
+          .where(
+            and(
+              eq(RepositoryMemoryFileSummaryTable.repository_id, repository_id),
+              eq(RepositoryMemoryFileSummaryTable.path, file.path),
+            ),
+          )
           .run(),
       )
       yield* db((d) =>
@@ -728,7 +873,9 @@ export const layer = Layer.effect(
 export const defaultLayer = layer
 
 function git(cwd: string, args: readonly string[]) {
-  return Effect.promise(() => execFileAsync("git", [...args], { cwd, encoding: "utf8", maxBuffer: 1024 * 1024 * 100 })).pipe(
+  return Effect.promise(() =>
+    execFileAsync("git", [...args], { cwd, encoding: "utf8", maxBuffer: 1024 * 1024 * 100 }),
+  ).pipe(
     Effect.map((result) => result.stdout.trim()),
     Effect.catch(Effect.die),
   )
@@ -745,7 +892,7 @@ function optionalGit(cwd: string, args: readonly string[]) {
 const crawlCommits = Effect.fn("Memory.crawlCommits")(function* (
   worktree: string,
   options: Required<Pick<IndexOptions, "maxCommits" | "branch" | "maxFiles">> &
-    Pick<IndexOptions, "since" | "baseCommit" | "cutoffTime" | "noGithub">,
+    Pick<IndexOptions, "since" | "baseCommit" | "cutoffTime" | "noGithub" | "onProgress">,
 ) {
   const format = "%H%x1f%P%x1f%at%x1f%B%x1e"
   const revision = options.baseCommit ? `${options.baseCommit}^@` : options.branch
@@ -757,10 +904,7 @@ const crawlCommits = Effect.fn("Memory.crawlCommits")(function* (
     ...(before ? [`--before=${before}`] : []),
     `--max-count=${options.maxCommits.toString()}`,
   ]
-  const output = yield* git(worktree, [
-    ...logArgs,
-    revision,
-  ])
+  const output = yield* git(worktree, [...logArgs, revision])
   const cutoff = options.cutoffTime ? Date.parse(options.cutoffTime) : undefined
   const candidates = output
     .split("\x1e")
@@ -772,15 +916,27 @@ const crawlCommits = Effect.fn("Memory.crawlCommits")(function* (
     })
     .filter((commit) => commit.hash && (!cutoff || commit.author_time < cutoff))
 
+  if (options.onProgress) yield* options.onProgress({ phase: "crawl", current: 0, total: candidates.length })
   const indexed: CommitInput[] = []
   let skipped = 0
+  let current = 0
   for (const commit of candidates) {
-    const changed_files = (yield* git(worktree, ["diff-tree", "-m", "--first-parent", "--no-commit-id", "--name-only", "-r", commit.hash]))
+    const changed_files = (yield* git(worktree, [
+      "diff-tree",
+      "-m",
+      "--first-parent",
+      "--no-commit-id",
+      "--name-only",
+      "-r",
+      commit.hash,
+    ]))
       .split("\n")
       .map((file) => file.trim())
       .filter((file) => file && !isExcludedPath(file))
     if (!changed_files.length || changed_files.length > options.maxFiles) {
       skipped++
+      current++
+      if (options.onProgress) yield* options.onProgress({ phase: "crawl", current, total: candidates.length })
       continue
     }
     const rawDiff = yield* git(worktree, [
@@ -796,6 +952,8 @@ const crawlCommits = Effect.fn("Memory.crawlCommits")(function* (
     ])
     if (!rawDiff.includes("diff --git") || rawDiff.includes("Binary files ")) {
       skipped++
+      current++
+      if (options.onProgress) yield* options.onProgress({ phase: "crawl", current, total: candidates.length })
       continue
     }
     const diff = rawDiff.slice(0, DEFAULT_INDEX_LIMITS.maxDiffBytes)
@@ -808,20 +966,31 @@ const crawlCommits = Effect.fn("Memory.crawlCommits")(function* (
       issue_number: options.noGithub ? undefined : parseIssueNumber(commit.message),
       token_text: tokenText([commit.message, changed_files.join(" "), diff].join("\n")),
     })
+    current++
+    if (options.onProgress) yield* options.onProgress({ phase: "crawl", current, total: candidates.length })
   }
   return { indexed, skipped }
 })
 
 function fileActivity(commits: readonly CommitInput[]) {
-  const entries = new Map<string, { edit_count: number; last_modified: number; co_changed_files: Map<string, number> }>()
+  const entries = new Map<
+    string,
+    { edit_count: number; last_modified: number; co_changed_files: Map<string, number> }
+  >()
   for (const commit of commits) {
     for (const file of commit.changed_files) {
-      const current = entries.get(file) ?? { edit_count: 0, last_modified: 0, co_changed_files: new Map<string, number>() }
+      const current = entries.get(file) ?? {
+        edit_count: 0,
+        last_modified: 0,
+        co_changed_files: new Map<string, number>(),
+      }
       current.edit_count++
       current.last_modified = Math.max(current.last_modified, commit.author_time)
       commit.changed_files
         .filter((candidate) => candidate !== file)
-        .forEach((candidate) => current.co_changed_files.set(candidate, (current.co_changed_files.get(candidate) ?? 0) + 1))
+        .forEach((candidate) =>
+          current.co_changed_files.set(candidate, (current.co_changed_files.get(candidate) ?? 0) + 1),
+        )
       entries.set(file, current)
     }
   }
@@ -843,7 +1012,10 @@ function isExcludedPath(file: string) {
     parts.some((part) => ["node_modules", ".git", "dist", "build", "coverage", "vendor"].includes(part)) ||
     name.endsWith(".lock") ||
     ["bun.lock", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"].includes(name) ||
-    (parts[0] === "packages" && parts[1] === "sdk" && parts[2] === "js" && (parts.includes("gen") || parts.includes("dist")))
+    (parts[0] === "packages" &&
+      parts[1] === "sdk" &&
+      parts[2] === "js" &&
+      (parts.includes("gen") || parts.includes("dist")))
   )
 }
 
@@ -911,20 +1083,23 @@ function gitFileAtCommit(worktree: string, commit: string, file: string) {
 function defaultSummaryGenerator() {
   return Effect.gen(function* () {
     const providerOption = yield* Effect.serviceOption(Provider.Service)
-    if (Option.isNone(providerOption)) return unavailableSummaryGenerator("No configured provider available for file summaries")
+    if (Option.isNone(providerOption))
+      return unavailableSummaryGenerator("No configured provider available for file summaries")
     const provider = providerOption.value
-    const selected = yield* provider.defaultModel().pipe(
-      Effect.catch(() => Effect.succeed(undefined)),
-    )
+    const selected = yield* provider.defaultModel().pipe(Effect.catch(() => Effect.succeed(undefined)))
     if (!selected) return unavailableSummaryGenerator("No default model available for file summaries")
-    const model = yield* provider.getModel(selected.providerID, selected.modelID).pipe(
-      Effect.catch(() => Effect.succeed(undefined)),
-    )
-    if (!model) return unavailableSummaryGenerator(`Model not found for file summaries: ${selected.providerID}/${selected.modelID}`)
-    const language = yield* provider.getLanguage(model).pipe(
-      Effect.catch(() => Effect.succeed(undefined)),
-    )
-    if (!language) return unavailableSummaryGenerator(`Model unavailable for file summaries: ${selected.providerID}/${selected.modelID}`)
+    const model = yield* provider
+      .getModel(selected.providerID, selected.modelID)
+      .pipe(Effect.catch(() => Effect.succeed(undefined)))
+    if (!model)
+      return unavailableSummaryGenerator(
+        `Model not found for file summaries: ${selected.providerID}/${selected.modelID}`,
+      )
+    const language = yield* provider.getLanguage(model).pipe(Effect.catch(() => Effect.succeed(undefined)))
+    if (!language)
+      return unavailableSummaryGenerator(
+        `Model unavailable for file summaries: ${selected.providerID}/${selected.modelID}`,
+      )
     return (input: SummaryGeneratorInput) =>
       Effect.tryPromise({
         try: async () => {
@@ -966,7 +1141,7 @@ function summaryPrompt(input: SummaryGeneratorInput) {
     `Edit count: ${input.edit_count}`,
     `Co-changed files: ${input.co_changed_files.join(", ") || "none"}`,
     "Summarize the file for future code retrieval. Include responsibility, inputs/outputs, dependencies, common bug/change patterns, important symbols, and retrieval keywords.",
-    "Return JSON: {\"summary\": string, \"important_symbols\": string[]}.",
+    'Return JSON: {"summary": string, "important_symbols": string[]}.',
     "Source:",
     input.content.slice(0, 40_000),
   ].join("\n")
