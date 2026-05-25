@@ -1,5 +1,5 @@
 import { and, asc, desc, eq, inArray, like, not, sql } from "drizzle-orm"
-import { streamText } from "ai"
+import { streamText, type ModelMessage } from "ai"
 import { createHash } from "node:crypto"
 import { execFile } from "node:child_process"
 import path from "node:path"
@@ -7,7 +7,9 @@ import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 import { Context, Effect, Layer } from "effect"
 import * as Option from "effect/Option"
+import { Auth } from "@/auth"
 import { Provider } from "@/provider/provider"
+import { ProviderTransform } from "@/provider/transform"
 import { Database, type TxOrDb } from "@/storage/db"
 import {
   RepositoryMemoryCommitTable,
@@ -32,6 +34,9 @@ const DEFAULT_INDEX_LIMITS = {
   maxChangedFiles: 80,
   topCoChangedFiles: 20,
 } as const
+
+const SUMMARY_SYSTEM_PROMPT =
+  "Summarize repository source files for retrieval. Return only JSON with keys summary and important_symbols."
 
 export type RepositoryInput = {
   readonly reference: string | Reference
@@ -1100,6 +1105,11 @@ function defaultSummaryGenerator() {
       return unavailableSummaryGenerator(
         `Model unavailable for file summaries: ${selected.providerID}/${selected.modelID}`,
       )
+    const authOption = yield* Effect.serviceOption(Auth.Service)
+    const authInfo = Option.isSome(authOption)
+      ? yield* authOption.value.get(model.providerID).pipe(Effect.catch(() => Effect.succeed(undefined)))
+      : undefined
+    const isOpenaiOauth = model.providerID === "openai" && authInfo?.type === "oauth"
     return (input: SummaryGeneratorInput) =>
       Effect.tryPromise({
         try: async () => {
@@ -1107,12 +1117,18 @@ function defaultSummaryGenerator() {
             model: language,
             maxRetries: 0,
             maxOutputTokens: 1_200,
+            providerOptions: isOpenaiOauth
+              ? ProviderTransform.providerOptions(model, { instructions: SUMMARY_SYSTEM_PROMPT, store: false })
+              : undefined,
             messages: [
-              {
-                role: "system",
-                content:
-                  "Summarize repository source files for retrieval. Return only JSON with keys summary and important_symbols.",
-              },
+              ...(isOpenaiOauth
+                ? []
+                : [
+                    {
+                      role: "system",
+                      content: SUMMARY_SYSTEM_PROMPT,
+                    } satisfies ModelMessage,
+                  ]),
               {
                 role: "user",
                 content: summaryPrompt(input),
