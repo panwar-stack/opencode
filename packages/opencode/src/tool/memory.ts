@@ -210,7 +210,7 @@ export const MemoryViewSummaryTool = Tool.define(
 export function toolsAvailable(config: Config.Info, memory: Memory.Interface, worktree?: string) {
   return Effect.gen(function* () {
     if (!ConfigMemory.enabled(config.memory)) return false
-    const current = yield* memory.currentRepository(worktree).pipe(Effect.catch(() => Effect.succeed(undefined)))
+    const current = yield* memory.currentRepository(worktree).pipe(Effect.catchCause(() => Effect.succeed(undefined)))
     if (!current) return false
     const status = yield* memory.status(current.identity)
     return status !== undefined && (status.commits > 0 || status.summaries > 0 || status.file_activity > 0)

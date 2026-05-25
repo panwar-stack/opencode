@@ -137,7 +137,7 @@ Learn more in the [agent teams docs](https://opencode.ai/docs/agent-teams).
 
 #### Repository Memory
 
-Repository memory indexes local git history and high-activity file summaries so agents can use historical localization hints before reading source. Enable it with `"memory": { "enabled": true }` and create an index with `opencode memory index`. Memory is historical, so agents must verify every hint against current source before editing.
+Repository memory indexes local git history and high-activity file summaries so agents can use historical localization hints before reading source. It is enabled by default, but tools require an index from `opencode memory index`. Disable it with `"memory": { "enabled": false }`. Memory is historical, so agents must verify every hint against current source before editing.
 
 Learn more in the [memory docs](https://opencode.ai/docs/memory).
 

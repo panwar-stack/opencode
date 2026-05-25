@@ -118,8 +118,9 @@ const withBrokenPlugin = testEffect(
 const teams = testEffect(
   Layer.mergeAll(registryLayer({ config: { experimental: { agent_teams: true } } }), node, Agent.defaultLayer),
 )
-const memoryEnabled = testEffect(
-  Layer.mergeAll(registryLayer({ config: { memory: { enabled: true } } }), node, Agent.defaultLayer, Memory.defaultLayer),
+const memoryDefault = testEffect(Layer.mergeAll(registryLayer(), node, Agent.defaultLayer, Memory.defaultLayer))
+const memoryDisabled = testEffect(
+  Layer.mergeAll(registryLayer({ config: { memory: { enabled: false } } }), node, Agent.defaultLayer, Memory.defaultLayer),
 )
 
 const teamToolIDs = [
@@ -216,7 +217,31 @@ describe("tool.registry", () => {
     }),
   )
 
-  it.instance("hides memory tools when memory config is disabled", () =>
+  memoryDisabled.instance("hides memory tools when memory config is disabled", () =>
+    Effect.gen(function* () {
+      const test = yield* TestInstance
+      const memory = yield* Memory.Service
+      const current = yield* memory.currentRepository(test.directory)
+      const repository = yield* memory.ensureRepository({ reference: current.provider === "file" ? pathToFileURL(test.directory).href : current.identity })
+      yield* memory.upsertCommits(repository.id, [
+        {
+          hash: "disabled123",
+          message: "Index exists but memory is disabled",
+          author_time: Date.now(),
+          changed_files: ["src/memory.ts"],
+          diff: "diff --git a/src/memory.ts b/src/memory.ts",
+          token_text: "disabled memory index",
+        },
+      ])
+      const registry = yield* ToolRegistry.Service
+      const ids = yield* registry.ids()
+
+      expect(ids.filter((id) => id.startsWith("memory_"))).toEqual([])
+    }),
+    { git: true },
+  )
+
+  memoryDefault.instance("hides memory tools when active repository has no index", () =>
     Effect.gen(function* () {
       const registry = yield* ToolRegistry.Service
       const ids = yield* registry.ids()
@@ -226,17 +251,7 @@ describe("tool.registry", () => {
     { git: true },
   )
 
-  memoryEnabled.instance("hides memory tools when active repository has no index", () =>
-    Effect.gen(function* () {
-      const registry = yield* ToolRegistry.Service
-      const ids = yield* registry.ids()
-
-      expect(ids.filter((id) => id.startsWith("memory_"))).toEqual([])
-    }),
-    { git: true },
-  )
-
-  memoryEnabled.instance("shows memory tools only when enabled and indexed", () =>
+  memoryDefault.instance("shows memory tools by default when active repository is indexed", () =>
     Effect.gen(function* () {
       const test = yield* TestInstance
       const memory = yield* Memory.Service

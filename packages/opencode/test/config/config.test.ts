@@ -3,6 +3,7 @@ import { Effect, Exit, Layer, Option } from "effect"
 import { FetchHttpClient, HttpClient, HttpClientResponse } from "effect/unstable/http"
 import { NodeFileSystem, NodePath } from "@effect/platform-node"
 import { Config } from "@/config/config"
+import { ConfigMemory } from "@/config/memory"
 import { ConfigManaged } from "@/config/managed"
 import { ConfigParse } from "../../src/config/parse"
 import { EffectFlock } from "@opencode-ai/core/util/effect-flock"
@@ -383,6 +384,13 @@ test("parses memory config field", () => {
     exclude: ["dist/**"],
     github: { enabled: true, fetch_linked_issues: false },
   })
+})
+
+test("memory config is enabled by default", () => {
+  expect(ConfigMemory.enabled(undefined)).toBe(true)
+  expect(ConfigMemory.enabled({})).toBe(true)
+  expect(ConfigMemory.enabled({ enabled: true })).toBe(true)
+  expect(ConfigMemory.enabled({ enabled: false })).toBe(false)
 })
 
 it.instance("updates config and preserves empty shell sentinel", () =>
