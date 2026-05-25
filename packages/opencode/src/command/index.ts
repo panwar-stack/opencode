@@ -7,7 +7,7 @@ import { Effect, Layer, Context, Schema } from "effect"
 import { Config } from "@/config/config"
 import { MCP } from "../mcp"
 import { Skill } from "../skill"
-import PROMPT_IMPLEMENT_SPEC_PR from "./template/implement-spec-pr.txt"
+import PROMPT_IMPLEMENT_SPEC_PR from "./template/spec-implement.txt"
 import PROMPT_INITIALIZE from "./template/initialize.txt"
 import PROMPT_INITIALIZE_V2 from "./template/initialize-v2.txt"
 import PROMPT_LEARN from "./template/learn.txt"
@@ -56,7 +56,7 @@ export function hints(template: string) {
 }
 
 export const Default = {
-  IMPLEMENT_SPEC_PR: "implement-spec-pr",
+  IMPLEMENT_SPEC_PR: "spec-implement",
   INIT: "init",
   INIT_V2: "init_v2",
   LEARN: "learn",
