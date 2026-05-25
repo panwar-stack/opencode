@@ -17,6 +17,7 @@ export interface TaskPromptOps {
   cancel(sessionID: SessionID): Effect.Effect<void>
   resolvePromptParts(template: string): Effect.Effect<SessionPrompt.PromptInput["parts"]>
   prompt(input: SessionPrompt.PromptInput): Effect.Effect<MessageV2.WithParts>
+  wake(sessionID: SessionID): Effect.Effect<MessageV2.WithParts>
 }
 
 const id = "task"

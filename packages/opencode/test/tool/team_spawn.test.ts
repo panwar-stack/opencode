@@ -164,8 +164,8 @@ describe("tool.team_spawn", () => {
           const promptOps: TaskPromptOps = {
             cancel: () => Effect.void,
             resolvePromptParts: () => Effect.die(new Error("should not resolve prompt parts")),
-            loop: () => Effect.die(new Error("should not loop")),
             prompt: () => Effect.die(new Error("should not prompt")),
+            wake: () => Effect.die(new Error("should not wake")),
           }
           const tool = yield* TeamSpawnTool
           const def = yield* tool.init()
@@ -230,7 +230,6 @@ describe("tool.team_spawn", () => {
           const promptOps: TaskPromptOps = {
             cancel: () => Effect.void,
             resolvePromptParts: (template) => Effect.succeed([{ type: "text" as const, text: template }]),
-            loop: (input) => Effect.sync(() => reply({ sessionID: input.sessionID, parts: [] }, "looped")),
             prompt: (input) =>
               Effect.promise(async () => {
                 const index = calls.length
@@ -238,6 +237,7 @@ describe("tool.team_spawn", () => {
                 if (index === 0) await architectReleased
                 return reply(input, index === 0 ? "architecture ready" : "implementation done")
               }),
+            wake: (sessionID) => Effect.sync(() => reply({ sessionID, parts: [] }, "looped")),
           }
           const team = yield* Team.Service
           const { lead, assistant, info } = yield* seed()
@@ -328,7 +328,6 @@ describe("tool.team_spawn", () => {
           const promptOps: TaskPromptOps = {
             cancel: () => Effect.void,
             resolvePromptParts: (template) => Effect.succeed([{ type: "text" as const, text: template }]),
-            loop: (input) => Effect.sync(() => reply({ sessionID: input.sessionID, parts: [] }, "looped")),
             prompt: (input) =>
               Effect.promise(async () => {
                 const release = calls.length === 0 ? firstReleased : secondReleased
@@ -341,6 +340,7 @@ describe("tool.team_spawn", () => {
                     : "routes done",
                 )
               }),
+            wake: (sessionID) => Effect.sync(() => reply({ sessionID, parts: [] }, "looped")),
           }
           const { lead, assistant } = yield* seed()
           const tool = yield* TeamSpawnTool
