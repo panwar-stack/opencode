@@ -134,6 +134,23 @@ Fast content search across your codebase. Supports full regex syntax and file pa
 
 ---
 
+### opengrep
+
+Search code using OpenGrep patterns.
+
+```json title="opencode.json" {4}
+{
+  "$schema": "https://opencode.ai/config.json",
+  "permission": {
+    "opengrep": "allow"
+  }
+}
+```
+
+Semantic code-pattern search powered by OpenGrep. This optional tool is available when the `opengrep` binary can be found or installed.
+
+---
+
 ### glob
 
 Find files by pattern matching.

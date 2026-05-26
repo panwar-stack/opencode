@@ -45,6 +45,7 @@ These exported tool definitions currently use `Tool.define(...)` in `src/tool`:
 - [x] `grep.ts`
 - [x] `invalid.ts`
 - [x] `lsp.ts`
+- [x] `opengrep.ts`
 - [x] `plan.ts`
 - [x] `question.ts`
 - [x] `read.ts`

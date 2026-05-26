@@ -19,6 +19,7 @@ const InputObject = Schema.StructWithRest(
     edit: Schema.optional(Rule),
     glob: Schema.optional(Rule),
     grep: Schema.optional(Rule),
+    opengrep: Schema.optional(Rule),
     list: Schema.optional(Rule),
     bash: Schema.optional(Rule),
     task: Schema.optional(Rule),

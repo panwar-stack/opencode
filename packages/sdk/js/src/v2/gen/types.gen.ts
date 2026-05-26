@@ -981,6 +981,7 @@ export type PermissionConfig =
       edit?: PermissionRuleConfig
       glob?: PermissionRuleConfig
       grep?: PermissionRuleConfig
+      opengrep?: PermissionRuleConfig
       list?: PermissionRuleConfig
       bash?: PermissionRuleConfig
       task?: PermissionRuleConfig
