@@ -101,6 +101,60 @@ describe("Memory service", () => {
     }),
   )
 
+  it.live("upserts large memory rows in SQLite-safe batches", () =>
+    Effect.gen(function* () {
+      const memory = yield* Memory.Service
+      const now = Date.now()
+      const prefix = crypto.randomUUID()
+      const repository = yield* memory.ensureRepository({ reference: `github:opencode-ai/${prefix}` })
+
+      expect(
+        yield* memory.upsertCommits(
+          repository.id,
+          Array.from({ length: 1_000 }, (_, index) => ({
+            hash: `${prefix}-hash-${index}`,
+            message: `commit ${index}`,
+            author_time: now - index,
+            branch: index % 2 === 0 ? "dev" : undefined,
+            base_commit: index % 3 === 0 ? `${prefix}-base` : undefined,
+            changed_files: [`src/file-${index}.ts`],
+            diff: "diff",
+            issue_number: index % 5 === 0 ? index : undefined,
+            issue_title: index % 5 === 0 ? `Issue ${index}` : undefined,
+            issue_body: index % 5 === 0 ? "body" : undefined,
+            token_text: tokenText(`commit ${index}`),
+          })),
+        ),
+      ).toBe(1_000)
+      expect(
+        yield* memory.upsertFileActivity(
+          repository.id,
+          Array.from({ length: 1_800 }, (_, index) => ({
+            path: `src/file-${index}.ts`,
+            edit_count: index + 1,
+            last_modified: now - index,
+            co_changed_files: [`src/related-${index}.ts`],
+          })),
+        ),
+      ).toBe(1_800)
+
+      const stored = Database.use((db) => ({
+        commits: db
+          .select({ id: RepositoryMemoryCommitTable.id })
+          .from(RepositoryMemoryCommitTable)
+          .where(eq(RepositoryMemoryCommitTable.repository_id, repository.id))
+          .all().length,
+        files: db
+          .select({ id: RepositoryMemoryFileActivityTable.id })
+          .from(RepositoryMemoryFileActivityTable)
+          .where(eq(RepositoryMemoryFileActivityTable.repository_id, repository.id))
+          .all().length,
+      }))
+
+      expect(stored).toEqual({ commits: 1_000, files: 1_800 })
+    }),
+  )
+
   it.live("bounds search corpus by recency before ranking", () =>
     Effect.gen(function* () {
       const memory = yield* Memory.Service

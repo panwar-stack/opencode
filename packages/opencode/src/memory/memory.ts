@@ -35,6 +35,8 @@ const DEFAULT_INDEX_LIMITS = {
   topCoChangedFiles: 20,
 } as const
 
+const SQLITE_WRITE_BATCH_SIZE = 400
+
 const SUMMARY_SYSTEM_PROMPT =
   "Summarize repository source files for retrieval. Return only JSON with keys summary and important_symbols."
 
@@ -312,43 +314,53 @@ export const layer = Layer.effect(
     ) {
       if (!commits.length) return 0
       const now = Date.now()
-      yield* db((d) =>
-        d
-          .delete(RepositoryMemoryCommitTable)
-          .where(
-            and(
-              eq(RepositoryMemoryCommitTable.repository_id, repository_id),
-              inArray(
-                RepositoryMemoryCommitTable.hash,
-                commits.map((commit) => commit.hash),
-              ),
-            ),
-          )
-          .run(),
+      yield* Effect.forEach(
+        chunks(commits, SQLITE_WRITE_BATCH_SIZE),
+        (batch) =>
+          db((d) =>
+            d
+              .delete(RepositoryMemoryCommitTable)
+              .where(
+                and(
+                  eq(RepositoryMemoryCommitTable.repository_id, repository_id),
+                  inArray(
+                    RepositoryMemoryCommitTable.hash,
+                    batch.map((commit) => commit.hash),
+                  ),
+                ),
+              )
+              .run(),
+          ),
+        { discard: true },
       )
-      yield* db((d) =>
-        d
-          .insert(RepositoryMemoryCommitTable)
-          .values(
-            commits.map((commit) => ({
-              id: crypto.randomUUID(),
-              repository_id,
-              hash: commit.hash,
-              message: commit.message,
-              author_time: commit.author_time,
-              branch: commit.branch,
-              base_commit: commit.base_commit,
-              changed_files: JSON.stringify(commit.changed_files),
-              diff: commit.diff,
-              issue_number: commit.issue_number,
-              issue_title: commit.issue_title,
-              issue_body: commit.issue_body,
-              token_text: commit.token_text,
-              time_created: now,
-              time_updated: now,
-            })),
-          )
-          .run(),
+      yield* Effect.forEach(
+        chunks(commits, SQLITE_WRITE_BATCH_SIZE),
+        (batch) =>
+          db((d) =>
+            d
+              .insert(RepositoryMemoryCommitTable)
+              .values(
+                batch.map((commit) => ({
+                  id: crypto.randomUUID(),
+                  repository_id,
+                  hash: commit.hash,
+                  message: commit.message,
+                  author_time: commit.author_time,
+                  branch: commit.branch,
+                  base_commit: commit.base_commit,
+                  changed_files: JSON.stringify(commit.changed_files),
+                  diff: commit.diff,
+                  issue_number: commit.issue_number,
+                  issue_title: commit.issue_title,
+                  issue_body: commit.issue_body,
+                  token_text: commit.token_text,
+                  time_created: now,
+                  time_updated: now,
+                })),
+              )
+              .run(),
+          ),
+        { discard: true },
       )
       return commits.length
     })
@@ -365,22 +377,27 @@ export const layer = Layer.effect(
           .run(),
       )
       if (!files.length) return 0
-      yield* db((d) =>
-        d
-          .insert(RepositoryMemoryFileActivityTable)
-          .values(
-            files.map((file) => ({
-              id: crypto.randomUUID(),
-              repository_id,
-              path: file.path,
-              edit_count: file.edit_count,
-              last_modified: file.last_modified,
-              co_changed_files: JSON.stringify(file.co_changed_files),
-              time_created: now,
-              time_updated: now,
-            })),
-          )
-          .run(),
+      yield* Effect.forEach(
+        chunks(files, SQLITE_WRITE_BATCH_SIZE),
+        (batch) =>
+          db((d) =>
+            d
+              .insert(RepositoryMemoryFileActivityTable)
+              .values(
+                batch.map((file) => ({
+                  id: crypto.randomUUID(),
+                  repository_id,
+                  path: file.path,
+                  edit_count: file.edit_count,
+                  last_modified: file.last_modified,
+                  co_changed_files: JSON.stringify(file.co_changed_files),
+                  time_created: now,
+                  time_updated: now,
+                })),
+              )
+              .run(),
+          ),
+        { discard: true },
       )
       return files.length
     })
@@ -1149,6 +1166,12 @@ function defaultSummaryGenerator() {
 
 function unavailableSummaryGenerator(message: string): SummaryGenerator {
   return () => Effect.fail(new Error(message))
+}
+
+function chunks<T>(items: readonly T[], size: number) {
+  return Array.from({ length: Math.ceil(items.length / size) }, (_, index) =>
+    items.slice(index * size, (index + 1) * size),
+  )
 }
 
 function summaryPrompt(input: SummaryGeneratorInput) {
