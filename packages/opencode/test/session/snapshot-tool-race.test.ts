@@ -59,6 +59,7 @@ import { Memory } from "@/memory/memory"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { Ripgrep } from "../../src/file/ripgrep"
+import { Opengrep } from "../../src/file/opengrep"
 import { Format } from "../../src/format"
 import { Reference } from "../../src/reference/reference"
 import { RepositoryCache } from "../../src/reference/repository-cache"
@@ -148,6 +149,7 @@ function makeHttp() {
     Layer.provide(Reference.defaultLayer),
     Layer.provide(Memory.defaultLayer),
     Layer.provide(Ripgrep.defaultLayer),
+    Layer.provide(Layer.mock(Opengrep.Service, { available: () => Effect.succeed(false) })),
     Layer.provide(Format.defaultLayer),
     Layer.provide(RuntimeFlags.layer({ experimentalEventSystem: true })),
     Layer.provideMerge(todo),
