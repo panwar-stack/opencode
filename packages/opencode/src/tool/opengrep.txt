@@ -1,0 +1,4 @@
+Search code with OpenGrep structural patterns.
+
+Use this when regular text search is not precise enough and you need syntax-aware matching.
+Patterns use OpenGrep/Semgrep pattern syntax. The language defaults to generic.

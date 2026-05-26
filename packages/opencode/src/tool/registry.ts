@@ -5,6 +5,7 @@ import { ShellTool } from "./shell"
 import { EditTool } from "./edit"
 import { GlobTool } from "./glob"
 import { GrepTool } from "./grep"
+import { OpengrepTool } from "./opengrep"
 import { ReadTool } from "./read"
 import { TaskTool } from "./task"
 import { TodoWriteTool } from "./todo"
@@ -163,6 +164,7 @@ export const layer: Layer.Layer<
     const writetool = yield* WriteTool
     const edit = yield* EditTool
     const greptool = yield* GrepTool
+    const opengrepTool = yield* OpengrepTool
     const patchtool = yield* ApplyPatchTool
     const skilltool = yield* SkillTool
     const agent = yield* Agent.Service
@@ -282,6 +284,7 @@ export const layer: Layer.Layer<
           read: Tool.init(read),
           glob: Tool.init(globtool),
           grep: Tool.init(greptool),
+          opengrep: Tool.init(opengrepTool),
           edit: Tool.init(edit),
           write: Tool.init(writetool),
           task: Tool.init(task),
@@ -323,6 +326,7 @@ export const layer: Layer.Layer<
             tool.read,
             tool.glob,
             tool.grep,
+            ...(opengrepAvailable ? [tool.opengrep] : []),
             tool.edit,
             tool.write,
             tool.task,
@@ -358,7 +362,7 @@ export const layer: Layer.Layer<
             tool.memorySearchSummary,
             tool.memoryViewSummary,
           ],
-          available: opengrepAvailable ? ["opengrep"] : [],
+          available: [],
           task: tool.task,
           read: tool.read,
           teamReport: tool.teamReport,

@@ -115,6 +115,7 @@ const opengrepUnavailableLayer = Layer.mock(Opengrep.Service, {
 
 const opengrepUnexpectedHttpLayer = Opengrep.layer.pipe(
   Layer.provide(AppFileSystem.defaultLayer),
+  Layer.provide(node),
   Layer.provide(
     Layer.succeed(
       HttpClient.HttpClient,
@@ -125,6 +126,7 @@ const opengrepUnexpectedHttpLayer = Opengrep.layer.pipe(
 
 const opengrepDownloadLayer = Opengrep.layer.pipe(
   Layer.provide(AppFileSystem.defaultLayer),
+  Layer.provide(node),
   Layer.provide(
     Layer.succeed(
       HttpClient.HttpClient,
@@ -137,6 +139,7 @@ const opengrepDownloadLayer = Opengrep.layer.pipe(
 
 const opengrepDownloadFailLayer = Opengrep.layer.pipe(
   Layer.provide(AppFileSystem.defaultLayer),
+  Layer.provide(node),
   Layer.provide(
     Layer.succeed(
       HttpClient.HttpClient,
@@ -295,7 +298,7 @@ describe("tool.registry", () => {
           })
 
           expect(ids).toContain("opengrep")
-          expect(tools.map((tool) => tool.id)).not.toContain("opengrep")
+          expect(tools.map((tool) => tool.id)).toContain("opengrep")
         }),
       )
     }),
