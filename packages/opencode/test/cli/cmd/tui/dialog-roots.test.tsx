@@ -7,7 +7,7 @@ import { onCleanup, onMount } from "solid-js"
 import { tmpdir } from "../../../fixture/fixture"
 import { createTuiResolvedConfig } from "../../../fixture/tui-runtime"
 import { ArgsProvider } from "../../../../src/cli/cmd/tui/context/args"
-import { ExitProvider } from "../../../../src/cli/cmd/tui/context/exit"
+import { createExit, ExitProvider } from "../../../../src/cli/cmd/tui/context/exit"
 import { KVProvider } from "../../../../src/cli/cmd/tui/context/kv"
 import { ProjectProvider } from "../../../../src/cli/cmd/tui/context/project"
 import { SDKProvider } from "../../../../src/cli/cmd/tui/context/sdk"
@@ -124,7 +124,7 @@ test("dialog roots renders with its own path formatter provider", async () => {
     return (
       <OpencodeKeymapProvider keymap={keymap}>
         <ArgsProvider>
-          <ExitProvider>
+          <ExitProvider exit={createExit(async () => {})}>
             <KVProvider>
               <TuiConfigProvider config={config}>
                 <SDKProvider url="http://test" directory={directory} fetch={fetchRoots} events={events.source}>

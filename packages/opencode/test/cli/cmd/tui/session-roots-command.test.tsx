@@ -7,7 +7,7 @@ import { onCleanup, onMount } from "solid-js"
 import { tmpdir } from "../../../fixture/fixture"
 import { createTuiResolvedConfig } from "../../../fixture/tui-runtime"
 import { ArgsProvider } from "../../../../src/cli/cmd/tui/context/args"
-import { ExitProvider } from "../../../../src/cli/cmd/tui/context/exit"
+import { createExit, ExitProvider } from "../../../../src/cli/cmd/tui/context/exit"
 import { KVProvider } from "../../../../src/cli/cmd/tui/context/kv"
 import { LocalProvider } from "../../../../src/cli/cmd/tui/context/local"
 import { ProjectProvider } from "../../../../src/cli/cmd/tui/context/project"
@@ -65,7 +65,7 @@ test("registers /roots as soon as the current route is a session", async () => {
     return (
       <OpencodeKeymapProvider keymap={keymap}>
         <ArgsProvider>
-          <ExitProvider>
+          <ExitProvider exit={createExit(async () => {})}>
             <KVProvider>
               <ToastProvider>
                 <RouteProvider initialRoute={{ type: "session", sessionID }}>

@@ -6,7 +6,7 @@ import { Global } from "@opencode-ai/core/global"
 import { onMount } from "solid-js"
 import { tmpdir } from "../../../fixture/fixture"
 import { ArgsProvider } from "../../../../src/cli/cmd/tui/context/args"
-import { ExitProvider } from "../../../../src/cli/cmd/tui/context/exit"
+import { createExit, ExitProvider } from "../../../../src/cli/cmd/tui/context/exit"
 import { KVProvider } from "../../../../src/cli/cmd/tui/context/kv"
 import { ProjectProvider } from "../../../../src/cli/cmd/tui/context/project"
 import { RouteProvider } from "../../../../src/cli/cmd/tui/context/route"
@@ -163,7 +163,7 @@ async function mountPrompt(props: { sessionID?: string }) {
   const app = await testRender(
     () => (
       <ArgsProvider>
-        <ExitProvider>
+        <ExitProvider exit={createExit(async () => {})}>
           <KVProvider>
             <ToastProvider>
               <RouteProvider
