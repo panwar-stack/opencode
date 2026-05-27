@@ -111,6 +111,22 @@ describe("run permission shared", () => {
     expect(
       permissionInfo(
         req({
+          permission: "opengrep",
+          metadata: {
+            input: {
+              pattern: "$CALL(...)",
+            },
+          },
+        }),
+      ),
+    ).toMatchObject({
+      title: 'OpenGrep "$CALL(...)"',
+      lines: ["Pattern: $CALL(...)"],
+    })
+
+    expect(
+      permissionInfo(
+        req({
           permission: "external_directory",
           patterns: ["/tmp/work/**/*.ts", "/tmp/work/**/*.tsx"],
         }),

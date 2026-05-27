@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import type { ToolPart } from "@opencode-ai/sdk/v2"
 import { entryBody, entryCanStream, entryDone } from "@/cli/cmd/run/entry.body"
+import { toolInlineInfo } from "@/cli/cmd/run/tool"
 import type { StreamCommit, ToolSnapshot } from "@/cli/cmd/run/types"
 
 function commit(input: Partial<StreamCommit> & Pick<StreamCommit, "kind" | "text" | "phase" | "source">): StreamCommit {
@@ -219,6 +220,52 @@ describe("run entry body", () => {
       ),
     ).toEqual({
       type: "none",
+    })
+  })
+
+  test("renders opengrep tool display formatting", () => {
+    expect(
+      entryBody(
+        toolCommit({
+          tool: "opengrep",
+          phase: "start",
+          toolState: "running",
+          state: {
+            status: "running",
+            input: {
+              pattern: "$CALL(...)",
+              path: "src/cli/cmd/run",
+            },
+            metadata: {},
+            time: { start: 1 },
+          },
+        }),
+      ),
+    ).toEqual({
+      type: "text",
+      content: '✱ OpenGrep "$CALL(...)" in src/cli/cmd/run',
+    })
+
+    expect(
+      toolInlineInfo(
+        toolPart("opengrep", {
+          status: "completed",
+          input: {
+            pattern: "$CALL(...)",
+            path: "src/cli/cmd/run",
+          },
+          output: "",
+          title: "",
+          metadata: {
+            matches: 2,
+          },
+          time: { start: 1, end: 2 },
+        }),
+      ),
+    ).toMatchObject({
+      icon: "✱",
+      title: 'OpenGrep "$CALL(...)"',
+      description: "in src/cli/cmd/run · 2 matches",
     })
   })
 

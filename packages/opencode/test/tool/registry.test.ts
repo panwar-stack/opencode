@@ -253,6 +253,7 @@ describe("tool.registry", () => {
       const registry = yield* ToolRegistry.Service
       const ids = yield* registry.ids()
 
+      expect(ids).toContain("grep")
       expect(ids).not.toContain("opengrep")
     }),
   )
@@ -270,13 +271,14 @@ describe("tool.registry", () => {
           const registry = yield* ToolRegistry.Service
           const ids = yield* registry.ids()
 
+          expect(ids).toContain("grep")
           expect(ids).not.toContain("opengrep")
         }),
       )
     }),
   )
 
-  withOpengrepExisting.instance("shows opengrep when an existing binary is found", () =>
+  withOpengrepExisting.instance("prefers opengrep over grep when an existing binary is found", () =>
     Effect.gen(function* () {
       const test = yield* TestInstance
       const bin = path.join(test.directory, "bin")
@@ -291,20 +293,26 @@ describe("tool.registry", () => {
         Effect.gen(function* () {
           const registry = yield* ToolRegistry.Service
           const ids = yield* registry.ids()
+          const allIDs = (yield* registry.all()).map((tool) => tool.id)
           const tools = yield* registry.tools({
             providerID: ProviderID.opencode,
             modelID: ModelID.make("test"),
             agent: yield* (yield* Agent.Service).defaultInfo(),
           })
+          const toolIDs = tools.map((tool) => tool.id)
 
           expect(ids).toContain("opengrep")
-          expect(tools.map((tool) => tool.id)).toContain("opengrep")
+          expect(ids).not.toContain("grep")
+          expect(allIDs).toContain("opengrep")
+          expect(allIDs).not.toContain("grep")
+          expect(toolIDs).toContain("opengrep")
+          expect(toolIDs).not.toContain("grep")
         }),
       )
     }),
   )
 
-  withOpengrepDownload.instance("shows opengrep when a missing binary is downloaded successfully", () =>
+  withOpengrepDownload.instance("prefers opengrep over grep after downloading a missing binary", () =>
     Effect.gen(function* () {
       const test = yield* TestInstance
       const bin = path.join(test.directory, "bin")
@@ -316,8 +324,12 @@ describe("tool.registry", () => {
         Effect.gen(function* () {
           const registry = yield* ToolRegistry.Service
           const ids = yield* registry.ids()
+          const allIDs = (yield* registry.all()).map((tool) => tool.id)
 
           expect(ids).toContain("opengrep")
+          expect(ids).not.toContain("grep")
+          expect(allIDs).toContain("opengrep")
+          expect(allIDs).not.toContain("grep")
           const downloaded = yield* Effect.promise(() =>
             Bun.file(path.join(bin, process.platform === "win32" ? "opengrep.exe" : "opengrep")).text(),
           )

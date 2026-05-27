@@ -723,9 +723,26 @@ test("does not double-space before completed bash output when inline tool header
       }),
     )
     take()
+    await out.scrollback.append(
+      toolCommit({
+        tool: "opengrep",
+        phase: "start",
+        toolState: "running",
+        state: {
+          status: "running",
+          input: {
+            pattern: "tool",
+            path: "src/cli/cmd/run",
+          },
+          time: { start: 5 },
+        },
+      }),
+    )
+    take()
 
     const output = lines.join("\n")
     expect(output).toContain('✱ Grep "tool" in src/cli/cmd/run\n\ndemo.ts')
+    expect(output).toContain('✱ OpenGrep "tool" in src/cli/cmd/run')
     expect(output).not.toContain('✱ Grep "tool" in src/cli/cmd/run\n\n\ndemo.ts')
   } finally {
     out.scrollback.destroy()
