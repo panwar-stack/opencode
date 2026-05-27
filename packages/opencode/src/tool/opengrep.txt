@@ -1,9 +1,13 @@
-- Fast structural code search tool that works with any codebase size
-- Searches code syntax using OpenGrep structural patterns
-- Supports OpenGrep and Semgrep pattern syntax, including metavariables and ellipses, for example "$FUNC(...)", "$X = $Y", "if ($COND) { ... }"
-- The language defaults to generic, and can be set explicitly when syntax aware matching is needed
-- Filter files by pattern with the include parameter, for example "*.js", "*.{ts,tsx}"
-- Returns file paths and line numbers with at least one structural match, sorted by modification time
-- Use this tool when you need to find code that matches a specific syntax shape, API usage, control flow pattern, or declaration pattern
-- If you need plain text search, regular expression search, or match counts within files, use Grep or the Bash tool with ripgrep directly. Do not use OpenGrep.
-- When you are doing an open ended search that may require multiple rounds of globbing, grepping, and structural search, use the Task tool instead
+* Fast structural code search tool that works with any codebase size
+* Replaces the Grep tool in environments where OpenGrep is available
+* Searches code using syntax aware OpenGrep structural patterns instead of plain text matching
+* Supports OpenGrep and Semgrep pattern syntax, including metavariables, ellipses, and nested code shapes
+* Finds code by meaning and structure, even when formatting, whitespace, variable names, or line breaks differ
+* Reduces false positives compared with regular expression search because matches are based on parsed code structure
+* Useful for finding API usage, function calls, assignments, imports, conditionals, declarations, control flow patterns, and unsafe code shapes
+* The language defaults to generic, and can be set explicitly for more precise syntax aware matching
+* Filter files by pattern with the include parameter, for example "*.js", "*.{ts,tsx}"
+* Returns file paths and line numbers with at least one structural match, sorted by modification time
+* Use this tool when you need to find code that matches a specific syntax shape or programming pattern
+* If you need plain text search, regular expression search, or match counts within files, use the Bash tool with ripgrep directly
+* When you are doing an open ended search that may require multiple rounds of file discovery, text search, and structural search, use the Task tool instead
