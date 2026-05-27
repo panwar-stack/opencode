@@ -1,4 +1,9 @@
-Search code with OpenGrep structural patterns.
-
-Use this when regular text search is not precise enough and you need syntax-aware matching.
-Patterns use OpenGrep/Semgrep pattern syntax. The language defaults to generic.
+- Fast structural code search tool that works with any codebase size
+- Searches code syntax using OpenGrep structural patterns
+- Supports OpenGrep and Semgrep pattern syntax, including metavariables and ellipses, for example "$FUNC(...)", "$X = $Y", "if ($COND) { ... }"
+- The language defaults to generic, and can be set explicitly when syntax aware matching is needed
+- Filter files by pattern with the include parameter, for example "*.js", "*.{ts,tsx}"
+- Returns file paths and line numbers with at least one structural match, sorted by modification time
+- Use this tool when you need to find code that matches a specific syntax shape, API usage, control flow pattern, or declaration pattern
+- If you need plain text search, regular expression search, or match counts within files, use Grep or the Bash tool with ripgrep directly. Do not use OpenGrep.
+- When you are doing an open ended search that may require multiple rounds of globbing, grepping, and structural search, use the Task tool instead
