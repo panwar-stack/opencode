@@ -116,6 +116,12 @@ test("fromConfig - sandbox_network granular rule", () => {
   ])
 })
 
+test("evaluate - sandbox_network full profile pattern", () => {
+  const ruleset = Permission.fromConfig({ sandbox_network: { "sandbox_network:full:workspace": "allow" } })
+  const result = Permission.evaluate("sandbox_network", "sandbox_network:full:workspace", ruleset)
+  expect(result.action).toBe("allow")
+})
+
 test("fromConfig - empty object", () => {
   const result = Permission.fromConfig({})
   expect(result).toEqual([])
@@ -352,12 +358,6 @@ test("evaluate - empty ruleset returns ask", () => {
 test("evaluate - no matching pattern returns ask", () => {
   const result = Permission.evaluate("edit", "etc/passwd", [{ permission: "edit", pattern: "src/*", action: "allow" }])
   expect(result.action).toBe("ask")
-})
-
-test("evaluate - sandbox_network full profile pattern", () => {
-  const ruleset = Permission.fromConfig({ sandbox_network: { "sandbox_network:full:workspace": "allow" } })
-  const result = Permission.evaluate("sandbox_network", "sandbox_network:full:workspace", ruleset)
-  expect(result.action).toBe("allow")
 })
 
 test("evaluate - empty rules array returns ask", () => {
