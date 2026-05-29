@@ -339,6 +339,8 @@ If not specified, OpenCode will automatically discover and use a sensible defaul
 
 You can define Docker sandbox profiles for built-in shell execution through the `sandbox` option. When enabled, OpenCode runs shell tool commands in Docker instead of directly on the host.
 
+Sandboxing applies only to built-in shell tool execution; it does not sandbox PTY/user terminals, MCP tools, custom tools, plugin code, or internal maintenance commands.
+
 Missing `sandbox` means sandboxing is disabled. When `sandbox.enabled` is `true`, OpenCode uses `sandbox.defaultProfile`, or `workspace` when no default profile is set. The selected profile must exist in `sandbox.profiles`.
 
 ```json title="opencode.json"

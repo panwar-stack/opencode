@@ -260,7 +260,7 @@ export const EnvProtection = async ({ project, client, $, directory, worktree })
 
 ### Inject environment variables
 
-Inject environment variables into all shell execution (AI tools and user terminals):
+Inject environment variables into shell execution, including user terminals and built-in shell tool commands. When the built-in shell tool is sandboxed, these values are passed into that sandboxed command environment:
 
 ```javascript title=".opencode/plugins/inject-env.js"
 export const InjectEnvPlugin = async () => {

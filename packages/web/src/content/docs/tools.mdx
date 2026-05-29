@@ -58,7 +58,7 @@ Execute shell commands in your project environment.
 }
 ```
 
-This tool allows the LLM to run terminal commands like `npm install`, `git status`, or any other shell command.
+This built-in shell tool allows the LLM to run terminal commands like `npm install`, `git status`, or any other shell command. It can run inside Docker when [`sandbox.enabled`](/docs/config#sandbox) is configured; permissions still decide whether commands may run, while sandboxing controls the runtime environment.
 
 ---
 
