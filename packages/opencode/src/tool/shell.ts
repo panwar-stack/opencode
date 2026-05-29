@@ -66,6 +66,7 @@ const CMD_FILES = new Set([
 ])
 const FLAGS = new Set(["-destination", "-literalpath", "-path"])
 const SWITCHES = new Set(["-confirm", "-debug", "-force", "-nonewline", "-recurse", "-verbose", "-whatif"])
+const SANDBOX_IMAGE = "ghcr.io/anomalyco/build/bun-node:24.04"
 
 type Part = {
   type: string
@@ -82,6 +83,14 @@ type Chunk = {
   text: string
   size: number
 }
+
+type SandboxMount = {
+  source: string
+  target: string
+  writable: boolean
+}
+
+type SandboxProfile = NonNullable<NonNullable<Config.Info["sandbox"]>["profiles"]>[string]
 
 export const log = Log.create({ service: "shell-tool" })
 
@@ -305,6 +314,83 @@ function cmd(shell: string, command: string, cwd: string, env: NodeJS.ProcessEnv
     detached: process.platform !== "win32",
   })
 }
+
+function sandboxCmd(command: string, cwd: string, env: NodeJS.ProcessEnv, mounts: SandboxMount[]) {
+  return ChildProcess.make(
+    "docker",
+    [
+      "run",
+      "--rm",
+      "--network",
+      "none",
+      "--workdir",
+      cwd,
+      ...Object.keys(env)
+        .filter((key) => env[key] !== undefined)
+        .flatMap((key) => ["--env", key]),
+      ...mounts.flatMap((mount) => [
+        "--mount",
+        `type=bind,source=${mount.source},target=${mount.target}${mount.writable ? "" : ",readonly"}`,
+      ]),
+      SANDBOX_IMAGE,
+      "/bin/bash",
+      "-lc",
+      command,
+    ],
+    {
+      cwd,
+      env,
+      stdin: "ignore",
+      detached: process.platform !== "win32",
+    },
+  )
+}
+
+function sandboxTokenPath(token: string, workspace: string) {
+  if (token === "workspace") return workspace
+  if (token === "systemRuntime") return path.dirname(process.execPath)
+  if (token === "temporaryDirectory") return os.tmpdir()
+  if (token.startsWith("workspace/")) return path.join(workspace, token.slice("workspace/".length))
+  if (token.startsWith("home/")) return path.join(os.homedir(), token.slice("home/".length))
+}
+
+function sandboxContains(parent: string, child: string) {
+  const relative = path.relative(parent, child)
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))
+}
+
+function sandboxMounts(profile: SandboxProfile, workspace: string) {
+  const protectedPaths = new Set(
+    (profile.filesystem?.protected ?? []).flatMap((token) => {
+      const resolved = sandboxTokenPath(token, workspace)
+      return resolved ? [resolved] : []
+    }),
+  )
+  const writable = new Set([
+    workspace,
+    os.tmpdir(),
+    ...(profile.filesystem?.write ?? []).flatMap((token) => {
+      const resolved = sandboxTokenPath(token, workspace)
+      return resolved ? [resolved] : []
+    }),
+  ])
+  const readable = new Set([
+    path.dirname(process.execPath),
+    ...(profile.filesystem?.read ?? []).flatMap((token) => {
+      const resolved = sandboxTokenPath(token, workspace)
+      return resolved ? [resolved] : []
+    }),
+    ...protectedPaths,
+  ])
+  return Array.from(new Set([...readable, ...writable]))
+    .filter((source) => source.length > 0)
+    .map((source) => ({
+      source,
+      target: source,
+      writable:
+        writable.has(source) && !Array.from(protectedPaths).some((protectedPath) => sandboxContains(source, protectedPath)),
+    }))
+}
 const parser = lazy(async () => {
   const { Parser } = await import("web-tree-sitter")
   const { default: treeWasm } = await import("web-tree-sitter/tree-sitter.wasm" as string, {
@@ -428,6 +514,7 @@ export const ShellTool = Tool.define(
       input: {
         shell: string
         command: string
+        process?: ChildProcess.Command
         cwd: string
         env: NodeJS.ProcessEnv
         timeout: number
@@ -482,7 +569,7 @@ export const ShellTool = Tool.define(
       const code: number | null = yield* Effect.scoped(
         Effect.gen(function* () {
           yield* Effect.addFinalizer(closeSink)
-          const handle = yield* spawner.spawn(cmd(input.shell, input.command, input.cwd, input.env))
+          const handle = yield* spawner.spawn(input.process ?? cmd(input.shell, input.command, input.cwd, input.env))
 
           const outputFiber = yield* Effect.forkScoped(
             Stream.runForEach(Stream.decodeText(handle.all), (chunk) => {
@@ -634,13 +721,32 @@ export const ShellTool = Tool.define(
                   yield* ask(ctx, scan)
                 }),
               )
+              const env = yield* shellEnv(ctx, cwd)
+              const sandboxProcess = yield* Effect.gen(function* () {
+                if (cfg.sandbox?.enabled !== true) return
+                if (process.platform === "win32") throw new Error("Sandbox is enabled but Docker is unavailable.")
+                const profile = cfg.sandbox.profiles?.[cfg.sandbox.defaultProfile ?? "workspace"]
+                if (!profile) throw new Error("Sandbox profile is missing.")
+                if (profile.network?.mode && profile.network.mode !== "none") {
+                  throw new Error("Sandbox network mode is not supported.")
+                }
+                const code = yield* spawner
+                  .exitCode(ChildProcess.make("docker", ["--version"], { stdin: "ignore" }))
+                  .pipe(
+                    Effect.map((code) => Number(code)),
+                    Effect.orElseSucceed(() => 1),
+                  )
+                if (code !== 0) throw new Error("Sandbox is enabled but Docker is unavailable.")
+                return sandboxCmd(params.command, cwd, env, sandboxMounts(profile, primary.directory))
+              })
 
               return yield* run(
                 {
                   shell,
                   command: params.command,
+                  process: sandboxProcess,
                   cwd,
-                  env: yield* shellEnv(ctx, cwd),
+                  env,
                   timeout,
                   description: params.description,
                 },

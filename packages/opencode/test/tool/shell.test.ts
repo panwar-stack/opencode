@@ -1,11 +1,12 @@
 import { describe, expect } from "bun:test"
-import { Cause, Effect, Exit, Layer } from "effect"
+import { Cause, Effect, Exit, Layer, Stream } from "effect"
 import type * as Scope from "effect/Scope"
 import os from "os"
 import path from "path"
 import { Config } from "@/config/config"
 import { Shell } from "../../src/shell/shell"
 import { ShellTool } from "../../src/tool/shell"
+import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { Filesystem } from "@/util/filesystem"
 import { provideInstance, tmpdirScoped } from "../fixture/fixture"
 import type { Permission } from "../../src/permission"
@@ -102,6 +103,7 @@ const shells = (() => {
 const PS = new Set(["pwsh", "powershell"])
 const ps = shells.filter((item) => PS.has(item.label))
 const cmdShell = shells.find((item) => item.label === "cmd")
+const encoder = new TextEncoder()
 
 const sh = () => Shell.name(Shell.acceptable())
 const evalarg = (text: string) => (sh() === "cmd" ? quote(text) : squote(text))
@@ -162,6 +164,53 @@ const capture = (requests: Array<Omit<Permission.Request, "id" | "sessionID" | "
       if (stop) throw stop
     }),
 })
+
+type RecordedCommand = {
+  command: string
+  args: readonly string[]
+  options: ChildProcess.CommandOptions | undefined
+}
+
+function mockShellSpawner(
+  records: RecordedCommand[],
+  options?: {
+    dockerAvailable?: boolean
+    dockerRun?: { code: number; stdout?: string; stderr?: string }
+  },
+) {
+  const output = options?.dockerRun ?? { code: 0, stdout: "sandbox output\n", stderr: "" }
+  const handle = (result: { code: number; stdout?: string; stderr?: string }) =>
+    ChildProcessSpawner.makeHandle({
+      pid: ChildProcessSpawner.ProcessId(0),
+      exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(result.code)),
+      isRunning: Effect.succeed(false),
+      kill: () => Effect.void,
+      stdin: { [Symbol.for("effect/Sink/TypeId")]: Symbol.for("effect/Sink/TypeId") } as never,
+      stdout: result.stdout ? Stream.make(encoder.encode(result.stdout)) : Stream.empty,
+      stderr: result.stderr ? Stream.make(encoder.encode(result.stderr)) : Stream.empty,
+      all:
+        result.stdout || result.stderr
+          ? Stream.make(encoder.encode(`${result.stdout ?? ""}${result.stderr ?? ""}`))
+          : Stream.empty,
+      getInputFd: () => ({ [Symbol.for("effect/Sink/TypeId")]: Symbol.for("effect/Sink/TypeId") }) as never,
+      getOutputFd: () => Stream.empty,
+      unref: Effect.succeed(Effect.void),
+    })
+  return Layer.effect(
+    ChildProcessSpawner.ChildProcessSpawner,
+    Effect.gen(function* () {
+      return ChildProcessSpawner.make((command) => {
+        const std = ChildProcess.isStandardCommand(command) ? command : undefined
+        records.push({ command: std?.command ?? "", args: std?.args ?? [], options: std?.options })
+        if (std?.command === "docker" && std.args[0] === "--version") {
+          return Effect.succeed(handle({ code: options?.dockerAvailable === false ? 1 : 0, stdout: "Docker version\n" }))
+        }
+        if (std?.command === "docker" && std.args[0] === "run") return Effect.succeed(handle(output))
+        return Effect.succeed(handle({ code: 0, stdout: "host\n" }))
+      })
+    }),
+  )
+}
 
 const mustTruncate = (result: {
   metadata: { truncated?: boolean; exit?: number | null } & Record<string, unknown>
@@ -248,6 +297,246 @@ describe("tool.shell", () => {
           expect(result.output).toContain("fallback")
         }),
       )
+    }),
+  )
+})
+
+describe("tool.shell sandbox", () => {
+  it.live("keeps host execution when sandbox is missing or disabled", () =>
+    Effect.gen(function* () {
+      const missingRecords: RecordedCommand[] = []
+      const disabledRecords: RecordedCommand[] = []
+      const missing = yield* tmpdirScoped()
+      const disabled = yield* tmpdirScoped({ config: { sandbox: { enabled: false } } })
+
+      const missingResult = yield* runIn(
+        missing,
+        run({ command: "echo host", description: "Host echo" }).pipe(Effect.provide(mockShellSpawner(missingRecords))),
+      )
+      const disabledResult = yield* runIn(
+        disabled,
+        run({ command: "echo host", description: "Host echo" }).pipe(Effect.provide(mockShellSpawner(disabledRecords))),
+      )
+
+      expect(missingResult.output).toContain("host")
+      expect(disabledResult.output).toContain("host")
+      expect(missingRecords.some((record) => record.command === "docker")).toBe(false)
+      expect(disabledRecords.some((record) => record.command === "docker")).toBe(false)
+    }),
+  )
+
+  it.live("builds docker run for enabled network-none sandbox", () =>
+    Effect.gen(function* () {
+      const records: RecordedCommand[] = []
+      const tmp = yield* tmpdirScoped({
+        config: {
+          sandbox: {
+            enabled: true,
+            profiles: {
+              workspace: {
+                filesystem: {
+                  write: ["workspace", "temporaryDirectory"],
+                  protected: ["systemRuntime"],
+                },
+                network: { mode: "none" },
+              },
+            },
+          },
+        },
+      })
+
+      const result = yield* Effect.acquireUseRelease(
+        Effect.sync(() => {
+          const prev = process.env.OPENCODE_DOCKER_TEST
+          process.env.OPENCODE_DOCKER_TEST = "forwarded"
+          return prev
+        }),
+        () =>
+          runIn(
+            tmp,
+            run({ command: "echo sandbox", description: "Sandbox echo" }).pipe(Effect.provide(mockShellSpawner(records))),
+          ),
+        (prev) =>
+          Effect.sync(() => {
+            if (prev === undefined) delete process.env.OPENCODE_DOCKER_TEST
+            else process.env.OPENCODE_DOCKER_TEST = prev
+          }),
+      )
+
+      const dockerRun = records.find((record) => record.command === "docker" && record.args[0] === "run")
+      expect(result.output).toContain("sandbox output")
+      expect(records.find((record) => record.command === "docker" && record.args[0] === "--version")).toBeDefined()
+      expect(dockerRun).toBeDefined()
+      expect(dockerRun!.args).toContain("--rm")
+      expect(dockerRun!.args).toContain("--network")
+      expect(dockerRun!.args).toContain("none")
+      expect(dockerRun!.args).toContain("--workdir")
+      expect(dockerRun!.args).toContain(tmp)
+      expect(dockerRun!.args).toContain("--env")
+      expect(dockerRun!.args).toContain("OPENCODE_DOCKER_TEST")
+      expect(dockerRun!.args).toContain("ghcr.io/anomalyco/build/bun-node:24.04")
+      expect(dockerRun!.args.slice(-3)).toEqual(["/bin/bash", "-lc", "echo sandbox"])
+      expect(dockerRun!.args).toContain(`type=bind,source=${tmp},target=${tmp}`)
+      expect(dockerRun!.args).toContain(`type=bind,source=${os.tmpdir()},target=${os.tmpdir()}`)
+      expect(dockerRun!.args).toContain(
+        `type=bind,source=${path.dirname(process.execPath)},target=${path.dirname(process.execPath)},readonly`,
+      )
+      expect(dockerRun!.options?.cwd).toBe(tmp)
+    }),
+  )
+
+  it.live("fails with exact error when docker is unavailable", () =>
+    Effect.gen(function* () {
+      const records: RecordedCommand[] = []
+      const tmp = yield* tmpdirScoped({
+        config: { sandbox: { enabled: true, profiles: { workspace: { network: { mode: "none" } } } } },
+      })
+
+      const error = yield* runIn(
+        tmp,
+        fail(
+          { command: "echo sandbox", description: "Sandbox echo" },
+          ctx,
+        ).pipe(Effect.provide(mockShellSpawner(records, { dockerAvailable: false }))),
+      )
+
+      expect(error.message).toBe("Sandbox is enabled but Docker is unavailable.")
+      expect(records.find((record) => record.command === "docker" && record.args[0] === "--version")).toBeDefined()
+      expect(records.find((record) => record.command === "docker" && record.args[0] === "run")).toBeUndefined()
+    }),
+  )
+
+  for (const mode of ["allowlist", "full"] as const) {
+    it.live(`fails closed for ${mode} network sandbox`, () =>
+      Effect.gen(function* () {
+        const records: RecordedCommand[] = []
+        const network = mode === "allowlist" ? { mode, hosts: ["example.com"] as [string] } : { mode }
+        const tmp = yield* tmpdirScoped({
+          config: { sandbox: { enabled: true, profiles: { workspace: { network } } } },
+        })
+
+        const error = yield* runIn(
+          tmp,
+          fail({ command: "echo sandbox", description: "Sandbox echo" }).pipe(Effect.provide(mockShellSpawner(records))),
+        )
+
+        expect(error.message).toBe("Sandbox network mode is not supported.")
+        expect(records.find((record) => record.command === "docker")).toBeUndefined()
+      }),
+    )
+  }
+
+  it.live("asks permissions before checking docker", () =>
+    Effect.gen(function* () {
+      const records: RecordedCommand[] = []
+      const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+      const tmp = yield* tmpdirScoped({
+        config: { sandbox: { enabled: true, profiles: { workspace: { network: { mode: "none" } } } } },
+      })
+
+      yield* runIn(
+        tmp,
+        run(
+          { command: "echo sandbox", description: "Sandbox echo" },
+          {
+            ...ctx,
+            ask: (request) =>
+              Effect.sync(() => {
+                expect(records.length).toBe(0)
+                requests.push(request)
+              }),
+          },
+        ).pipe(Effect.provide(mockShellSpawner(records))),
+      )
+
+      expect(requests.find((request) => request.permission === "bash")).toBeDefined()
+      expect(records[0]).toMatchObject({ command: "docker", args: ["--version"] })
+    }),
+  )
+
+  it.live("preserves docker stderr and non-zero exit through run", () =>
+    Effect.gen(function* () {
+      const records: RecordedCommand[] = []
+      const tmp = yield* tmpdirScoped({
+        config: { sandbox: { enabled: true, profiles: { workspace: { network: { mode: "none" } } } } },
+      })
+
+      const result = yield* runIn(
+        tmp,
+        run({ command: "exit 7", description: "Sandbox failure" }).pipe(
+          Effect.provide(mockShellSpawner(records, { dockerRun: { code: 7, stdout: "out\n", stderr: "err\n" } })),
+        ),
+      )
+
+      expect(result.metadata.exit).toBe(7)
+      expect(result.output).toContain("out")
+      expect(result.output).toContain("err")
+    }),
+  )
+
+  it.live("prompts for external workdir before sandbox docker commands", () =>
+    Effect.gen(function* () {
+      const records: RecordedCommand[] = []
+      const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+      const tmp = yield* tmpdirScoped({
+        config: { sandbox: { enabled: true, profiles: { workspace: { network: { mode: "none" } } } } },
+      })
+      const outer = yield* tmpdirScoped()
+
+      yield* runIn(
+        tmp,
+        run(
+          { command: "echo external", workdir: outer, description: "External sandbox workdir" },
+          {
+            ...ctx,
+            ask: (request) =>
+              Effect.sync(() => {
+                expect(records.length).toBe(0)
+                requests.push(request)
+              }),
+          },
+        ).pipe(Effect.provide(mockShellSpawner(records))),
+      )
+
+      expect(requests.find((request) => request.permission === "external_directory")).toBeDefined()
+      expect(records[0]).toMatchObject({ command: "docker", args: ["--version"] })
+    }),
+  )
+
+  it.live("does not prompt for secondary root workdir under sandbox", () =>
+    Effect.gen(function* () {
+      const records: RecordedCommand[] = []
+      const primary = yield* tmpdirScoped({
+        config: { sandbox: { enabled: true, profiles: { workspace: { network: { mode: "none" } } } } },
+      })
+      const secondary = yield* tmpdirScoped()
+      const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+      const info = yield* provideInstance(primary)(
+        Effect.gen(function* () {
+          const session = yield* Session.Service
+          const info = yield* session.create({ title: "sandbox roots" })
+          yield* session.addRoot({ sessionID: info.id, directory: secondary })
+          return info
+        }),
+      )
+
+      yield* runIn(
+        primary,
+        run(
+          { command: "echo secondary", workdir: secondary, description: "Secondary root sandbox" },
+          {
+            ...ctx,
+            sessionID: info.id,
+            ask: (request) =>
+              Effect.sync(() => {
+                requests.push(request)
+              }),
+          },
+        ).pipe(Effect.provide(mockShellSpawner(records))),
+      )
+
+      expect(requests.find((request) => request.permission === "external_directory")).toBeUndefined()
+      expect(records.find((record) => record.command === "docker" && record.args[0] === "run")).toBeDefined()
     }),
   )
 })
