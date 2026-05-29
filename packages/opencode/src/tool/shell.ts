@@ -315,14 +315,13 @@ function cmd(shell: string, command: string, cwd: string, env: NodeJS.ProcessEnv
   })
 }
 
-function sandboxCmd(command: string, cwd: string, env: NodeJS.ProcessEnv, mounts: SandboxMount[]) {
+function sandboxCmd(command: string, cwd: string, env: NodeJS.ProcessEnv, mounts: SandboxMount[], networkMode?: string) {
   return ChildProcess.make(
     "docker",
     [
       "run",
       "--rm",
-      "--network",
-      "none",
+      ...(networkMode === "full" ? [] : ["--network", "none"]),
       "--workdir",
       cwd,
       ...Object.keys(env)
@@ -728,10 +727,25 @@ export const ShellTool = Tool.define(
               const sandboxProcess = yield* Effect.gen(function* () {
                 if (cfg.sandbox?.enabled !== true) return
                 if (process.platform === "win32") throw new Error("Sandbox is enabled but Docker is unavailable")
-                const profile = cfg.sandbox.profiles?.[cfg.sandbox.defaultProfile ?? "workspace"]
+                const profileName = cfg.sandbox.defaultProfile ?? "workspace"
+                const profile = cfg.sandbox.profiles?.[profileName]
                 if (!profile) throw new Error("Sandbox profile is missing.")
-                if (profile.network?.mode && profile.network.mode !== "none") {
+                if (profile.network?.mode === "allowlist") {
                   throw new Error("Sandbox network mode is not supported.")
+                }
+                if (profile.network?.mode === "full" && profile.network.requiresApproval !== false) {
+                  const pattern = `sandbox_network:full:${profileName}`
+                  yield* ctx.ask({
+                    permission: "sandbox_network",
+                    patterns: [pattern],
+                    always: [pattern],
+                    metadata: {
+                      profile: profileName,
+                      mode: "full",
+                      command: params.command,
+                      description: params.description,
+                    },
+                  })
                 }
                 const code = yield* spawner
                   .exitCode(ChildProcess.make("docker", ["--version"], { stdin: "ignore" }))
@@ -740,7 +754,7 @@ export const ShellTool = Tool.define(
                     Effect.orElseSucceed(() => 1),
                   )
                 if (code !== 0) throw new Error("Sandbox is enabled but Docker is unavailable")
-                return sandboxCmd(params.command, cwd, env, sandboxMounts(profile, primary.directory))
+                return sandboxCmd(params.command, cwd, env, sandboxMounts(profile, primary.directory), profile.network?.mode)
               })
 
               return yield* run(

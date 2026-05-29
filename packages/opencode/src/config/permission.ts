@@ -22,6 +22,7 @@ const InputObject = Schema.StructWithRest(
     opengrep: Schema.optional(Rule),
     list: Schema.optional(Rule),
     bash: Schema.optional(Rule),
+    sandbox_network: Schema.optional(Rule),
     task: Schema.optional(Rule),
     external_directory: Schema.optional(Rule),
     todowrite: Schema.optional(Action),

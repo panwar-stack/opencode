@@ -445,25 +445,138 @@ describe("tool.shell sandbox", () => {
     }),
   )
 
-  for (const mode of ["allowlist", "full"] as const) {
-    it.live(`fails closed for ${mode} network sandbox`, () =>
-      Effect.gen(function* () {
-        const records: RecordedCommand[] = []
-        const network = mode === "allowlist" ? { mode, hosts: ["example.com"] as [string] } : { mode }
-        const tmp = yield* tmpdirScoped({
-          config: { sandbox: { enabled: true, profiles: { workspace: { network } } } },
-        })
+  it.live("fails closed for allowlist network sandbox", () =>
+    Effect.gen(function* () {
+      const records: RecordedCommand[] = []
+      const tmp = yield* tmpdirScoped({
+        config: {
+          sandbox: {
+            enabled: true,
+            profiles: { workspace: { network: { mode: "allowlist", hosts: ["example.com"] } } },
+          },
+        },
+      })
 
-        const error = yield* runIn(
-          tmp,
-          fail({ command: "echo sandbox", description: "Sandbox echo" }).pipe(Effect.provide(mockShellSpawner(records))),
-        )
+      const error = yield* runIn(
+        tmp,
+        fail({ command: "echo sandbox", description: "Sandbox echo" }).pipe(Effect.provide(mockShellSpawner(records))),
+      )
 
-        expect(error.message).toBe("Sandbox network mode is not supported.")
-        expect(records.find((record) => record.command === "docker")).toBeUndefined()
-      }),
-    )
-  }
+      expect(error.message).toBe("Sandbox network mode is not supported.")
+      expect(records.find((record) => record.command === "docker")).toBeUndefined()
+    }),
+  )
+
+  it.live("requires full network approval before checking docker", () =>
+    Effect.gen(function* () {
+      const records: RecordedCommand[] = []
+      const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+      const tmp = yield* tmpdirScoped({
+        config: { sandbox: { enabled: true, profiles: { workspace: { network: { mode: "full" } } } } },
+      })
+
+      yield* runIn(
+        tmp,
+        run(
+          { command: "echo sandbox", description: "Sandbox echo" },
+          {
+            ...ctx,
+            ask: (request) =>
+              Effect.sync(() => {
+                expect(records.length).toBe(0)
+                requests.push(request)
+              }),
+          },
+        ).pipe(Effect.provide(mockShellSpawner(records))),
+      )
+
+      expect(requests.map((request) => request.permission)).toEqual(["bash", "sandbox_network"])
+      expect(requests[1]).toMatchObject({
+        permission: "sandbox_network",
+        patterns: ["sandbox_network:full:workspace"],
+        always: ["sandbox_network:full:workspace"],
+        metadata: { profile: "workspace", mode: "full", command: "echo sandbox" },
+      })
+      expect(records[0]).toMatchObject({ command: "docker", args: ["--version"] })
+    }),
+  )
+
+  it.live("full network rejection prevents docker", () =>
+    Effect.gen(function* () {
+      const records: RecordedCommand[] = []
+      const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+      const stop = new Error("network rejected")
+      const tmp = yield* tmpdirScoped({
+        config: { sandbox: { enabled: true, profiles: { workspace: { network: { mode: "full" } } } } },
+      })
+
+      const error = yield* runIn(
+        tmp,
+        fail(
+          { command: "echo sandbox", description: "Sandbox echo" },
+          {
+            ...ctx,
+            ask: (request) =>
+              Effect.sync(() => {
+                requests.push(request)
+                if (request.permission === "sandbox_network") throw stop
+              }),
+          },
+        ).pipe(Effect.provide(mockShellSpawner(records))),
+      )
+
+      expect(error.message).toBe(stop.message)
+      expect(requests.map((request) => request.permission)).toEqual(["bash", "sandbox_network"])
+      expect(records.find((record) => record.command === "docker")).toBeUndefined()
+    }),
+  )
+
+  it.live("skips full network approval when explicitly disabled and uses docker default network", () =>
+    Effect.gen(function* () {
+      const records: RecordedCommand[] = []
+      const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+      const tmp = yield* tmpdirScoped({
+        config: {
+          sandbox: {
+            enabled: true,
+            profiles: { workspace: { network: { mode: "full", requiresApproval: false } } },
+          },
+        },
+      })
+
+      yield* runIn(
+        tmp,
+        run({ command: "echo sandbox", description: "Sandbox echo" }, capture(requests)).pipe(
+          Effect.provide(mockShellSpawner(records)),
+        ),
+      )
+
+      const dockerRun = records.find((record) => record.command === "docker" && record.args[0] === "run")
+      expect(requests.find((request) => request.permission === "sandbox_network")).toBeUndefined()
+      expect(dockerRun).toBeDefined()
+      expect(dockerRun!.args).not.toContain("--network")
+      expect(dockerRun!.args).not.toContain("none")
+    }),
+  )
+
+  it.live("default full network requires approval", () =>
+    Effect.gen(function* () {
+      const records: RecordedCommand[] = []
+      const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+      const tmp = yield* tmpdirScoped({
+        config: { sandbox: { enabled: true, profiles: { workspace: { network: { mode: "full" } } } } },
+      })
+
+      yield* runIn(
+        tmp,
+        run({ command: "echo sandbox", description: "Sandbox echo" }, capture(requests)).pipe(
+          Effect.provide(mockShellSpawner(records)),
+        ),
+      )
+
+      expect(requests.find((request) => request.permission === "sandbox_network")).toBeDefined()
+    }),
+  )
 
   it.live("asks permissions before checking docker", () =>
     Effect.gen(function* () {

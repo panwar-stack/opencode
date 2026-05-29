@@ -360,6 +360,32 @@ export function PermissionPrompt(props: { request: PermissionRequest }) {
               }
             }
 
+            if (permission === "sandbox_network") {
+              const meta = props.request.metadata ?? {}
+              const profile = typeof meta["profile"] === "string" ? meta["profile"] : "unknown"
+              const mode = typeof meta["mode"] === "string" ? meta["mode"] : "full"
+              const patterns = (props.request.patterns ?? []).filter((p): p is string => typeof p === "string")
+
+              return {
+                icon: "↔",
+                title: `Allow ${mode} sandbox network for ${profile}`,
+                body: (
+                  <box paddingLeft={1} gap={1}>
+                    <text fg={theme.textMuted}>Profile: {profile}</text>
+                    <text fg={theme.textMuted}>Network: sandbox {mode}</text>
+                    <Show when={patterns.length > 0}>
+                      <box gap={1}>
+                        <text fg={theme.textMuted}>Patterns</text>
+                        <box>
+                          <For each={patterns}>{(p) => <text fg={theme.text}>{"- " + p}</text>}</For>
+                        </box>
+                      </box>
+                    </Show>
+                  </box>
+                ),
+              }
+            }
+
             if (permission === "doom_loop") {
               return {
                 icon: "⟳",
