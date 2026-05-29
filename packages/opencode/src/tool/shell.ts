@@ -1,6 +1,6 @@
 import { Effect, Fiber, Stream } from "effect"
 import os from "os"
-import { createWriteStream } from "node:fs"
+import { createWriteStream, existsSync } from "node:fs"
 import * as Tool from "./tool"
 import path from "path"
 import * as Log from "@opencode-ai/core/util/log"
@@ -354,42 +354,45 @@ function sandboxTokenPath(token: string, workspace: string) {
   if (token.startsWith("home/")) return path.join(os.homedir(), token.slice("home/".length))
 }
 
-function sandboxContains(parent: string, child: string) {
-  const relative = path.relative(parent, child)
-  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))
-}
-
 function sandboxMounts(profile: SandboxProfile, workspace: string) {
+  const filesystem = profile.filesystem
+  const hasFilesystemTokens = Boolean(
+    filesystem && [...(filesystem.read ?? []), ...(filesystem.write ?? []), ...(filesystem.protected ?? [])].length > 0,
+  )
+  const hasTemporaryDirectoryMount = Boolean(
+    filesystem && [...(filesystem.read ?? []), ...(filesystem.write ?? [])].includes("temporaryDirectory"),
+  )
   const protectedPaths = new Set(
-    (profile.filesystem?.protected ?? []).flatMap((token) => {
+    (filesystem?.protected ?? []).flatMap((token) => {
       const resolved = sandboxTokenPath(token, workspace)
       return resolved ? [resolved] : []
     }),
   )
-  const writable = new Set([
-    workspace,
-    os.tmpdir(),
-    ...(profile.filesystem?.write ?? []).flatMap((token) => {
+  const writable = new Set(
+    (hasFilesystemTokens ? (filesystem?.write ?? []) : ["workspace"]).flatMap((token) => {
       const resolved = sandboxTokenPath(token, workspace)
       return resolved ? [resolved] : []
     }),
-  ])
-  const readable = new Set([
-    path.dirname(process.execPath),
-    ...(profile.filesystem?.read ?? []).flatMap((token) => {
+  )
+  const readable = new Set(
+    (hasFilesystemTokens ? (filesystem?.read ?? []) : ["systemRuntime"]).flatMap((token) => {
       const resolved = sandboxTokenPath(token, workspace)
       return resolved ? [resolved] : []
     }),
-    ...protectedPaths,
-  ])
-  return Array.from(new Set([...readable, ...writable]))
-    .filter((source) => source.length > 0)
-    .map((source) => ({
-      source,
-      target: source,
-      writable:
-        writable.has(source) && !Array.from(protectedPaths).some((protectedPath) => sandboxContains(source, protectedPath)),
-    }))
+  )
+  const mounts = new Map<string, SandboxMount>()
+  for (const source of writable) {
+    if (source.length > 0) mounts.set(source, { source, target: source, writable: !protectedPaths.has(source) })
+  }
+  for (const source of readable) {
+    if (source.length > 0 && !mounts.has(source)) mounts.set(source, { source, target: source, writable: false })
+  }
+  for (const source of protectedPaths) {
+    if (source.length > 0 && (source !== os.tmpdir() || hasTemporaryDirectoryMount) && existsSync(source)) {
+      mounts.set(source, { source, target: source, writable: false })
+    }
+  }
+  return Array.from(mounts.values())
 }
 const parser = lazy(async () => {
   const { Parser } = await import("web-tree-sitter")
@@ -724,7 +727,7 @@ export const ShellTool = Tool.define(
               const env = yield* shellEnv(ctx, cwd)
               const sandboxProcess = yield* Effect.gen(function* () {
                 if (cfg.sandbox?.enabled !== true) return
-                if (process.platform === "win32") throw new Error("Sandbox is enabled but Docker is unavailable.")
+                if (process.platform === "win32") throw new Error("Sandbox is enabled but Docker is unavailable")
                 const profile = cfg.sandbox.profiles?.[cfg.sandbox.defaultProfile ?? "workspace"]
                 if (!profile) throw new Error("Sandbox profile is missing.")
                 if (profile.network?.mode && profile.network.mode !== "none") {
@@ -736,7 +739,7 @@ export const ShellTool = Tool.define(
                     Effect.map((code) => Number(code)),
                     Effect.orElseSucceed(() => 1),
                   )
-                if (code !== 0) throw new Error("Sandbox is enabled but Docker is unavailable.")
+                if (code !== 0) throw new Error("Sandbox is enabled but Docker is unavailable")
                 return sandboxCmd(params.command, cwd, env, sandboxMounts(profile, primary.directory))
               })
 

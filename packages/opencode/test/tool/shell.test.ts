@@ -1,6 +1,7 @@
 import { describe, expect } from "bun:test"
 import { Cause, Effect, Exit, Layer, Stream } from "effect"
 import type * as Scope from "effect/Scope"
+import fs from "fs/promises"
 import os from "os"
 import path from "path"
 import { Config } from "@/config/config"
@@ -400,9 +401,47 @@ describe("tool.shell sandbox", () => {
         ).pipe(Effect.provide(mockShellSpawner(records, { dockerAvailable: false }))),
       )
 
-      expect(error.message).toBe("Sandbox is enabled but Docker is unavailable.")
+      expect(error.message).toBe("Sandbox is enabled but Docker is unavailable")
       expect(records.find((record) => record.command === "docker" && record.args[0] === "--version")).toBeDefined()
       expect(records.find((record) => record.command === "docker" && record.args[0] === "run")).toBeUndefined()
+    }),
+  )
+
+  it.live("keeps explicit workspace writable while protecting child mounts", () =>
+    Effect.gen(function* () {
+      const records: RecordedCommand[] = []
+      const tmp = yield* tmpdirScoped({
+        config: {
+          sandbox: {
+            enabled: true,
+            profiles: {
+              workspace: {
+                filesystem: {
+                  write: ["workspace"],
+                  protected: ["workspace/secrets"],
+                },
+                network: { mode: "none" },
+              },
+            },
+          },
+        },
+      })
+      const secrets = path.join(tmp, "secrets")
+      yield* Effect.promise(() => fs.mkdir(secrets))
+
+      yield* runIn(
+        tmp,
+        run({ command: "echo sandbox", description: "Sandbox echo" }).pipe(Effect.provide(mockShellSpawner(records))),
+      )
+
+      const dockerRun = records.find((record) => record.command === "docker" && record.args[0] === "run")
+      const mounts = dockerRun?.args.filter((arg) => arg.startsWith("type=bind,")) ?? []
+      expect(mounts).toContain(`type=bind,source=${tmp},target=${tmp}`)
+      expect(mounts).toContain(`type=bind,source=${secrets},target=${secrets},readonly`)
+      expect(mounts).not.toContain(`type=bind,source=${os.tmpdir()},target=${os.tmpdir()}`)
+      expect(mounts).not.toContain(
+        `type=bind,source=${path.dirname(process.execPath)},target=${path.dirname(process.execPath)},readonly`,
+      )
     }),
   )
 

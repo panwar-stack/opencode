@@ -102,6 +102,31 @@ describe("tool.assertExternalDirectory", () => {
     }),
   )
 
+  it.live("preserves registered-root behavior that sandbox workdir checks rely on", () =>
+    Effect.gen(function* () {
+      const primary = yield* tmpdirScoped({ git: true })
+      const secondary = yield* tmpdirScoped({ git: true })
+      const { requests, ctx } = makeCtx()
+
+      const info = yield* provideInstance(primary)(
+        Effect.gen(function* () {
+          const session = yield* Session.Service
+          const info = yield* session.create({ title: "sandbox roots" })
+          yield* session.addRoot({ sessionID: info.id, directory: secondary })
+          return info
+        }),
+      )
+
+      yield* provideInstance(primary)(
+        assertExternalDirectoryEffect({ ...ctx, sessionID: info.id }, path.join(secondary, "nested"), {
+          kind: "directory",
+        }),
+      )
+
+      expect(requests.find((request) => request.permission === "external_directory")).toBeUndefined()
+    }),
+  )
+
   it.live("asks for unregistered siblings in the primary worktree", () =>
     Effect.gen(function* () {
       const repo = yield* tmpdirScoped({ git: true })
