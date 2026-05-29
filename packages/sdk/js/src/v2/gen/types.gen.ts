@@ -930,6 +930,45 @@ export type GlobalEvent = {
     | SyncEventSessionNextCompactionEnded
 }
 
+export type SandboxPathToken = string
+
+export type SandboxProfile = {
+  filesystem?: {
+    read?: Array<SandboxPathToken>
+    write?: Array<SandboxPathToken>
+    protected?: Array<SandboxPathToken>
+  }
+  network?:
+    | {
+        mode: "none"
+      }
+    | {
+        mode: "allowlist"
+        hosts: Array<string>
+      }
+    | {
+        mode: "full"
+        requiresApproval?: boolean
+      }
+  process?: {
+    hideHostProcesses?: boolean
+    killTreeOnExit?: boolean
+  }
+  resources?: {
+    memoryMegabytes?: number
+    processLimit?: number
+    timeSeconds?: number
+  }
+}
+
+export type SandboxConfig = {
+  enabled?: boolean
+  defaultProfile?: string
+  profiles?: {
+    [key: string]: SandboxProfile
+  }
+}
+
 /**
  * Log level
  */
@@ -1215,6 +1254,7 @@ export type AttachmentConfig = {
 export type Config = {
   $schema?: string
   shell?: string
+  sandbox?: SandboxConfig
   logLevel?: LogLevel
   server?: ServerConfig
   command?: {

@@ -42,6 +42,7 @@ import { ConfigReference } from "./reference"
 import { ConfigServer } from "./server"
 import { ConfigSkills } from "./skills"
 import { ConfigVariable } from "./variable"
+import { InvalidError } from "./error"
 import { Npm } from "@opencode-ai/core/npm"
 import { withTransientReadRetry } from "@/util/effect-http-client"
 import { ConfigExperimental } from "@opencode-ai/core/config/experimental"
@@ -72,6 +73,20 @@ function normalizeLoadedConfig(data: unknown, source: string) {
   delete copy.tui
   log.warn("tui keys in opencode config are deprecated; move them to tui.json", { path: source })
   return copy
+}
+
+function validateSandbox(info: Info, source: string) {
+  if (info.sandbox?.enabled !== true) return
+  if (info.sandbox.profiles?.[info.sandbox.defaultProfile ?? "workspace"]) return
+  throw new InvalidError({
+    path: source,
+    issues: [
+      {
+        path: ["sandbox", "defaultProfile"],
+        message: `Sandbox profile '${info.sandbox.defaultProfile ?? "workspace"}' does not exist`,
+      },
+    ],
+  })
 }
 
 async function substituteWellKnownRemoteConfig(input: {
@@ -133,6 +148,52 @@ const LogLevelRef = Schema.Literals(["DEBUG", "INFO", "WARN", "ERROR"]).annotate
   description: "Log level",
 })
 
+const SandboxPathToken = Schema.String.check(
+  Schema.isPattern(/^(workspace|systemRuntime|temporaryDirectory|workspace\/.+|home\/.+)$/),
+).annotate({
+  identifier: "SandboxPathToken",
+  description: "Sandbox filesystem token: workspace, systemRuntime, temporaryDirectory, workspace/<path>, or home/<path>",
+})
+
+const SandboxProfile = Schema.Struct({
+  filesystem: Schema.optional(
+    Schema.Struct({
+      read: Schema.optional(Schema.mutable(Schema.Array(SandboxPathToken))),
+      write: Schema.optional(Schema.mutable(Schema.Array(SandboxPathToken))),
+      protected: Schema.optional(Schema.mutable(Schema.Array(SandboxPathToken))),
+    }),
+  ),
+  network: Schema.optional(
+    Schema.Union([
+      Schema.Struct({ mode: Schema.Literal("none") }),
+      Schema.Struct({ mode: Schema.Literal("allowlist"), hosts: Schema.mutable(Schema.NonEmptyArray(Schema.NonEmptyString)) }),
+      Schema.Struct({ mode: Schema.Literal("full"), requiresApproval: Schema.optional(Schema.Boolean) }),
+    ]),
+  ),
+  process: Schema.optional(
+    Schema.Struct({
+      hideHostProcesses: Schema.optional(Schema.Boolean),
+      killTreeOnExit: Schema.optional(Schema.Boolean),
+    }),
+  ),
+  resources: Schema.optional(
+    Schema.Struct({
+      memoryMegabytes: Schema.optional(PositiveInt),
+      processLimit: Schema.optional(PositiveInt),
+      timeSeconds: Schema.optional(PositiveInt),
+    }),
+  ),
+}).annotate({ identifier: "SandboxProfile" })
+
+const Sandbox = Schema.Struct({
+  enabled: Schema.optional(Schema.Boolean),
+  defaultProfile: Schema.optional(Schema.String),
+  profiles: Schema.optional(Schema.Record(Schema.String, SandboxProfile)),
+}).annotate({
+  identifier: "SandboxConfig",
+  description: "Docker execution sandbox profiles for future sandboxed shell execution",
+})
+
 export const Info = Schema.Struct({
   $schema: Schema.optional(Schema.String).annotate({
     description: "JSON schema reference for configuration validation",
@@ -140,6 +201,7 @@ export const Info = Schema.Struct({
   shell: Schema.optional(Schema.String).annotate({
     description: "Default shell to use for terminal and bash tool",
   }),
+  sandbox: Schema.optional(Sandbox),
   logLevel: Schema.optional(LogLevelRef).annotate({ description: "Log level" }),
   server: Schema.optional(ConfigServer.Server).annotate({
     description: "Server configuration for opencode serve and web commands",
@@ -433,6 +495,7 @@ export const layer = Layer.effect(
       )
       const parsed = ConfigParse.jsonc(expanded, source)
       const data = ConfigParse.schema(Info, normalizeLoadedConfig(parsed, source), source)
+      validateSandbox(data, source)
       if (!("path" in options)) return data
 
       yield* Effect.promise(() => resolveLoadedPlugins(data, options.path))

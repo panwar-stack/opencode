@@ -335,6 +335,54 @@ If not specified, OpenCode will automatically discover and use a sensible defaul
 
 ---
 
+### Sandbox
+
+You can define Docker sandbox profiles for future sandboxed shell execution through the `sandbox` option. Runtime enforcement will be added later; this config currently validates the profiles OpenCode will use for sandboxed shell tool calls.
+
+Missing `sandbox` means sandboxing is disabled. When `sandbox.enabled` is `true`, OpenCode uses `sandbox.defaultProfile`, or `workspace` when no default profile is set. The selected profile must exist in `sandbox.profiles`.
+
+```json title="opencode.json"
+{
+  "$schema": "https://opencode.ai/config.json",
+  "sandbox": {
+    "enabled": true,
+    "defaultProfile": "workspace",
+    "profiles": {
+      "workspace": {
+        "filesystem": {
+          "read": ["workspace", "systemRuntime"],
+          "write": ["workspace", "temporaryDirectory"],
+          "protected": ["workspace/.opencode", "home/.ssh"]
+        },
+        "network": {
+          "mode": "none"
+        },
+        "process": {
+          "hideHostProcesses": true,
+          "killTreeOnExit": true
+        },
+        "resources": {
+          "memoryMegabytes": 4096,
+          "processLimit": 512,
+          "timeSeconds": 600
+        }
+      }
+    }
+  }
+}
+```
+
+Available profile options:
+
+- `filesystem.read`, `filesystem.write`, `filesystem.protected` - Path tokens. Valid tokens are `workspace`, `systemRuntime`, `temporaryDirectory`, `workspace/<path>`, and `home/<path>`.
+- `network.mode` - `none`, `allowlist`, or `full`. `allowlist` requires a non-empty `hosts` array.
+- `network.requiresApproval` - Optional for `full` network mode.
+- `process.hideHostProcesses` - Hide host processes from the sandbox.
+- `process.killTreeOnExit` - Stop child processes when sandboxed execution exits.
+- `resources.memoryMegabytes`, `resources.processLimit`, `resources.timeSeconds` - Positive integer limits.
+
+---
+
 ### Tools
 
 You can manage the tools an LLM can use through the `tools` option.

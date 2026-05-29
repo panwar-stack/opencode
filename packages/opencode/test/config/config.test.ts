@@ -258,6 +258,42 @@ function withProcessEnvs<A, E, R>(entries: Record<string, string | undefined>, e
   )
 }
 
+const fullWorkspaceSandbox = {
+  enabled: true,
+  defaultProfile: "workspace",
+  profiles: {
+    workspace: {
+      filesystem: {
+        read: ["workspace", "systemRuntime"],
+        write: ["workspace", "temporaryDirectory"],
+        protected: [
+          "workspace/.git/hooks",
+          "workspace/.opencode",
+          "workspace/AGENTS.md",
+          "home/.ssh",
+          "home/.config",
+          "home/.aws",
+          "home/.gitconfig",
+        ],
+      },
+      network: {
+        mode: "none" as const,
+      },
+      process: {
+        hideHostProcesses: true,
+        killTreeOnExit: true,
+      },
+      resources: {
+        memoryMegabytes: 4096,
+        processLimit: 512,
+        timeSeconds: 600,
+      },
+    },
+  },
+}
+
+const parseSandboxConfig = (sandbox: object | undefined) => ConfigParse.schema(Config.Info, { sandbox }, "test")
+
 async function check(map: (dir: string) => string) {
   if (process.platform !== "win32") return
   await using globalTmp = await tmpdir()
@@ -353,6 +389,74 @@ it.instance(
   }),
   { config: { shell: "bash" } },
 )
+
+test("missing sandbox config remains undefined", () => {
+  expect(ConfigParse.schema(Config.Info, {}, "test").sandbox).toBeUndefined()
+})
+
+test("parses valid workspace sandbox profile", () => {
+  expect(parseSandboxConfig(fullWorkspaceSandbox).sandbox).toEqual(fullWorkspaceSandbox)
+})
+
+it.instance(
+  "sandbox defaults enabled profile selection to workspace",
+  Effect.gen(function* () {
+    const config = yield* Config.use.get()
+    expect(config.sandbox?.defaultProfile).toBeUndefined()
+    expect(config.sandbox?.profiles?.workspace).toBeDefined()
+  }),
+  {
+    config: {
+      sandbox: {
+        enabled: true,
+        profiles: fullWorkspaceSandbox.profiles,
+      },
+    },
+  },
+)
+
+it.instance(
+  "sandbox rejects unknown default profile when enabled",
+  Effect.gen(function* () {
+    const exit = yield* Config.use.get().pipe(Effect.exit)
+    expect(Exit.isFailure(exit)).toBe(true)
+  }),
+  {
+    config: {
+      sandbox: {
+        enabled: true,
+        defaultProfile: "locked-down",
+        profiles: fullWorkspaceSandbox.profiles,
+      },
+    },
+  },
+)
+
+test("sandbox allows disabled config without profiles", () => {
+  expect(parseSandboxConfig({ enabled: false }).sandbox).toEqual({ enabled: false })
+})
+
+test("sandbox rejects invalid allowlist hosts", () => {
+  expect(() => parseSandboxConfig({ profiles: { workspace: { network: { mode: "allowlist" } } } })).toThrow()
+  expect(() => parseSandboxConfig({ profiles: { workspace: { network: { mode: "allowlist", hosts: [] } } } })).toThrow()
+  expect(() => parseSandboxConfig({ profiles: { workspace: { network: { mode: "allowlist", hosts: [""] } } } })).toThrow()
+})
+
+test("sandbox rejects invalid network mode", () => {
+  expect(() => parseSandboxConfig({ profiles: { workspace: { network: { mode: "invalid" } } } })).toThrow()
+})
+
+test("sandbox rejects invalid path tokens", () => {
+  expect(() => parseSandboxConfig({ profiles: { workspace: { filesystem: { read: ["home"] } } } })).toThrow()
+  expect(() => parseSandboxConfig({ profiles: { workspace: { filesystem: { write: ["workspace/"] } } } })).toThrow()
+  expect(() => parseSandboxConfig({ profiles: { workspace: { filesystem: { protected: ["tmp"] } } } })).toThrow()
+})
+
+test("sandbox rejects invalid resource bounds", () => {
+  expect(() => parseSandboxConfig({ profiles: { workspace: { resources: { memoryMegabytes: 0 } } } })).toThrow()
+  expect(() => parseSandboxConfig({ profiles: { workspace: { resources: { processLimit: -1 } } } })).toThrow()
+  expect(() => parseSandboxConfig({ profiles: { workspace: { resources: { timeSeconds: 1.5 } } } })).toThrow()
+})
 
 test("parses memory config field", () => {
   const config = ConfigParse.schema(
