@@ -4,6 +4,7 @@ import type * as Scope from "effect/Scope"
 import fs from "fs/promises"
 import os from "os"
 import path from "path"
+import vm from "node:vm"
 import { Config } from "@/config/config"
 import { Shell } from "../../src/shell/shell"
 import { ShellTool } from "../../src/tool/shell"
@@ -172,6 +173,17 @@ type RecordedCommand = {
   options: ChildProcess.CommandOptions | undefined
 }
 
+type SandboxAllowlistSpec = {
+  image: string
+  command: string
+  cwd: string
+  env: Record<string, string>
+  mounts: Array<{ source: string; target: string; writable: boolean }>
+  hosts: string[]
+  proxyPort: number
+  proxyScript: string
+}
+
 function mockShellSpawner(
   records: RecordedCommand[],
   options?: {
@@ -207,10 +219,73 @@ function mockShellSpawner(
           return Effect.succeed(handle({ code: options?.dockerAvailable === false ? 1 : 0, stdout: "Docker version\n" }))
         }
         if (std?.command === "docker" && std.args[0] === "run") return Effect.succeed(handle(output))
+        if (std?.command === process.execPath && std.args[0] === "--eval") return Effect.succeed(handle(output))
         return Effect.succeed(handle({ code: 0, stdout: "host\n" }))
       })
     }),
   )
+}
+
+function allowlistSpec(record: RecordedCommand) {
+  expect(record.command).toBe(process.execPath)
+  expect(record.args[0]).toBe("--eval")
+  return JSON.parse(String(record.args[2])) as SandboxAllowlistSpec
+}
+
+async function proxyRequest(script: string, input: { url: string; lookup: Record<string, string[]> }) {
+  const result: { status?: number; body: string; upstream?: { host: string; headers?: Record<string, string> } } = {
+    body: "",
+  }
+  const server: { request?: (req: unknown, res: unknown) => Promise<void> | void } = {}
+  const context = vm.createContext({
+    process: { env: { OPENCODE_ALLOWLIST_JSON: JSON.stringify(["registry.npmjs.org"]), OPENCODE_PROXY_PORT: "3128" } },
+    require: (name: string) => {
+      if (name === "dns") {
+        return {
+          promises: {
+            lookup: (host: string) =>
+              Promise.resolve((input.lookup[host] ?? []).map((address) => ({ address, family: address.includes(":") ? 6 : 4 }))),
+          },
+        }
+      }
+      if (name === "http") {
+        return {
+          createServer: (handler: (req: unknown, res: unknown) => Promise<void> | void) => {
+            server.request = handler
+            return { on: () => undefined, listen: () => undefined }
+          },
+          request: (options: { host: string; headers?: Record<string, string> }, handler: (res: unknown) => void) => {
+            result.upstream = { host: options.host, headers: options.headers }
+            handler({ statusCode: 200, headers: {}, pipe: (res: { end: (text: string) => void }) => res.end("ok") })
+            return { on: () => undefined, write: () => undefined, end: () => undefined }
+          },
+        }
+      }
+      if (name === "net") {
+        return { isIP: (value: string) => (/^\d+\.\d+\.\d+\.\d+$/.test(value) ? 4 : value.includes(":") ? 6 : 0) }
+      }
+      throw new Error(`unexpected require ${name}`)
+    },
+    URL,
+    String,
+    Number,
+    Error,
+    Set,
+  })
+  vm.runInContext(script, context)
+  if (!server.request) throw new Error("proxy request handler was not registered")
+  await server.request(
+    { url: input.url, method: "GET", headers: {}, pipe: (target: { end: () => void }) => target.end() },
+    {
+      writeHead: (status: number) => {
+        result.status = status
+      },
+      end: (text: string) => {
+        result.body += text
+      },
+    },
+  )
+  return result
 }
 
 const mustTruncate = (result: {
@@ -445,25 +520,157 @@ describe("tool.shell sandbox", () => {
     }),
   )
 
-  it.live("fails closed for allowlist network sandbox", () =>
+  it.live("builds internal network and proxy for allowlist sandbox", () =>
     Effect.gen(function* () {
       const records: RecordedCommand[] = []
       const tmp = yield* tmpdirScoped({
         config: {
           sandbox: {
             enabled: true,
-            profiles: { workspace: { network: { mode: "allowlist", hosts: ["example.com"] } } },
+            profiles: { workspace: { network: { mode: "allowlist", hosts: ["registry.npmjs.org"] } } },
           },
         },
       })
 
-      const error = yield* runIn(
+      const result = yield* runIn(
         tmp,
-        fail({ command: "echo sandbox", description: "Sandbox echo" }).pipe(Effect.provide(mockShellSpawner(records))),
+        run({ command: "echo sandbox", description: "Sandbox echo" }).pipe(Effect.provide(mockShellSpawner(records))),
       )
 
-      expect(error.message).toBe("Sandbox network mode is not supported.")
-      expect(records.find((record) => record.command === "docker")).toBeUndefined()
+      const orchestrator = records.find((record) => record.command === process.execPath && record.args[0] === "--eval")
+      expect(result.output).toContain("sandbox output")
+      expect(records.find((record) => record.command === "docker" && record.args[0] === "--version")).toBeDefined()
+      expect(orchestrator).toBeDefined()
+      const script = String(orchestrator!.args[1])
+      const spec = allowlistSpec(orchestrator!)
+      expect(spec.hosts).toEqual(["registry.npmjs.org"])
+      expect(spec.proxyScript).toContain("direct IP egress is blocked")
+      expect(spec.proxyScript).toContain("host resolves to a private or reserved address")
+      expect(script).toContain('"network", "create", "--internal", network')
+      expect(script).toContain('"run",\n    "-d"')
+      expect(script).toContain('"--network",\n    "bridge"')
+      expect(script).toContain('"network", "connect", "--alias", "proxy", network, proxy')
+      expect(script).toContain('"--network",\n    network')
+      expect(script).toContain('"HTTP_PROXY=http://proxy:"')
+      expect(script).toContain('"HTTPS_PROXY=http://proxy:"')
+      expect(script).toContain('"ALL_PROXY=http://proxy:"')
+      expect(script).not.toContain('"--network",\n    "bridge",\n    "--workdir"')
+    }),
+  )
+
+  it.live("allowlist proxy allows registry.npmjs.org", () =>
+    Effect.gen(function* () {
+      const records: RecordedCommand[] = []
+      const tmp = yield* tmpdirScoped({
+        config: { sandbox: { enabled: true, profiles: { workspace: { network: { mode: "allowlist", hosts: ["registry.npmjs.org"] } } } } },
+      })
+
+      yield* runIn(
+        tmp,
+        run({ command: "npm view bun", description: "Sandbox registry" }).pipe(Effect.provide(mockShellSpawner(records))),
+      )
+
+      const orchestrator = records.find((record) => record.command === process.execPath && record.args[0] === "--eval")
+      if (!orchestrator) throw new Error("missing allowlist orchestrator")
+      const result = yield* Effect.promise(() =>
+        proxyRequest(allowlistSpec(orchestrator).proxyScript, {
+          url: "http://registry.npmjs.org/bun",
+          lookup: { "registry.npmjs.org": ["104.16.0.35"] },
+        }),
+      )
+
+      expect(result.status).not.toBe(403)
+      expect(result.upstream?.host).toBe("104.16.0.35")
+      expect(result.upstream?.headers?.host).toBe("registry.npmjs.org")
+    }),
+  )
+
+  it.live("allowlist proxy blocks unlisted hosts and redirect follow-up requests", () =>
+    Effect.gen(function* () {
+      const records: RecordedCommand[] = []
+      const tmp = yield* tmpdirScoped({
+        config: { sandbox: { enabled: true, profiles: { workspace: { network: { mode: "allowlist", hosts: ["registry.npmjs.org"] } } } } },
+      })
+
+      yield* runIn(
+        tmp,
+        run({ command: "curl -L http://registry.npmjs.org/pkg", description: "Sandbox redirect" }).pipe(
+          Effect.provide(mockShellSpawner(records)),
+        ),
+      )
+
+      const orchestrator = records.find((record) => record.command === process.execPath && record.args[0] === "--eval")
+      if (!orchestrator) throw new Error("missing allowlist orchestrator")
+      const unlisted = yield* Effect.promise(() =>
+        proxyRequest(allowlistSpec(orchestrator).proxyScript, {
+          url: "http://example.com/",
+          lookup: { "example.com": ["93.184.216.34"] },
+        }),
+      )
+      const redirected = yield* Effect.promise(() =>
+        proxyRequest(allowlistSpec(orchestrator).proxyScript, {
+          url: "http://evil.example/second-hop",
+          lookup: { "evil.example": ["93.184.216.34"] },
+        }),
+      )
+
+      expect(unlisted.status).toBe(403)
+      expect(unlisted.body).toContain("host is not allowlisted")
+      expect(redirected.status).toBe(403)
+      expect(redirected.body).toContain("host is not allowlisted")
+    }),
+  )
+
+  it.live("allowlist proxy blocks direct IP egress", () =>
+    Effect.gen(function* () {
+      const records: RecordedCommand[] = []
+      const tmp = yield* tmpdirScoped({
+        config: { sandbox: { enabled: true, profiles: { workspace: { network: { mode: "allowlist", hosts: ["registry.npmjs.org"] } } } } },
+      })
+
+      yield* runIn(
+        tmp,
+        run({ command: "curl http://104.16.0.35/", description: "Sandbox direct IP" }).pipe(
+          Effect.provide(mockShellSpawner(records)),
+        ),
+      )
+
+      const orchestrator = records.find((record) => record.command === process.execPath && record.args[0] === "--eval")
+      if (!orchestrator) throw new Error("missing allowlist orchestrator")
+      const result = yield* Effect.promise(() =>
+        proxyRequest(allowlistSpec(orchestrator).proxyScript, { url: "http://104.16.0.35/", lookup: {} }),
+      )
+
+      expect(result.status).toBe(403)
+      expect(result.body).toContain("direct IP egress is blocked")
+    }),
+  )
+
+  it.live("allowlist proxy rejects private or reserved resolved IPs", () =>
+    Effect.gen(function* () {
+      const records: RecordedCommand[] = []
+      const tmp = yield* tmpdirScoped({
+        config: { sandbox: { enabled: true, profiles: { workspace: { network: { mode: "allowlist", hosts: ["registry.npmjs.org"] } } } } },
+      })
+
+      yield* runIn(
+        tmp,
+        run({ command: "curl http://registry.npmjs.org/", description: "Sandbox private resolved IP" }).pipe(
+          Effect.provide(mockShellSpawner(records)),
+        ),
+      )
+
+      const orchestrator = records.find((record) => record.command === process.execPath && record.args[0] === "--eval")
+      if (!orchestrator) throw new Error("missing allowlist orchestrator")
+      const result = yield* Effect.promise(() =>
+        proxyRequest(allowlistSpec(orchestrator).proxyScript, {
+          url: "http://registry.npmjs.org/",
+          lookup: { "registry.npmjs.org": ["127.0.0.1"] },
+        }),
+      )
+
+      expect(result.status).toBe(403)
+      expect(result.body).toContain("host resolves to a private or reserved address")
     }),
   )
 

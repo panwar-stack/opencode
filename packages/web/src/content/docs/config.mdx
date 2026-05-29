@@ -337,7 +337,7 @@ If not specified, OpenCode will automatically discover and use a sensible defaul
 
 ### Sandbox
 
-You can define Docker sandbox profiles for future sandboxed shell execution through the `sandbox` option. Runtime enforcement will be added later; this config currently validates the profiles OpenCode will use for sandboxed shell tool calls.
+You can define Docker sandbox profiles for built-in shell execution through the `sandbox` option. When enabled, OpenCode runs shell tool commands in Docker instead of directly on the host.
 
 Missing `sandbox` means sandboxing is disabled. When `sandbox.enabled` is `true`, OpenCode uses `sandbox.defaultProfile`, or `workspace` when no default profile is set. The selected profile must exist in `sandbox.profiles`.
 
@@ -375,7 +375,7 @@ Missing `sandbox` means sandboxing is disabled. When `sandbox.enabled` is `true`
 Available profile options:
 
 - `filesystem.read`, `filesystem.write`, `filesystem.protected` - Path tokens. Valid tokens are `workspace`, `systemRuntime`, `temporaryDirectory`, `workspace/<path>`, and `home/<path>`.
-- `network.mode` - `none`, `allowlist`, or `full`. `allowlist` requires a non-empty `hosts` array.
+- `network.mode` - `none`, `allowlist`, or `full`. `allowlist` requires a non-empty `hosts` array and routes shell tool HTTP/HTTPS egress through an internal proxy. The command container only joins an internal Docker network, direct IP egress is blocked, and each proxy request is checked against the allowlist, including follow-up requests after redirects. Hosts that resolve to private or reserved IP ranges are rejected. If the allowlist proxy or internal network cannot be created, the command fails before it runs.
 - `network.requiresApproval` - Optional for `full` network mode.
 - `process.hideHostProcesses` - Hide host processes from the sandbox.
 - `process.killTreeOnExit` - Stop child processes when sandboxed execution exits.

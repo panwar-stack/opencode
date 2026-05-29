@@ -67,6 +67,7 @@ const CMD_FILES = new Set([
 const FLAGS = new Set(["-destination", "-literalpath", "-path"])
 const SWITCHES = new Set(["-confirm", "-debug", "-force", "-nonewline", "-recurse", "-verbose", "-whatif"])
 const SANDBOX_IMAGE = "ghcr.io/anomalyco/build/bun-node:24.04"
+const SANDBOX_PROXY_PORT = 3128
 
 type Part = {
   type: string
@@ -91,6 +92,7 @@ type SandboxMount = {
 }
 
 type SandboxProfile = NonNullable<NonNullable<Config.Info["sandbox"]>["profiles"]>[string]
+type SandboxNetwork = NonNullable<SandboxProfile["network"]>
 
 export const log = Log.create({ service: "shell-tool" })
 
@@ -315,13 +317,14 @@ function cmd(shell: string, command: string, cwd: string, env: NodeJS.ProcessEnv
   })
 }
 
-function sandboxCmd(command: string, cwd: string, env: NodeJS.ProcessEnv, mounts: SandboxMount[], networkMode?: string) {
+function sandboxCmd(command: string, cwd: string, env: NodeJS.ProcessEnv, mounts: SandboxMount[], network?: SandboxNetwork) {
+  if (network?.mode === "allowlist") return sandboxAllowlistCmd(command, cwd, env, mounts, network.hosts)
   return ChildProcess.make(
     "docker",
     [
       "run",
       "--rm",
-      ...(networkMode === "full" ? [] : ["--network", "none"]),
+      ...(network?.mode === "full" ? [] : ["--network", "none"]),
       "--workdir",
       cwd,
       ...Object.keys(env)
@@ -344,6 +347,241 @@ function sandboxCmd(command: string, cwd: string, env: NodeJS.ProcessEnv, mounts
     },
   )
 }
+
+function sandboxAllowlistCmd(command: string, cwd: string, env: NodeJS.ProcessEnv, mounts: SandboxMount[], hosts: string[]) {
+  return ChildProcess.make(
+    process.execPath,
+    [
+      "--eval",
+      SANDBOX_ALLOWLIST_ORCHESTRATOR,
+      JSON.stringify({
+        image: SANDBOX_IMAGE,
+        command,
+        cwd,
+        env: Object.fromEntries(Object.keys(env).flatMap((key) => (env[key] === undefined ? [] : [[key, env[key]]]))),
+        mounts,
+        hosts,
+        proxyPort: SANDBOX_PROXY_PORT,
+        proxyScript: SANDBOX_PROXY_SCRIPT,
+      }),
+    ],
+    {
+      cwd,
+      env,
+      stdin: "ignore",
+      detached: process.platform !== "win32",
+    },
+  )
+}
+
+const SANDBOX_ALLOWLIST_ORCHESTRATOR = String.raw`
+const spec = JSON.parse(process.argv[2])
+const suffix = String(process.pid) + "-" + Date.now().toString(36)
+const network = "opencode-allowlist-" + suffix
+const proxy = "opencode-proxy-" + suffix
+const command = "opencode-command-" + suffix
+const children = new Set()
+
+function dockerSync(args) {
+  Bun.spawnSync(["docker", ...args], { stdout: "ignore", stderr: "ignore" })
+}
+
+function cleanupSync() {
+  dockerSync(["rm", "-f", command])
+  dockerSync(["rm", "-f", proxy])
+  dockerSync(["network", "rm", network])
+}
+
+async function docker(args, options = {}) {
+  const child = Bun.spawn(["docker", ...args], {
+    stdout: options.capture ? "pipe" : "inherit",
+    stderr: "inherit",
+    env: process.env,
+  })
+  children.add(child)
+  const code = await child.exited
+  children.delete(child)
+  if (code !== 0 && options.check !== false) throw new Error("docker " + args.join(" ") + " failed")
+  if (!options.capture) return code
+  return await new Response(child.stdout).text()
+}
+
+async function stop(signal) {
+  for (const child of children) child.kill()
+  cleanupSync()
+  process.exit(signal === "SIGTERM" ? 143 : 130)
+}
+
+process.on("SIGTERM", () => void stop("SIGTERM"))
+process.on("SIGINT", () => void stop("SIGINT"))
+
+async function waitForProxy() {
+  for (let i = 0; i < 20; i++) {
+    const code = await docker([
+      "exec",
+      proxy,
+      "node",
+      "-e",
+      "require('net').connect(Number(process.env.OPENCODE_PROXY_PORT),'127.0.0.1',()=>process.exit(0)).on('error',()=>process.exit(1))",
+    ], { check: false })
+    if (code === 0) return
+    await Bun.sleep(50)
+  }
+  throw new Error("sandbox allowlist proxy did not become ready")
+}
+
+try {
+  await docker(["network", "create", "--internal", network])
+  await docker([
+    "run",
+    "-d",
+    "--rm",
+    "--name",
+    proxy,
+    "--network",
+    "bridge",
+    "--env",
+    "OPENCODE_ALLOWLIST_JSON=" + JSON.stringify(spec.hosts),
+    "--env",
+    "OPENCODE_PROXY_PORT=" + String(spec.proxyPort),
+    spec.image,
+    "node",
+    "-e",
+    spec.proxyScript,
+  ])
+  await docker(["network", "connect", "--alias", "proxy", network, proxy])
+  await waitForProxy()
+  const code = await docker([
+    "run",
+    "--rm",
+    "--name",
+    command,
+    "--network",
+    network,
+    "--workdir",
+    spec.cwd,
+    ...Object.keys(spec.env).flatMap((key) => ["--env", key + "=" + spec.env[key]]),
+    "--env",
+    "HTTP_PROXY=http://proxy:" + String(spec.proxyPort),
+    "--env",
+    "HTTPS_PROXY=http://proxy:" + String(spec.proxyPort),
+    "--env",
+    "ALL_PROXY=http://proxy:" + String(spec.proxyPort),
+    "--env",
+    "NO_PROXY=",
+    ...spec.mounts.flatMap((mount) => [
+      "--mount",
+      "type=bind,source=" + mount.source + ",target=" + mount.target + (mount.writable ? "" : ",readonly"),
+    ]),
+    spec.image,
+    "/bin/bash",
+    "-lc",
+    spec.command,
+  ], { check: false })
+  cleanupSync()
+  process.exit(code)
+} catch (error) {
+  cleanupSync()
+  process.stderr.write(error instanceof Error ? error.message + "\n" : String(error) + "\n")
+  process.exit(1)
+}
+`
+
+const SANDBOX_PROXY_SCRIPT = String.raw`
+const http = require("http")
+const net = require("net")
+const dns = require("dns").promises
+const allowed = new Set(JSON.parse(process.env.OPENCODE_ALLOWLIST_JSON).map((host) => host.toLowerCase().replace(/\.$/, "")))
+
+function ipv4Value(address) {
+  return address.split(".").reduce((total, part) => total * 256 + Number(part), 0) >>> 0
+}
+
+function inRange(value, start, bits) {
+  const mask = (0xffffffff << (32 - bits)) >>> 0
+  return (value & mask) === (ipv4Value(start) & mask)
+}
+
+function isPrivateOrReserved(address) {
+  if (net.isIP(address) === 4) {
+    const value = ipv4Value(address)
+    return [
+      ["0.0.0.0", 8],
+      ["10.0.0.0", 8],
+      ["100.64.0.0", 10],
+      ["127.0.0.0", 8],
+      ["169.254.0.0", 16],
+      ["172.16.0.0", 12],
+      ["192.0.0.0", 24],
+      ["192.0.2.0", 24],
+      ["192.168.0.0", 16],
+      ["198.18.0.0", 15],
+      ["198.51.100.0", 24],
+      ["203.0.113.0", 24],
+      ["224.0.0.0", 4],
+      ["240.0.0.0", 4],
+    ].some((range) => inRange(value, range[0], range[1]))
+  }
+  if (net.isIP(address) === 6) {
+    const normalized = address.toLowerCase()
+    return normalized === "::" || normalized === "::1" || normalized.startsWith("fc") || normalized.startsWith("fd") || normalized.startsWith("fe80:")
+  }
+  return true
+}
+
+async function resolveAllowedHost(input) {
+  const host = input.toLowerCase().replace(/^\[(.*)\]$/, "$1").replace(/\.$/, "")
+  if (net.isIP(host)) throw new Error("direct IP egress is blocked")
+  if (!allowed.has(host)) throw new Error("host is not allowlisted")
+  const addresses = await dns.lookup(host, { all: true })
+  if (addresses.length === 0 || addresses.some((item) => isPrivateOrReserved(item.address))) {
+    throw new Error("host resolves to a private or reserved address")
+  }
+  return addresses[0].address
+}
+
+function reject(socket, message) {
+  socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n" + message + "\n")
+}
+
+const server = http.createServer(async (req, res) => {
+  try {
+    if (!req.url) throw new Error("missing URL")
+    const url = new URL(req.url)
+    const address = await resolveAllowedHost(url.hostname)
+    const upstream = http.request({ host: address, port: url.port || 80, method: req.method, path: url.pathname + url.search, headers: { ...req.headers, host: url.host } }, (upstreamRes) => {
+      res.writeHead(upstreamRes.statusCode || 502, upstreamRes.headers)
+      upstreamRes.pipe(res)
+    })
+    upstream.on("error", (error) => {
+      res.writeHead(502)
+      res.end(String(error))
+    })
+    req.pipe(upstream)
+  } catch (error) {
+    res.writeHead(403)
+    res.end(error instanceof Error ? error.message : String(error))
+  }
+})
+
+server.on("connect", async (req, socket, head) => {
+  try {
+    const [host, port = "443"] = String(req.url).split(":")
+    const address = await resolveAllowedHost(host)
+    const upstream = net.connect(Number(port), address, () => {
+      socket.write("HTTP/1.1 200 Connection Established\r\n\r\n")
+      if (head.length > 0) upstream.write(head)
+      upstream.pipe(socket)
+      socket.pipe(upstream)
+    })
+    upstream.on("error", (error) => reject(socket, String(error)))
+  } catch (error) {
+    reject(socket, error instanceof Error ? error.message : String(error))
+  }
+})
+
+server.listen(Number(process.env.OPENCODE_PROXY_PORT), "0.0.0.0")
+`
 
 function sandboxTokenPath(token: string, workspace: string) {
   if (token === "workspace") return workspace
@@ -730,9 +968,6 @@ export const ShellTool = Tool.define(
                 const profileName = cfg.sandbox.defaultProfile ?? "workspace"
                 const profile = cfg.sandbox.profiles?.[profileName]
                 if (!profile) throw new Error("Sandbox profile is missing.")
-                if (profile.network?.mode === "allowlist") {
-                  throw new Error("Sandbox network mode is not supported.")
-                }
                 if (profile.network?.mode === "full" && profile.network.requiresApproval !== false) {
                   const pattern = `sandbox_network:full:${profileName}`
                   yield* ctx.ask({
@@ -754,7 +989,7 @@ export const ShellTool = Tool.define(
                     Effect.orElseSucceed(() => 1),
                   )
                 if (code !== 0) throw new Error("Sandbox is enabled but Docker is unavailable")
-                return sandboxCmd(params.command, cwd, env, sandboxMounts(profile, primary.directory), profile.network?.mode)
+                return sandboxCmd(params.command, cwd, env, sandboxMounts(profile, primary.directory), profile.network)
               })
 
               return yield* run(
