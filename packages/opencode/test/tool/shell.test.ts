@@ -552,8 +552,12 @@ describe("tool.shell sandbox", () => {
       expect(script).toContain('"network", "connect", "--alias", "proxy", network, proxy')
       expect(script).toContain('"--network",\n    network')
       expect(script).toContain('"HTTP_PROXY=http://proxy:"')
+      expect(script).toContain('"http_proxy=http://proxy:"')
       expect(script).toContain('"HTTPS_PROXY=http://proxy:"')
+      expect(script).toContain('"https_proxy=http://proxy:"')
       expect(script).toContain('"ALL_PROXY=http://proxy:"')
+      expect(script).toContain('"all_proxy=http://proxy:"')
+      expect(script).toContain('"no_proxy="')
       expect(script).not.toContain('"--network",\n    "bridge",\n    "--workdir"')
     }),
   )
