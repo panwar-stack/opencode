@@ -6,6 +6,8 @@ description: "Define reusable behavior via SKILL.md definitions"
 Agent skills let OpenCode discover reusable instructions from your repo or home directory.
 Skills are loaded on-demand via the native `skill` tool—agents see available skills and can load the full content when needed.
 
+OpenCode also ships built-in skills, including `browser-use` for browser automation guidance. Skill access is separate from MCP server access: denying the `browser-use` skill only controls whether the instructions load, while `mcp.browser_use.enabled` and `permission.browser_use_*` control the Browser Use MCP server and tools.
+
 ---
 
 ## Place files

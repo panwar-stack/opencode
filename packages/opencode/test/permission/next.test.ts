@@ -168,6 +168,12 @@ test("fromConfig - wildcard acts as fallback when it appears before specifics", 
   expect(Permission.evaluate("bash", "ls", ruleset).action).toBe("allow")
 })
 
+test("fromConfig - browser-use wildcard can override fallback", () => {
+  const ruleset = Permission.fromConfig({ "*": "allow", "browser_use_*": "ask" })
+  expect(Permission.evaluate("browser_use_click", "*", ruleset).action).toBe("ask")
+  expect(Permission.evaluate("bash", "ls", ruleset).action).toBe("allow")
+})
+
 test("fromConfig - top-level ordering is not sorted by wildcard specificity", () => {
   const ruleset = Permission.fromConfig({
     bash: "allow",
@@ -255,6 +261,16 @@ test("merge - multiple rulesets", () => {
     { permission: "bash", pattern: "rm", action: "ask" },
     { permission: "edit", pattern: "*", action: "allow" },
   ])
+})
+
+test("merge - user browser-use permission overrides default ask", () => {
+  const defaults = Permission.fromConfig({ "*": "allow", "browser_use_*": "ask" })
+  const allow = Permission.merge(defaults, Permission.fromConfig({ "browser_use_*": "allow" }))
+  const deny = Permission.merge(defaults, Permission.fromConfig({ "browser_use_*": "deny" }))
+
+  expect(Permission.evaluate("browser_use_type", "*", defaults).action).toBe("ask")
+  expect(Permission.evaluate("browser_use_type", "*", allow).action).toBe("allow")
+  expect(Permission.evaluate("browser_use_type", "*", deny).action).toBe("deny")
 })
 
 test("merge - empty ruleset does nothing", () => {
@@ -550,6 +566,17 @@ test("disabled - disables multiple tools", () => {
   expect(result.has("bash")).toBe(true)
   expect(result.has("edit")).toBe(true)
   expect(result.has("webfetch")).toBe(true)
+})
+
+test("disabled - browser-use wildcard deny filters browser-use tools", () => {
+  const result = Permission.disabled(
+    ["browser_use_click", "browser_use_type", "bash"],
+    [{ permission: "browser_use_*", pattern: "*", action: "deny" }],
+  )
+
+  expect(result.has("browser_use_click")).toBe(true)
+  expect(result.has("browser_use_type")).toBe(true)
+  expect(result.has("bash")).toBe(false)
 })
 
 test("disabled - wildcard permission denies all tools", () => {

@@ -137,6 +137,7 @@ OpenCode permissions are keyed by tool name, plus a couple of safety guards:
 - `bash` — running shell commands (matches parsed commands like `git status --porcelain`)
 - `task` — launching subagents (matches the subagent type)
 - `skill` — loading a skill (matches the skill name)
+- `browser_use_*` — Browser Use MCP tools, such as navigation, typing, extraction, uploads, and downloads
 - `lsp` — running LSP queries (currently non-granular)
 - `question` — asking the user questions during execution
 - `webfetch` — fetching a URL (matches the URL)
@@ -157,7 +158,7 @@ Repository memory permissions only apply after the memory tools are available. A
 If you don’t specify anything, OpenCode starts from permissive defaults:
 
 - Most permissions default to `"allow"`.
-- `doom_loop` and `external_directory` default to `"ask"`.
+- `doom_loop`, `external_directory`, and `browser_use_*` default to `"ask"`.
 - `read` is `"allow"`, but `.env` files are denied by default:
 
 ```json title="opencode.json"
@@ -169,6 +170,16 @@ If you don’t specify anything, OpenCode starts from permissive defaults:
       "*.env.*": "deny",
       "*.env.example": "allow"
     }
+  }
+}
+```
+
+To deny and hide Browser Use MCP tools from the model:
+
+```json title="opencode.json"
+{
+  "permission": {
+    "browser_use_*": "deny"
   }
 }
 ```

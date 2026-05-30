@@ -111,6 +111,7 @@ export const layer = Layer.effect(
 
         const defaults = Permission.fromConfig({
           "*": "allow",
+          "browser_use_*": "ask",
           doom_loop: "ask",
           external_directory: {
             "*": "ask",

@@ -35,4 +35,6 @@ Ask the user before using browser-use to:
 
 opencode MCP permissions are tool-level permissions. They do not understand the semantic intent of a browser action. If a generic browser tool could perform a sensitive action, ask the user before invoking it for that purpose unless the user has already explicitly allowed that exact action.
 
+Browser-use MCP tools use permission names like `browser_use_*` and default to `ask`. To turn browser-use tools off for a project, set `permission.browser_use_*` to `deny`. To prevent the default local server from starting, set `mcp.browser_use.enabled` to `false`.
+
 Cloud Browser Use MCP can send browser session contents, prompts, screenshots, or recordings to a third party and may incur cost. Ask before using cloud mode, and do not sync local profiles to cloud unless the user explicitly requests it.

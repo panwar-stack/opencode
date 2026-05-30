@@ -155,6 +155,7 @@ Use this skill.
           expect(browserUse.metadata.dir).toBe("<built-in>")
           expect(browserUse.output).toContain(`<skill_content name="browser-use">`)
           expect(browserUse.output).toContain("# Browser Use")
+          expect(browserUse.output).toContain("permission.browser_use_*")
           expect(browserUse.output).toContain("This is a built-in skill with no external skill directory.")
           expect(browserUse.output).not.toContain("sentinel.txt")
 
