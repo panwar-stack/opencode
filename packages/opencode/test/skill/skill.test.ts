@@ -81,7 +81,13 @@ describe("skill", () => {
         Effect.gen(function* () {
           const skill = yield* Skill.Service
           const builtins = (yield* skill.all()).filter((s) => Skill.isBuiltinLocation(s.location))
-          expect(builtins.map((s) => s.name).toSorted()).toEqual(["customize-opencode", "spec-planner", "team-report"])
+          expect(builtins.map((s) => s.name).toSorted()).toEqual([
+            "browser-use",
+            "customize-opencode",
+            "spec-planner",
+            "team-report",
+          ])
+          expect(builtins.find((s) => s.name === "browser-use")?.content).toContain("# Browser Use")
           expect(builtins.find((s) => s.name === "spec-planner")?.content).toContain("Requirements To Spec")
           expect(builtins.find((s) => s.name === "team-report")?.content).toContain("team_report")
         }),

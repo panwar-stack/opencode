@@ -14,6 +14,7 @@ import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Glob } from "@opencode-ai/core/util/glob"
 import * as Log from "@opencode-ai/core/util/log"
 import { Discovery } from "./discovery"
+import BROWSER_USE_SKILL_BODY from "./prompt/browser-use.md" with { type: "text" }
 import CUSTOMIZE_OPENCODE_SKILL_BODY from "./prompt/customize-opencode.md" with { type: "text" }
 import SPEC_PLANNER_SKILL_BODY from "./prompt/spec-planner.md" with { type: "text" }
 import TEAM_REPORT_SKILL_BODY from "./prompt/team-report.md" with { type: "text" }
@@ -37,6 +38,9 @@ const CUSTOMIZE_OPENCODE_SKILL_DESCRIPTION =
 const SPEC_PLANNER_SKILL_NAME = "spec-planner"
 const SPEC_PLANNER_SKILL_DESCRIPTION =
   "Convert rough user requirements, feature ideas, bug themes, or implementation goals into concrete engineering specs. Use when Codex needs to draft a Markdown spec, implementation plan, PR breakdown, acceptance criteria, verification plan, or repo-ready proposal similar to opencode specs such as packages/opencode/specs/agent-team-evaluation.md."
+const BROWSER_USE_SKILL_NAME = "browser-use"
+const BROWSER_USE_SKILL_DESCRIPTION =
+  "Use when browser-use or browser automation is needed for visual navigation, clicking, typing, extraction, authenticated browsing, uploads, downloads, or interactive web workflows. Prefer deterministic MCP browser tools first and ask before sensitive browser actions."
 const TEAM_REPORT_SKILL_NAME = "team-report"
 const TEAM_REPORT_SKILL_DESCRIPTION =
   "Generate a post-run agent-team effectiveness report and optional baseline comparisons."
@@ -62,6 +66,12 @@ const BUILTIN_SKILLS = [
     description: SPEC_PLANNER_SKILL_DESCRIPTION,
     location: BUILTIN_LOCATION,
     content: SPEC_PLANNER_SKILL_BODY,
+  },
+  {
+    name: BROWSER_USE_SKILL_NAME,
+    description: BROWSER_USE_SKILL_DESCRIPTION,
+    location: BUILTIN_LOCATION,
+    content: BROWSER_USE_SKILL_BODY,
   },
   {
     name: TEAM_REPORT_SKILL_NAME,

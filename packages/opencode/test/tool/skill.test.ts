@@ -151,12 +151,12 @@ Use this skill.
             ask: () => Effect.void,
           }
 
-          const specPlanner = yield* tool.execute({ name: "spec-planner" }, ctx)
-          expect(specPlanner.metadata.dir).toBe("<built-in>")
-          expect(specPlanner.output).toContain(`<skill_content name="spec-planner">`)
-          expect(specPlanner.output).toContain("Requirements To Spec")
-          expect(specPlanner.output).toContain("This is a built-in skill with no external skill directory.")
-          expect(specPlanner.output).not.toContain("sentinel.txt")
+          const browserUse = yield* tool.execute({ name: "browser-use" }, ctx)
+          expect(browserUse.metadata.dir).toBe("<built-in>")
+          expect(browserUse.output).toContain(`<skill_content name="browser-use">`)
+          expect(browserUse.output).toContain("# Browser Use")
+          expect(browserUse.output).toContain("This is a built-in skill with no external skill directory.")
+          expect(browserUse.output).not.toContain("sentinel.txt")
 
           const teamReport = yield* tool.execute({ name: "team-report" }, ctx)
           expect(teamReport.metadata.dir).toBe("<built-in>")
