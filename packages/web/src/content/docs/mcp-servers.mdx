@@ -96,6 +96,77 @@ Deny and hide browser-use MCP tools:
 }
 ```
 
+To override the default command and request headed browser mode explicitly:
+
+```json title="opencode.json"
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "browser_use": {
+      "type": "local",
+      "command": ["uvx", "--from", "browser-use[cli]", "browser-use", "--mcp", "--headed"],
+      "enabled": true,
+      "timeout": 120000
+    }
+  }
+}
+```
+
+If `browser-use` is already installed, you can use the installed command instead of `uvx`:
+
+```json title="opencode.json"
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "browser_use": {
+      "type": "local",
+      "command": ["browser-use", "--mcp", "--headed"],
+      "enabled": true,
+      "timeout": 120000
+    }
+  }
+}
+```
+
+To reuse an existing browser, opt in by adding a CDP URL to the command:
+
+```json title="opencode.json"
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "browser_use": {
+      "type": "local",
+      "command": [
+        "uvx",
+        "--from",
+        "browser-use[cli]",
+        "browser-use",
+        "--mcp",
+        "--headed",
+        "--cdp-url",
+        "http://localhost:9222"
+      ],
+      "enabled": true,
+      "timeout": 120000
+    }
+  }
+}
+```
+
+OpenCode does not automatically launch Chrome for CDP reuse. Start Chrome yourself before using `--cdp-url`:
+
+```bash
+open -a "Google Chrome" --args --remote-debugging-port=9222
+```
+
+If you need a reusable profile, prefer a dedicated browser-use profile over your daily personal profile:
+
+```bash
+open -a "Google Chrome" --args --remote-debugging-port=9222 --user-data-dir="<path-to-dedicated-browser-use-profile>"
+```
+
+Existing browser and profile reuse is always opt-in through explicit `mcp.browser_use.command` config. Do not put credentials, secrets, or real local profile paths in shared config or logs.
+
 ---
 
 ### Overriding remote defaults
