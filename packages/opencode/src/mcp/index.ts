@@ -35,6 +35,13 @@ import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 const log = Log.create({ service: "mcp" })
 const DEFAULT_TIMEOUT = 30_000
 
+export const DEFAULT_BROWSER_USE_MCP = {
+  type: "local",
+  command: ["uvx", "--from", "browser-use[cli]", "browser-use", "--mcp"],
+  enabled: true,
+  timeout: 120_000,
+} satisfies ConfigMCP.Local
+
 const TolerantListToolsResultSchema = ListToolsResultSchema.extend({
   tools: ToolSchema.omit({ outputSchema: true }).array(),
 })
@@ -110,6 +117,32 @@ type McpEntry = NonNullable<Config.Info["mcp"]>[string]
 
 function isMcpConfigured(entry: McpEntry): entry is ConfigMCP.Info {
   return typeof entry === "object" && entry !== null && "type" in entry
+}
+
+function isMcpDisabled(entry: McpEntry) {
+  return typeof entry === "object" && entry !== null && entry.enabled === false
+}
+
+export function withDefaultBrowserUseConfig(config: Config.Info["mcp"]) {
+  if (config && "browser_use" in config) return config
+  return {
+    browser_use: { ...DEFAULT_BROWSER_USE_MCP, command: [...DEFAULT_BROWSER_USE_MCP.command] },
+    ...(config ?? {}),
+  } satisfies NonNullable<Config.Info["mcp"]>
+}
+
+function isDefaultBrowserUseMcp(key: string, mcp: ConfigMCP.Info & { type: "local" }) {
+  return key === "browser_use" && mcp.command.join("\0") === DEFAULT_BROWSER_USE_MCP.command.join("\0")
+}
+
+function browserUseStartupError(key: string, mcp: ConfigMCP.Info & { type: "local" }, message: string) {
+  if (!isDefaultBrowserUseMcp(key, mcp)) return message
+  return [
+    message,
+    "The default browser-use MCP server requires Python uv/uvx and browser-use with Python >=3.11.",
+    "Install uv with a package manager such as `brew install uv`, `pipx install uv`, or `pip install uv`.",
+    "If browser dependencies are missing, run `uvx browser-use install` or install browser-use and run `browser-use install`.",
+  ].join("\n")
 }
 
 const sanitize = (s: string) => s.replace(/[^a-zA-Z0-9_-]/g, "_")
@@ -447,7 +480,7 @@ export const layer = Layer.effect(
           status: { status: "connected" },
         })),
         Effect.catch((error): Effect.Effect<{ client: MCPClient | undefined; status: Status }> => {
-          const msg = error instanceof Error ? error.message : String(error)
+          const msg = browserUseStartupError(key, mcp, error instanceof Error ? error.message : String(error))
           log.error("local mcp startup failed", { key, command: mcp.command, cwd, error: msg })
           return Effect.succeed({ client: undefined, status: { status: "failed", error: msg } })
         }),
@@ -524,7 +557,7 @@ export const layer = Layer.effect(
       Effect.fn("MCP.state")(function* () {
         const cfg = yield* cfgSvc.get()
         const bridge = yield* EffectBridge.make()
-        const config = cfg.mcp ?? {}
+        const config = withDefaultBrowserUseConfig(cfg.mcp)
         const s: State = {
           config: {},
           status: {},
@@ -536,13 +569,13 @@ export const layer = Layer.effect(
           Object.entries(config),
           ([key, mcp]) =>
             Effect.gen(function* () {
-              if (!isMcpConfigured(mcp)) {
-                log.error("Ignoring MCP config entry without type", { key })
+              if (isMcpDisabled(mcp)) {
+                s.status[key] = { status: "disabled" }
                 return
               }
 
-              if (mcp.enabled === false) {
-                s.status[key] = { status: "disabled" }
+              if (!isMcpConfigured(mcp)) {
+                log.error("Ignoring MCP config entry without type", { key })
                 return
               }
 
@@ -613,11 +646,11 @@ export const layer = Layer.effect(
       const s = yield* InstanceState.get(state)
 
       const cfg = yield* cfgSvc.get()
-      const config = cfg.mcp ?? {}
+      const config = withDefaultBrowserUseConfig(cfg.mcp)
       const result: Record<string, Status> = {}
 
       for (const [key, mcp] of Object.entries(config)) {
-        if (!isMcpConfigured(mcp)) continue
+        if (!isMcpConfigured(mcp) && !isMcpDisabled(mcp)) continue
         result[key] = s.status[key] ?? { status: "disabled" }
       }
 
@@ -672,7 +705,7 @@ export const layer = Layer.effect(
       const s = yield* InstanceState.get(state)
 
       const cfg = yield* cfgSvc.get()
-      const config = cfg.mcp ?? {}
+      const config = withDefaultBrowserUseConfig(cfg.mcp)
       const defaultTimeout = cfg.experimental?.mcp_timeout
 
       const connectedClients = Object.entries(s.clients).filter(
@@ -767,7 +800,7 @@ export const layer = Layer.effect(
       if (s.config[mcpName]) return s.config[mcpName]
 
       const cfg = yield* cfgSvc.get()
-      const mcpConfig = cfg.mcp?.[mcpName]
+      const mcpConfig = withDefaultBrowserUseConfig(cfg.mcp)[mcpName]
       if (!mcpConfig || !isMcpConfigured(mcpConfig)) return undefined
       return mcpConfig
     })

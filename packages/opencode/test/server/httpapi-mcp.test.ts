@@ -1,7 +1,8 @@
-import { describe, expect } from "bun:test"
+import { describe, expect, test } from "bun:test"
 import { Context, Effect, Layer } from "effect"
 import { HttpApiApp } from "../../src/server/routes/instance/httpapi/server"
 import { McpPaths } from "../../src/server/routes/instance/httpapi/groups/mcp"
+import { MCP } from "../../src/mcp"
 import { Server } from "../../src/server/server"
 import * as Log from "@opencode-ai/core/util/log"
 import { resetDatabase } from "../fixture/db"
@@ -64,6 +65,34 @@ const readResponse = Effect.fnUntraced(function* (input: { app: TestApp; path: s
 })
 
 describe("mcp HttpApi", () => {
+  test("injects default browser-use MCP config", () => {
+    expect(MCP.withDefaultBrowserUseConfig(undefined).browser_use).toEqual({
+      type: "local",
+      command: ["uvx", "--from", "browser-use[cli]", "browser-use", "--mcp"],
+      enabled: true,
+      timeout: 120_000,
+    })
+  })
+
+  test("preserves browser-use MCP override config", () => {
+    const config = {
+      browser_use: {
+        type: "local" as const,
+        command: ["browser-use", "--mcp"],
+        enabled: true,
+        timeout: 60_000,
+      },
+    }
+
+    expect(MCP.withDefaultBrowserUseConfig(config).browser_use).toEqual(config.browser_use)
+  })
+
+  test("preserves browser-use MCP disable config", () => {
+    expect(MCP.withDefaultBrowserUseConfig({ browser_use: { enabled: false } })).toEqual({
+      browser_use: { enabled: false },
+    })
+  })
+
   it.instance(
     "serves status endpoint",
     () =>
@@ -73,11 +102,12 @@ describe("mcp HttpApi", () => {
         const response = yield* request(handler, McpPaths.status, tmp.directory)
 
         expect(response.status).toBe(200)
-        expect(yield* json(response)).toEqual({ demo: { status: "disabled" } })
+        expect(yield* json(response)).toEqual({ browser_use: { status: "disabled" }, demo: { status: "disabled" } })
       }),
     {
       config: {
         mcp: {
+          browser_use: { enabled: false },
           demo: {
             type: "local",
             command: ["echo", "demo"],
@@ -124,6 +154,7 @@ describe("mcp HttpApi", () => {
     {
       config: {
         mcp: {
+          browser_use: { enabled: false },
           demo: {
             type: "local",
             command: ["echo", "demo"],
@@ -153,6 +184,7 @@ describe("mcp HttpApi", () => {
     {
       config: {
         mcp: {
+          browser_use: { enabled: false },
           demo: {
             type: "local",
             command: ["echo", "demo"],
@@ -187,6 +219,7 @@ describe("mcp HttpApi", () => {
         formatter: false,
         lsp: false,
         mcp: {
+          browser_use: { enabled: false },
           demo: {
             type: "local",
             command: ["echo", "demo"],
@@ -226,6 +259,6 @@ describe("mcp HttpApi", () => {
           })
         }
       }),
-    { config: { mcp: {} } },
+    { config: { mcp: { browser_use: { enabled: false } } } },
   )
 })
