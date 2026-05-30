@@ -1130,28 +1130,7 @@ function defaultSummaryGenerator() {
     return (input: SummaryGeneratorInput) =>
       Effect.tryPromise({
         try: async () => {
-          const result = streamText({
-            model: language,
-            maxRetries: 0,
-            ...(isOpenaiOauth ? {} : { maxOutputTokens: 1_200 }),
-            providerOptions: isOpenaiOauth
-              ? ProviderTransform.providerOptions(model, { instructions: SUMMARY_SYSTEM_PROMPT, store: false })
-              : undefined,
-            messages: [
-              ...(isOpenaiOauth
-                ? []
-                : [
-                    {
-                      role: "system",
-                      content: SUMMARY_SYSTEM_PROMPT,
-                    } satisfies ModelMessage,
-                  ]),
-              {
-                role: "user",
-                content: summaryPrompt(input),
-              },
-            ],
-          })
+          const result = streamText(defaultSummaryStreamRequest({ language, model, isOpenaiOauth, input }))
           let text = ""
           for await (const part of result.fullStream) {
             if (part.type === "error") throw part.error
@@ -1162,6 +1141,37 @@ function defaultSummaryGenerator() {
         catch: (error) => new Error(error instanceof Error ? error.message : String(error)),
       })
   })
+}
+
+export function defaultSummaryStreamRequest(input: {
+  readonly language: Parameters<typeof streamText>[0]["model"]
+  readonly model: Provider.Model
+  readonly isOpenaiOauth: boolean
+  readonly input: SummaryGeneratorInput
+}): Parameters<typeof streamText>[0] {
+  const messages: ModelMessage[] = [
+    ...(input.isOpenaiOauth
+      ? []
+      : [
+          {
+            role: "system",
+            content: SUMMARY_SYSTEM_PROMPT,
+          } satisfies ModelMessage,
+        ]),
+    {
+      role: "user",
+      content: summaryPrompt(input.input),
+    },
+  ]
+  return {
+    model: input.language,
+    maxRetries: 0,
+    ...(input.isOpenaiOauth ? {} : { maxOutputTokens: 1_200 }),
+    providerOptions: input.isOpenaiOauth
+      ? ProviderTransform.providerOptions(input.model, { instructions: SUMMARY_SYSTEM_PROMPT, store: false })
+      : undefined,
+    messages,
+  }
 }
 
 function unavailableSummaryGenerator(message: string): SummaryGenerator {

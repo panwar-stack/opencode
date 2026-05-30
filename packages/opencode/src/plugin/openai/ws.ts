@@ -24,7 +24,7 @@ export interface StreamResponsesWebSocketOptions {
   onComplete?: (event: Record<string, unknown>) => void
   onTerminal?: (event: Record<string, unknown>) => void
   onRetryableTerminal?: (event: Record<string, unknown>) => Promise<WebSocket | undefined>
-  onConnectionInvalid?: (error: ProviderError.ResponseStreamError) => void
+  onConnectionInvalid?: (error: ProviderError.ResponseStreamError) => unknown
   onAbort?: (error: Error) => void
 }
 
@@ -158,7 +158,8 @@ export function streamResponsesWebSocket(options: StreamResponsesWebSocketOption
     if (completed) return
     completed = true
     cleanup()
-    options.onConnectionInvalid?.(error)
+    // Returning false means the caller handled the invalidation response.
+    if (options.onConnectionInvalid?.(error) === false) return
     controller?.error(error)
   }
 
