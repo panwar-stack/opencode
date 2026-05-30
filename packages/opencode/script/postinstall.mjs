@@ -124,10 +124,6 @@ function resolveBinary(name) {
   return binaryPath
 }
 
-function resolvePackageDir(name) {
-  return path.dirname(require.resolve(`${name}/package.json`))
-}
-
 function installPackage(name, install) {
   const version = packageJson.optionalDependencies?.[name]
   if (!version) return
@@ -168,42 +164,6 @@ function verifyBinary() {
   return result.status === 0
 }
 
-function uvPackageNames() {
-  const uvBase = `opencode-uv-${platform}-${arch}`
-
-  if (platform === "linux") return isMusl() ? [`${uvBase}-musl`, uvBase] : [uvBase, `${uvBase}-musl`]
-  return [uvBase]
-}
-
-function installUvFrom(packageDir) {
-  copyBinary(path.join(packageDir, "bin", `uv${extension}`), path.join(__dirname, "bin", `uv${extension}`))
-  copyBinary(path.join(packageDir, "bin", `uvx${extension}`), path.join(__dirname, "bin", `uvx${extension}`))
-}
-
-function verifyUv() {
-  const result = childProcess.spawnSync(path.join(__dirname, "bin", `uvx${extension}`), ["--version"], {
-    encoding: "utf8",
-    stdio: "ignore",
-    windowsHide: true,
-  })
-  return result.status === 0
-}
-
-function installUv() {
-  for (const name of uvPackageNames()) {
-    try {
-      installUvFrom(resolvePackageDir(name))
-      if (verifyUv()) return
-    } catch {
-      if (installPackage(name, installUvFrom) && verifyUv()) return
-    }
-  }
-
-  console.warn(
-    `Warning: failed to install packaged uvx. Browser-use MCP will require uvx on PATH or a custom mcp.browser_use command.`,
-  )
-}
-
 function main() {
   for (const name of packageNames()) {
     try {
@@ -227,7 +187,6 @@ function main() {
 
 try {
   main()
-  installUv()
 } catch (error) {
   console.error(error.message)
   process.exit(1)

@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test"
 import { Context, Effect, Layer } from "effect"
-import path from "path"
 import { HttpApiApp } from "../../src/server/routes/instance/httpapi/server"
 import { McpPaths } from "../../src/server/routes/instance/httpapi/groups/mcp"
 import { MCP } from "../../src/mcp"
@@ -68,20 +67,12 @@ const readResponse = Effect.fnUntraced(function* (input: { app: TestApp; path: s
 describe("mcp HttpApi", () => {
   test("injects default browser-use MCP config", () => {
     const browserUse = MCP.withDefaultBrowserUseConfig(undefined).browser_use
-    expect(path.basename(MCP.DEFAULT_BROWSER_USE_MCP.command[0])).toMatch(/^uvx(\.exe)?$/)
     expect(browserUse).toEqual({
       type: "local",
-      command: MCP.DEFAULT_BROWSER_USE_MCP.command,
+      command: ["npx", "@browsermcp/mcp@latest"],
       enabled: true,
       timeout: 120_000,
     })
-    expect(MCP.defaultBrowserUseInstallCommand()).toEqual([
-      MCP.DEFAULT_BROWSER_USE_MCP.command[0],
-      "--from",
-      "browser-use[cli]",
-      "browser-use",
-      "install",
-    ])
   })
 
   test("preserves browser-use MCP override config", () => {

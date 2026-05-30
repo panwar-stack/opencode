@@ -35,10 +35,10 @@ Ask the user before using browser-use to:
 
 opencode MCP permissions are tool-level permissions. They do not understand the semantic intent of a browser action. If a generic browser tool could perform a sensitive action, ask the user before invoking it for that purpose unless the user has already explicitly allowed that exact action.
 
-Browser-use MCP tools use permission names like `browser_use_*` and default to `ask`. To turn browser-use tools off for a project, set `permission.browser_use_*` to `deny`. To prevent the default local server from starting, set `mcp.browser_use.enabled` to `false`.
+Browser-use MCP tools use permission names like `browser_use_*` and default to `ask`. To turn browser-use tools off for a project, set `permission.browser_use_*` to `deny`. To prevent the default local BrowserMCP server from starting, set `mcp.browser_use.enabled` to `false`.
 
 ## Browser Sessions
 
-Use visible/headed mode when the user needs to observe or interact with the browser. Existing browser or profile reuse requires explicit user configuration such as `--cdp-url`; do not assume opencode can launch Chrome automatically for CDP reuse. Ask before using an authenticated existing browser/profile, and do not expose credentials or local profile paths.
+The default local browser-use server uses BrowserMCP. It connects to an existing Chrome tab through the BrowserMCP extension after the user clicks Connect in the extension UI; there is no `--connect-existing` or CDP flag for this mode. Ask before using an authenticated existing browser/profile, and do not expose credentials or local profile paths.
 
 Cloud Browser Use MCP can send browser session contents, prompts, screenshots, or recordings to a third party and may incur cost. Ask before using cloud mode, and do not sync local profiles to cloud unless the user explicitly requests it.

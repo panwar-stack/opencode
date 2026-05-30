@@ -46,9 +46,9 @@ You can also disable a server by setting `enabled` to `false`. This is useful if
 
 ## Browser Use
 
-OpenCode includes a default local `browser_use` MCP server for browser automation. It runs through the Python Browser Use package with `uvx` and requests headed browser mode by default.
+OpenCode includes a default local `browser_use` MCP server for browser automation. It runs [BrowserMCP](https://docs.browsermcp.io/) with `npx @browsermcp/mcp@latest`, which lets the BrowserMCP Chrome extension connect an existing Chrome tab to OpenCode.
 
-Homebrew, AUR, Docker, and npm installs include `uv` or package-local `uvx` for this default server. If install scripts are skipped or `uvx` is missing, OpenCode reports a startup error with install instructions.
+To use it with an existing Chrome instance, install the BrowserMCP Chrome extension, open Chrome, click the extension icon, and click **Connect**. Browser actions run against the connected tab. Node.js/npm must be available so OpenCode can run `npx`.
 
 To disable the default server:
 
@@ -106,7 +106,7 @@ To override the default command:
   "mcp": {
     "browser_use": {
       "type": "local",
-      "command": ["uvx", "--from", "browser-use[cli]", "browser-use", "--mcp", "--headed"],
+      "command": ["npx", "@browsermcp/mcp@latest"],
       "enabled": true,
       "timeout": 120000
     }
@@ -114,7 +114,7 @@ To override the default command:
 }
 ```
 
-If `browser-use` is already installed, you can use the installed command instead of `uvx`:
+If the default `@latest` package resolution causes startup problems in your environment, pin the BrowserMCP package command instead:
 
 ```json title="opencode.json"
 {
@@ -122,7 +122,7 @@ If `browser-use` is already installed, you can use the installed command instead
   "mcp": {
     "browser_use": {
       "type": "local",
-      "command": ["browser-use", "--mcp", "--headed"],
+      "command": ["npx", "@browsermcp/mcp"],
       "enabled": true,
       "timeout": 120000
     }
@@ -130,44 +130,7 @@ If `browser-use` is already installed, you can use the installed command instead
 }
 ```
 
-To reuse an existing browser, opt in by adding a CDP URL to the command:
-
-```json title="opencode.json"
-{
-  "$schema": "https://opencode.ai/config.json",
-  "mcp": {
-    "browser_use": {
-      "type": "local",
-      "command": [
-        "uvx",
-        "--from",
-        "browser-use[cli]",
-        "browser-use",
-        "--mcp",
-        "--headed",
-        "--cdp-url",
-        "http://localhost:9222"
-      ],
-      "enabled": true,
-      "timeout": 120000
-    }
-  }
-}
-```
-
-OpenCode does not automatically launch Chrome for CDP reuse. Start Chrome yourself before using `--cdp-url`:
-
-```bash
-open -a "Google Chrome" --args --remote-debugging-port=9222
-```
-
-If you need a reusable profile, prefer a dedicated browser-use profile over your daily personal profile:
-
-```bash
-open -a "Google Chrome" --args --remote-debugging-port=9222 --user-data-dir="<path-to-dedicated-browser-use-profile>"
-```
-
-Existing browser and profile reuse is always opt-in through explicit `mcp.browser_use.command` config. Do not put credentials, secrets, or real local profile paths in shared config or logs.
+BrowserMCP connection is extension-mediated; there is no `--connect-existing` or CDP flag to add. The server listens locally for the extension, and the extension must be connected before browser tools can control a tab. Ask before using an authenticated existing browser/profile, and do not expose credentials or local profile paths in shared config or logs.
 
 ---
 

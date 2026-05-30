@@ -62,6 +62,7 @@ stdenvNoCC.mkDerivation (finalAttrs: {
       --prefix PATH : ${
         lib.makeBinPath (
           [
+            nodejs
             ripgrep
           ]
           # bun runs sysctl to detect if running on rosetta2

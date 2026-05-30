@@ -4,7 +4,7 @@
 
 Add `browser-use` as a built-in opencode capability through a built-in skill plus a default local MCP integration.
 
-The model should learn when and how to invoke browser automation from the built-in `browser-use` skill. The executable surface should come from the existing Python `browser-use` package through its MCP server, not from a new native browser automation implementation in opencode.
+The model should learn when and how to invoke browser automation from the built-in `browser-use` skill. The executable surface should come from an external browser MCP server, not from a new native browser automation implementation in opencode.
 
 ## Current State
 
@@ -23,11 +23,11 @@ The model should learn when and how to invoke browser automation from the built-
 ## Non-Negotiables
 
 - Do not reimplement browser automation in TypeScript for the first version.
-- Use the existing `browser-use` Python package and its MCP support.
+- Use BrowserMCP and its Chrome extension for the default local MCP support.
 - Enable the capability by default, but make it disableable through config.
 - Make browser actions permissionable through opencode permissions.
 - Default to visible browser control.
-- Support reuse of an existing visible browser when configured.
+- Support reuse of an existing visible Chrome tab through the BrowserMCP extension.
 - Ask before sensitive browser actions.
 - Allow downloads, uploads, and authenticated sessions, but keep them permission-gated.
 - Do not pipe remote shell install scripts into a shell.
@@ -64,7 +64,7 @@ Default local MCP command:
 ```json
 {
   "type": "local",
-  "command": ["uvx", "--from", "browser-use[cli]", "browser-use", "--mcp", "--headed"],
+  "command": ["npx", "@browsermcp/mcp@latest"],
   "enabled": true,
   "timeout": 120000
 }
@@ -72,11 +72,10 @@ Default local MCP command:
 
 Implementation note:
 
-- Verify the exact current `browser-use` CLI MCP flags before implementation.
-- If `uvx --from browser-use[cli] browser-use --mcp --headed` is not valid, use the closest supported stdio MCP command from the current browser-use CLI.
+- Follow BrowserMCP's documented stdio server config.
 - Do not silently fall back to arbitrary shell installation.
-- Packaged installs should provide `uv` or package-local `uvx` when their package manager supports runtime dependencies.
-- If `uvx` is missing or browser-use cannot start, expose a clear MCP connection error with install instructions.
+- If `npx` is missing or BrowserMCP cannot start, expose a clear MCP connection error with install instructions.
+- Existing Chrome support is extension-mediated: users install the BrowserMCP Chrome extension and click Connect in the extension UI.
 
 Disable through config:
 
@@ -97,7 +96,7 @@ Override command through config:
   "mcp": {
     "browser_use": {
       "type": "local",
-      "command": ["browser-use", "--mcp", "--headed"],
+      "command": ["npx", "@browsermcp/mcp"],
       "enabled": true,
       "timeout": 120000
     }
@@ -105,35 +104,7 @@ Override command through config:
 }
 ```
 
-Existing browser reuse through CDP:
-
-```json
-{
-  "mcp": {
-    "browser_use": {
-      "type": "local",
-      "command": [
-        "uvx",
-        "--from",
-        "browser-use[cli]",
-        "browser-use",
-        "--mcp",
-        "--headed",
-        "--cdp-url",
-        "http://localhost:9222"
-      ],
-      "enabled": true,
-      "timeout": 120000
-    }
-  }
-}
-```
-
-Chrome example for users:
-
-```bash
-open -a "Google Chrome" --args --remote-debugging-port=9222
-```
+Existing browser reuse is handled by the BrowserMCP Chrome extension. There is no `--connect-existing` or CDP flag to add to the MCP server command.
 
 ### Config Merge Behavior
 
@@ -228,10 +199,8 @@ Cloud MCP skill guidance:
 
 ## Error Handling
 
-- If `uvx` is unavailable, show a clear error that Python `uv` is required for the default browser-use MCP command.
-- If Python is too old, show that browser-use requires Python `>=3.11`.
-- If browser-use browser dependencies are missing, recommend running the official browser-use install command, not a shell pipe.
-- If CDP connection fails, tell the user how to start Chrome with `--remote-debugging-port=9222`.
+- If `npx` is unavailable, show a clear error that Node.js/npm is required for the default BrowserMCP command.
+- If the BrowserMCP extension is not connected, tell the user to install/open the extension and click Connect.
 - If the MCP server starts but exposes no tools, show the MCP server status and command used.
 - If `mcp.browser_use.enabled` is false, omit browser-use tools and keep the built-in skill available unless `permission.skill` disables it.
 
@@ -258,7 +227,7 @@ Review:
 ### PR 2: Default Browser-Use MCP Injection
 
 - Add a default MCP entry for `browser_use` before MCP state loads config.
-- Use local stdio MCP through the browser-use CLI.
+- Use local stdio MCP through BrowserMCP.
 - Preserve user override behavior for `mcp.browser_use`.
 - Support disabling with `mcp.browser_use.enabled: false`.
 - Add tests for default injection, user override, and user disable.
@@ -295,16 +264,15 @@ Review:
 
 ### PR 4: Browser Profile And Existing Browser Guidance
 
-- Add documented examples for visible headed browser mode.
-- Add documented examples for CDP reuse through `--cdp-url`.
-- Add documented examples for using an installed `browser-use` command instead of `uvx`.
-- Keep real browser profile reuse opt-in through explicit config.
-- Do not add automatic Chrome launching beyond the browser-use MCP command.
+- Document the BrowserMCP extension flow for connecting an existing Chrome tab.
+- Document that BrowserMCP does not use `--connect-existing` or CDP flags.
+- Keep authenticated browser/profile usage permission-gated and user-controlled.
+- Do not add automatic Chrome launching beyond the BrowserMCP MCP command.
 
 Verification:
 
 - `cd packages/opencode && bun typecheck`
-- Manually start Chrome with `--remote-debugging-port=9222` and verify the configured MCP command connects.
+- Manually start Chrome, connect the BrowserMCP extension, and verify browser tools control the connected tab.
 
 Review:
 
@@ -318,10 +286,9 @@ Review:
 - Add domain allowlists for browser navigation.
 - Add UI affordances in TUI/desktop for visible browser session state.
 - Add cloud Browser Use as a guided opt-in setup flow.
-- Add install health checks such as `browser-use doctor`.
+- Add install health checks for BrowserMCP and extension connection state.
 
 ## Open Questions
 
-- Exact browser-use CLI MCP command must be verified against the current package before implementation.
-- Exact MCP tool names must be captured from the current browser-use MCP server before writing permission examples in docs.
+- Exact BrowserMCP tool names must be captured from the current server before writing permission examples in docs.
 - Whether opencode should inject `browser_use_*: ask` into default agent permissions or only document the recommended permission config.

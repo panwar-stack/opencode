@@ -30,68 +30,6 @@ for (const filepath of new Bun.Glob("*/package.json").scanSync({ cwd: "./dist" }
 }
 console.log("binaries", binaries)
 const version = Object.values(binaries)[0]
-const uvVersion = "0.11.17"
-
-const uvTargets = [
-  { name: "opencode-uv-darwin-arm64", os: "darwin", cpu: "arm64", artifact: "uv-aarch64-apple-darwin.tar.gz" },
-  { name: "opencode-uv-darwin-x64", os: "darwin", cpu: "x64", artifact: "uv-x86_64-apple-darwin.tar.gz" },
-  { name: "opencode-uv-linux-arm64", os: "linux", cpu: "arm64", artifact: "uv-aarch64-unknown-linux-gnu.tar.gz" },
-  { name: "opencode-uv-linux-x64", os: "linux", cpu: "x64", artifact: "uv-x86_64-unknown-linux-gnu.tar.gz" },
-  {
-    name: "opencode-uv-linux-arm64-musl",
-    os: "linux",
-    cpu: "arm64",
-    artifact: "uv-aarch64-unknown-linux-musl.tar.gz",
-  },
-  {
-    name: "opencode-uv-linux-x64-musl",
-    os: "linux",
-    cpu: "x64",
-    artifact: "uv-x86_64-unknown-linux-musl.tar.gz",
-  },
-  { name: "opencode-uv-windows-arm64", os: "win32", cpu: "arm64", artifact: "uv-aarch64-pc-windows-msvc.zip" },
-  { name: "opencode-uv-windows-x64", os: "win32", cpu: "x64", artifact: "uv-x86_64-pc-windows-msvc.zip" },
-] as const
-const uvBinaries = Object.fromEntries(uvTargets.map((target) => [target.name, version]))
-
-async function prepareUvPackage(target: (typeof uvTargets)[number]) {
-  const out = `./dist/${target.name}`
-  const temp = `./dist/${target.name}-download`
-  const archive = `${temp}/${target.artifact}`
-  const url = `https://github.com/astral-sh/uv/releases/download/${uvVersion}/${target.artifact}`
-  await $`rm -rf ${out} ${temp}`
-  await $`mkdir -p ${out}/bin ${temp}`
-  await $`curl -fsSL ${url} -o ${archive}`
-
-  const expected = (await fetch(`${url}.sha256`).then((response) => response.text())).trim().split(/\s+/)[0]
-  const actual = new Bun.CryptoHasher("sha256").update(await Bun.file(archive).arrayBuffer()).digest("hex")
-  if (actual !== expected) throw new Error(`Checksum mismatch for ${target.artifact}`)
-
-  if (target.artifact.endsWith(".zip")) await $`unzip -q ${archive} -d ${temp}`
-  else await $`tar -xzf ${archive} -C ${temp}`
-
-  const source = `${temp}/${target.artifact.replace(/\.(tar\.gz|zip)$/, "")}`
-  const extension = target.os === "win32" ? ".exe" : ""
-  await $`cp ${source}/uv${extension} ${out}/bin/uv${extension}`
-  await $`cp ${source}/uvx${extension} ${out}/bin/uvx${extension}`
-  if (target.os !== "win32") await $`chmod 755 ${out}/bin/uv ${out}/bin/uvx`
-  await Bun.file(`${out}/package.json`).write(
-    JSON.stringify(
-      {
-        name: target.name,
-        version,
-        preferUnplugged: true,
-        os: [target.os],
-        cpu: [target.cpu],
-        uv: uvVersion,
-      },
-      null,
-      2,
-    ),
-  )
-}
-
-await Promise.all(uvTargets.map(prepareUvPackage))
 
 await $`mkdir -p ./dist/${pkg.name}`
 await $`mkdir -p ./dist/${pkg.name}/bin`
@@ -127,14 +65,14 @@ await Bun.file(`./dist/${pkg.name}/package.json`).write(
       license: pkg.license,
       os: ["darwin", "linux", "win32"],
       cpu: ["arm64", "x64"],
-      optionalDependencies: { ...binaries, ...uvBinaries },
+      optionalDependencies: binaries,
     },
     null,
     2,
   ),
 )
 
-const tasks = Object.entries({ ...binaries, ...uvBinaries }).map(async ([name, version]) => {
+const tasks = Object.entries(binaries).map(async ([name, version]) => {
   await publish(`./dist/${name}`, name, version)
 })
 await Promise.all(tasks)
@@ -172,7 +110,7 @@ if (!Script.preview) {
     "license=('MIT')",
     "provides=('opencode')",
     "conflicts=('opencode')",
-    "depends=('ripgrep' 'uv')",
+    "depends=('nodejs' 'npm' 'ripgrep')",
     "",
     `source_aarch64=("\${pkgname}_\${pkgver}_aarch64.tar.gz::https://github.com/anomalyco/opencode/releases/download/v\${pkgver}\${_subver}/opencode-linux-arm64.tar.gz")`,
     `sha256sums_aarch64=('${arm64Sha}')`,
@@ -217,7 +155,7 @@ if (!Script.preview) {
     `  version "${Script.version.split("-")[0]}"`,
     "",
     `  depends_on "ripgrep"`,
-    `  depends_on "uv"`,
+    `  depends_on "node"`,
     "",
     "  on_macos do",
     "    if Hardware::CPU.intel?",
