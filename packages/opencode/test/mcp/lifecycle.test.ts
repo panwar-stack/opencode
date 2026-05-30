@@ -219,7 +219,7 @@ it.instance(
         expect(serverState.listToolsCalls).toBe(1)
       }),
     ),
-  { config: { mcp: {} } },
+  { config: { mcp: { browser_use: { enabled: false } } } },
 )
 
 // ========================================================================
@@ -257,7 +257,7 @@ it.instance(
         expect(serverState.listToolsCalls).toBe(2)
       }),
     ),
-  { config: { mcp: {} } },
+  { config: { mcp: { browser_use: { enabled: false } } } },
 )
 
 // ========================================================================
@@ -375,7 +375,7 @@ it.instance(
         expect(secondState.closed).toBe(false)
       }),
     ),
-  { config: { mcp: {} } },
+  { config: { mcp: { browser_use: { enabled: false } } } },
 )
 
 // ========================================================================
@@ -465,7 +465,7 @@ it.instance(
         expect(serverState.requestCalls).toBe(1)
       }),
     ),
-  { config: { mcp: {} } },
+  { config: { mcp: { browser_use: { enabled: false } } } },
 )
 
 it.instance(
@@ -488,7 +488,7 @@ it.instance(
         expect(serverState.requestCalls).toBe(0)
       }),
     ),
-  { config: { mcp: {} } },
+  { config: { mcp: { browser_use: { enabled: false } } } },
 )
 
 // ========================================================================
@@ -648,7 +648,7 @@ it.instance(
         expect(status["nonexistent"]).toBeUndefined()
       }),
     ),
-  { config: { mcp: {} } },
+  { config: { mcp: { browser_use: { enabled: false } } } },
 )
 
 // ========================================================================
@@ -667,7 +667,7 @@ it.instance(
         }
       }),
     ),
-  { config: { mcp: {} } },
+  { config: { mcp: { browser_use: { enabled: false } } } },
 )
 
 // ========================================================================
@@ -683,7 +683,7 @@ it.instance(
         expect(Object.keys(tools).length).toBe(0)
       }),
     ),
-  { config: { mcp: {} } },
+  { config: { mcp: { browser_use: { enabled: false } } } },
 )
 
 // ========================================================================
@@ -825,7 +825,7 @@ it.instance(
         expect(transportCloseCount).toBeGreaterThanOrEqual(1)
       }),
     ),
-  { config: { mcp: {} } },
+  { config: { mcp: { browser_use: { enabled: false } } } },
 )
 
 // ========================================================================
@@ -854,7 +854,7 @@ it.instance(
         expect(transportCloseCount).toBeGreaterThanOrEqual(1)
       }),
     ),
-  { config: { mcp: {} } },
+  { config: { mcp: { browser_use: { enabled: false } } } },
 )
 
 // ========================================================================
@@ -884,5 +884,5 @@ it.instance(
         expect(transportCloseCount).toBeGreaterThanOrEqual(2)
       }),
     ),
-  { config: { mcp: {} } },
+  { config: { mcp: { browser_use: { enabled: false } } } },
 )

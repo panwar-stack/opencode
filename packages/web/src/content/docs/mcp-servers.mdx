@@ -46,7 +46,9 @@ You can also disable a server by setting `enabled` to `false`. This is useful if
 
 ## Browser Use
 
-OpenCode includes a default local `browser_use` MCP server for browser automation. It runs through the Python Browser Use package.
+OpenCode includes a default local `browser_use` MCP server for browser automation. It runs through the Python Browser Use package with `uvx` and requests headed browser mode by default.
+
+Homebrew, AUR, Docker, and npm installs include `uv` or package-local `uvx` for this default server. If install scripts are skipped or `uvx` is missing, OpenCode reports a startup error with install instructions.
 
 To disable the default server:
 
@@ -96,7 +98,7 @@ Deny and hide browser-use MCP tools:
 }
 ```
 
-To override the default command and request headed browser mode explicitly:
+To override the default command:
 
 ```json title="opencode.json"
 {

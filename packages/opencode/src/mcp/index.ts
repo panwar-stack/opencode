@@ -31,16 +31,34 @@ import { EffectBridge } from "@/effect/bridge"
 import { InstanceState } from "@/effect/instance-state"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
+import fs from "fs"
+import path from "path"
 
 const log = Log.create({ service: "mcp" })
 const DEFAULT_TIMEOUT = 30_000
+const DEFAULT_BROWSER_USE_INSTALL_ARGS = ["--from", "browser-use[cli]", "browser-use", "install"]
+const injectedDefaultBrowserUseMcp = new WeakSet<object>()
+const installedDefaultBrowserUseRuntime = new Set<string>()
 
 export const DEFAULT_BROWSER_USE_MCP = {
   type: "local",
-  command: ["uvx", "--from", "browser-use[cli]", "browser-use", "--mcp"],
+  command: [browserUseUvx(), "--from", "browser-use[cli]", "browser-use", "--mcp", "--headed"],
   enabled: true,
   timeout: 120_000,
 } satisfies ConfigMCP.Local
+
+function browserUseUvx() {
+  const executables = Array.from(new Set([process.execPath, fs.realpathSync.native(process.execPath)]))
+  const local = executables
+    .flatMap((executable) => ["uvx", "uvx.exe"].map((name) => path.join(path.dirname(executable), name)))
+    .find((candidate) => fs.existsSync(candidate))
+  if (local) return local
+  return "uvx"
+}
+
+export function defaultBrowserUseInstallCommand(mcp: ConfigMCP.Info & { type: "local" } = DEFAULT_BROWSER_USE_MCP) {
+  return [mcp.command[0], ...DEFAULT_BROWSER_USE_INSTALL_ARGS]
+}
 
 const TolerantListToolsResultSchema = ListToolsResultSchema.extend({
   tools: ToolSchema.omit({ outputSchema: true }).array(),
@@ -125,8 +143,10 @@ function isMcpDisabled(entry: McpEntry) {
 
 export function withDefaultBrowserUseConfig(config: Config.Info["mcp"]) {
   if (config && "browser_use" in config) return config
+  const browserUse = { ...DEFAULT_BROWSER_USE_MCP, command: [...DEFAULT_BROWSER_USE_MCP.command] }
+  injectedDefaultBrowserUseMcp.add(browserUse)
   return {
-    browser_use: { ...DEFAULT_BROWSER_USE_MCP, command: [...DEFAULT_BROWSER_USE_MCP.command] },
+    browser_use: browserUse,
     ...(config ?? {}),
   } satisfies NonNullable<Config.Info["mcp"]>
 }
@@ -135,13 +155,24 @@ function isDefaultBrowserUseMcp(key: string, mcp: ConfigMCP.Info & { type: "loca
   return key === "browser_use" && mcp.command.join("\0") === DEFAULT_BROWSER_USE_MCP.command.join("\0")
 }
 
+function isInjectedDefaultBrowserUseMcp(key: string, mcp: ConfigMCP.Info & { type: "local" }) {
+  return key === "browser_use" && injectedDefaultBrowserUseMcp.has(mcp)
+}
+
+function preserveDefaultBrowserUseMarker(key: string, original: ConfigMCP.Info, next: ConfigMCP.Info) {
+  if (original.type === "local" && next.type === "local" && isInjectedDefaultBrowserUseMcp(key, original)) {
+    injectedDefaultBrowserUseMcp.add(next)
+  }
+  return next
+}
+
 function browserUseStartupError(key: string, mcp: ConfigMCP.Info & { type: "local" }, message: string) {
   if (!isDefaultBrowserUseMcp(key, mcp)) return message
   return [
     message,
     "The default browser-use MCP server requires Python uv/uvx and browser-use with Python >=3.11.",
     "Install uv with a package manager such as `brew install uv`, `pipx install uv`, or `pip install uv`.",
-    "If browser dependencies are missing, run `uvx browser-use install` or install browser-use and run `browser-use install`.",
+    "If browser dependencies are missing, run `uvx --from browser-use[cli] browser-use install` or install browser-use and run `browser-use install`.",
   ].join("\n")
 }
 
@@ -458,16 +489,47 @@ export const layer = Layer.effect(
     ) {
       const [cmd, ...args] = mcp.command
       const cwd = yield* InstanceState.directory
+      const env = {
+        ...process.env,
+        ...(cmd === "opencode" ? { BUN_BE_BUN: "1" } : {}),
+        ...mcp.environment,
+      }
+      if (isInjectedDefaultBrowserUseMcp(key, mcp)) {
+        const install = defaultBrowserUseInstallCommand(mcp)
+        const installKey = install.join("\0")
+        const installError = yield* Effect.gen(function* () {
+          if (installedDefaultBrowserUseRuntime.has(installKey)) return
+          log.info("installing default browser-use browser runtime", { key, command: install, cwd })
+          const handle = yield* spawner.spawn(
+            ChildProcess.make(install[0], install.slice(1), {
+              cwd,
+              env,
+              stdin: "ignore",
+              stdout: "ignore",
+              stderr: "ignore",
+            }),
+          )
+          const exitCode = yield* handle.exitCode
+          if (exitCode !== 0) return `browser-use install failed with exit code ${exitCode}`
+          installedDefaultBrowserUseRuntime.add(installKey)
+        }).pipe(
+          Effect.scoped,
+          Effect.timeout(mcp.timeout ?? DEFAULT_TIMEOUT),
+          Effect.catch((error) => Effect.succeed(error instanceof Error ? error.message : String(error))),
+        )
+        if (installError) {
+          return {
+            client: undefined as MCPClient | undefined,
+            status: { status: "failed" as const, error: browserUseStartupError(key, mcp, installError) },
+          }
+        }
+      }
       const transport = new StdioClientTransport({
         stderr: "pipe",
         command: cmd,
         args,
         cwd,
-        env: {
-          ...process.env,
-          ...(cmd === "opencode" ? { BUN_BE_BUN: "1" } : {}),
-          ...mcp.environment,
-        },
+        env,
       })
       transport.stderr?.on("data", (chunk: Buffer) => {
         log.info(`mcp stderr: ${chunk.toString()}`, { key })
@@ -689,7 +751,7 @@ export const layer = Layer.effect(
 
     const connect = Effect.fn("MCP.connect")(function* (name: string) {
       const mcp = yield* requireMcpConfig(name)
-      yield* createAndStore(name, { ...mcp, enabled: true })
+      yield* createAndStore(name, preserveDefaultBrowserUseMarker(name, mcp, { ...mcp, enabled: true }))
     })
 
     const disconnect = Effect.fn("MCP.disconnect")(function* (name: string) {

@@ -25,7 +25,8 @@ const archMap = {
 const platform = platformMap[os.platform()] ?? os.platform()
 const arch = archMap[os.arch()] ?? os.arch()
 const base = `opencode-${platform}-${arch}`
-const sourceBinary = platform === "windows" ? "opencode.exe" : "opencode"
+const extension = platform === "windows" ? ".exe" : ""
+const sourceBinary = `opencode${extension}`
 const targetBinary = path.join(__dirname, "bin", "opencode.exe")
 
 function supportsAvx2() {
@@ -123,7 +124,11 @@ function resolveBinary(name) {
   return binaryPath
 }
 
-function installPackage(name) {
+function resolvePackageDir(name) {
+  return path.dirname(require.resolve(`${name}/package.json`))
+}
+
+function installPackage(name, install) {
   const version = packageJson.optionalDependencies?.[name]
   if (!version) return
 
@@ -135,8 +140,7 @@ function installPackage(name) {
       { stdio: "inherit", windowsHide: true },
     )
     if (result.status !== 0) return
-    const packageDir = path.join(temp, "node_modules", name)
-    copyBinary(path.join(packageDir, "bin", sourceBinary), targetBinary)
+    install(path.join(temp, "node_modules", name))
     return true
   } finally {
     fs.rmSync(temp, { recursive: true, force: true })
@@ -164,13 +168,53 @@ function verifyBinary() {
   return result.status === 0
 }
 
+function uvPackageNames() {
+  const uvBase = `opencode-uv-${platform}-${arch}`
+
+  if (platform === "linux") return isMusl() ? [`${uvBase}-musl`, uvBase] : [uvBase, `${uvBase}-musl`]
+  return [uvBase]
+}
+
+function installUvFrom(packageDir) {
+  copyBinary(path.join(packageDir, "bin", `uv${extension}`), path.join(__dirname, "bin", `uv${extension}`))
+  copyBinary(path.join(packageDir, "bin", `uvx${extension}`), path.join(__dirname, "bin", `uvx${extension}`))
+}
+
+function verifyUv() {
+  const result = childProcess.spawnSync(path.join(__dirname, "bin", `uvx${extension}`), ["--version"], {
+    encoding: "utf8",
+    stdio: "ignore",
+    windowsHide: true,
+  })
+  return result.status === 0
+}
+
+function installUv() {
+  for (const name of uvPackageNames()) {
+    try {
+      installUvFrom(resolvePackageDir(name))
+      if (verifyUv()) return
+    } catch {
+      if (installPackage(name, installUvFrom) && verifyUv()) return
+    }
+  }
+
+  console.warn(
+    `Warning: failed to install packaged uvx. Browser-use MCP will require uvx on PATH or a custom mcp.browser_use command.`,
+  )
+}
+
 function main() {
   for (const name of packageNames()) {
     try {
       copyBinary(resolveBinary(name), targetBinary)
       if (verifyBinary()) return
     } catch {
-      if (installPackage(name) && verifyBinary()) return
+      if (
+        installPackage(name, (packageDir) => copyBinary(path.join(packageDir, "bin", sourceBinary), targetBinary)) &&
+        verifyBinary()
+      )
+        return
     }
   }
 
@@ -183,6 +227,7 @@ function main() {
 
 try {
   main()
+  installUv()
 } catch (error) {
   console.error(error.message)
   process.exit(1)

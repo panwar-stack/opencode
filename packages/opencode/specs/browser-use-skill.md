@@ -64,7 +64,7 @@ Default local MCP command:
 ```json
 {
   "type": "local",
-  "command": ["uvx", "browser-use[cli]", "--mcp", "--headed"],
+  "command": ["uvx", "--from", "browser-use[cli]", "browser-use", "--mcp", "--headed"],
   "enabled": true,
   "timeout": 120000
 }
@@ -73,8 +73,9 @@ Default local MCP command:
 Implementation note:
 
 - Verify the exact current `browser-use` CLI MCP flags before implementation.
-- If `uvx browser-use[cli] --mcp --headed` is not valid, use the closest supported stdio MCP command from the current browser-use CLI.
+- If `uvx --from browser-use[cli] browser-use --mcp --headed` is not valid, use the closest supported stdio MCP command from the current browser-use CLI.
 - Do not silently fall back to arbitrary shell installation.
+- Packaged installs should provide `uv` or package-local `uvx` when their package manager supports runtime dependencies.
 - If `uvx` is missing or browser-use cannot start, expose a clear MCP connection error with install instructions.
 
 Disable through config:
@@ -113,7 +114,9 @@ Existing browser reuse through CDP:
       "type": "local",
       "command": [
         "uvx",
+        "--from",
         "browser-use[cli]",
+        "browser-use",
         "--mcp",
         "--headed",
         "--cdp-url",
