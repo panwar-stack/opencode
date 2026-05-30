@@ -7,6 +7,7 @@ import { Effect, Layer, Context, Schema } from "effect"
 import { Config } from "@/config/config"
 import { MCP } from "../mcp"
 import { Skill } from "../skill"
+import PROMPT_CLARIFY from "./template/clarify.txt"
 import PROMPT_IMPLEMENT_SPEC_PR from "./template/spec-implement.txt"
 import PROMPT_INITIALIZE from "./template/initialize.txt"
 import PROMPT_INITIALIZE_V2 from "./template/initialize-v2.txt"
@@ -56,6 +57,7 @@ export function hints(template: string) {
 }
 
 export const Default = {
+  CLARIFY: "clarify",
   IMPLEMENT_SPEC_PR: "spec-implement",
   INIT: "init",
   INIT_V2: "init_v2",
@@ -120,6 +122,15 @@ export const layer = Layer.effect(
         },
         subtask: true,
         hints: hints(PROMPT_REVIEW),
+      }
+      commands[Default.CLARIFY] = {
+        name: Default.CLARIFY,
+        description: "Clarify underspecified requests before planning or implementation.",
+        source: "command",
+        get template() {
+          return PROMPT_CLARIFY
+        },
+        hints: hints(PROMPT_CLARIFY),
       }
       commands[Default.SPEC_PLANNER] = {
         name: Default.SPEC_PLANNER,

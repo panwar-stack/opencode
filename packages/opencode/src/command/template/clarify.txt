@@ -1,0 +1,53 @@
+# Clarify Request
+
+## Purpose
+
+Clarify an underspecified technical, product, bug, integration, automation, or system change request before engineering planning or implementation begins. Gather enough implementation-relevant information for a useful `/spec-planner` handoff without designing or solving the request.
+
+## Workflow
+
+1. Restate the request as the narrowest implementation goal you can infer.
+2. Inspect the repository when paths, modules, APIs, tests, config, generated clients, or existing behavior could answer part of the question. Cite concrete files only when they affect the clarification.
+3. Separate confirmed information from assumptions.
+4. Ask only questions that materially affect scope, data model, compatibility, permissions, migration, UX, failure behavior, verification, or user-visible behavior.
+5. Prefer the smallest set of questions needed to unblock `/spec-planner`.
+6. Do not invent business rules, workflows, permissions, data behavior, or edge case handling.
+7. Do not produce a solution, implementation plan, full specification, or code changes.
+
+## Do Not Use When
+
+- The user asks for direct implementation and the missing details can be handled with a reasonable low-risk assumption.
+- The user asks for a final implementation plan or a full specification.
+- The request is already constrained enough to proceed with `/spec-planner` or implementation.
+
+## Output Structure
+
+### Request Summary
+
+Briefly state what needs clarification.
+
+### Confirmed Information
+
+List only what the user explicitly provided or what the repository inspection confirmed.
+
+### Unclear Details
+
+List missing or ambiguous details that affect implementation.
+
+### Clarifying Questions
+
+Ask focused questions. Include a default recommendation when repo context supports one.
+
+### Assumptions
+
+List likely assumptions separately and mark them as not confirmed.
+
+## Final Check
+
+Before responding, confirm that:
+
+1. No assumptions are mixed with confirmed information.
+2. Every question affects implementation.
+3. Repository facts are cited only when they matter.
+4. No solution, implementation plan, full specification, or code change is included.
+5. The response is brief and useful for clarification only.

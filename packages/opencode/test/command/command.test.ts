@@ -20,6 +20,14 @@ describe("command", () => {
           expect(specPlanner.description).toContain("concrete engineering specs")
           expect(yield* Effect.promise(() => Promise.resolve(specPlanner.template))).toContain("Requirements To Spec")
 
+          const clarify = yield* command.get("clarify")
+          if (!clarify) throw new Error("clarify command not found")
+
+          expect(clarify.source).toBe("command")
+          expect(clarify.description).toContain("Clarify underspecified requests")
+          expect(yield* Effect.promise(() => Promise.resolve(clarify.template))).toContain("Clarify Request")
+          expect(yield* Effect.promise(() => Promise.resolve(clarify.template))).toContain("/spec-planner")
+
           const implementSpecPr = yield* command.get("spec-implement")
           if (!implementSpecPr) throw new Error("spec-implement command not found")
 

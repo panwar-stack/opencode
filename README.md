@@ -152,6 +152,7 @@ If you're interested in contributing to OpenCode, please read our [contributing 
 Useful contributor helpers:
 
 - `bun run dev:build` builds the OpenCode package with the single-binary build shortcut
+- `/clarify` narrows underspecified requests before planning or implementation
 - `/spec-planner` drafts repo-style implementation specs with verification slices
 - `/init_v2` runs init-style setup and adds the repo's required coding principles
 - `/team-report` runs the team report tool for the active or most recent team session
