@@ -1,10 +1,8 @@
-# Implement Spec PR
+# Implement Specification Pull Request
+Read `$1`.
+Use agent teams.
 
-Understand the specification thoroughly at `$1`.
+If `#$2` is provided, implement only that pull request from `$1`. commit.
+If `#$2` is missing, implement `$1` one pull request at a time. For each pull request: implement, verify, test, review, commit. Start the next pull request only after the commit. At the very end, audit the whole implementation to ensure nothing was missed.
 
-Implement only the work required for PR `#$2` in the spec `$1`. Must use agent teams.
-
-if `#$2` is missing then use agent teams to implement the specification one pull request at a time. Each pull request must be implemented, verified, tested, and reviewed before work begins on the next pull request. Before beginning on the next pull request, commit the current pull request changes.
-
-
-Do not implement unrelated PRs, future phases, or adjacent improvements unless they are strictly necessary to complete PR `#$2`.
+Do not implement unrelated pull requests, future phases, or adjacent improvements unless required for the current pull request.

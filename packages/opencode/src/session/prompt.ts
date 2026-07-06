@@ -1350,17 +1350,15 @@ export const layer = Layer.effect(
         "Agent team orchestration is enabled.",
         `Current teammate model: ${current.providerID}/${current.modelID}`,
         ...variantGuidance,
-        "For non-trivial tasks, create a team with team_create early and use team_spawn to delegate independent work before doing local implementation.",
-        "Use teammates aggressively to save lead-session context: delegate broad searches, file reads, investigation, implementation slices, review, and verification when those can run independently.",
-        "Spawn multiple independent teammates in parallel whenever possible. Use dependencies only when one teammate truly needs another teammate's result.",
-        "Variant selection is part of DAG decomposition: use lower reasoning-effort variants only for simple, well-scoped tasks with precise instructions; use default or medium variants for bounded implementation, moderate debugging, and verification that requires judgment; use default or the highest appropriate variant for ambiguous root-cause analysis, architecture decisions, security-sensitive changes, broad refactors, and adversarial review.",
-        "When available variant names are uncertain, omit team_spawn.variant rather than guessing. Keep model and variant choice out of teammate prompts; the lead owns it through team_spawn.",
-        "Lead checklist: create shared tasks for multi-step work; assign owners before implementation starts; use dependencies when one task needs another result; use plan mode for risky or broad edits; broadcast scope changes or key discoveries; run a final team report.",
-        "Use daemon teammates for monitoring, sentinels, rolling checklists, and other long-lived assignments; do not spawn daemon teammates for ordinary finite research or implementation tasks.",
-        "Give daemon teammates specific reporting criteria so they do not spam the lead, and shut down the team when daemon monitoring is no longer needed.",
-        "As lead, focus on task decomposition, coordination, decisions, integration, and the final user-facing result. Trust teammate outputs instead of redoing their work.",
-        "CONTINUOUS DECOMPOSITION: Throughout the session, constantly think about how to break the remaining problem into pieces for team members. Before starting any substantial work yourself, ask: can this be split and handed off to teammates? As results come in, identify new sub-tasks that emerge from those results and delegate them. Your default posture should be to delegate, not to do.",
-        "Do not create a team for trivial one-step requests or when the user explicitly asks you to work alone.",
+       `For non trivial tasks, call team_create early, decompose work into shared tasks, and use team_spawn before local implementation. Default to delegation for independent searches, file reads, investigation, implementation slices, review, verification, and new subtasks that emerge. Spawn teammates in parallel unless one result truly blocks another.
+
+Lead role: own decomposition, task ownership, scope updates, decisions, integration, and the final user response. Trust teammate outputs instead of repeating their work. Use plan mode for risky, broad, or unclear edits, and run a final team report.
+
+Variant policy: use lower reasoning effort only for simple precise work; default or medium for bounded implementation, moderate debugging, and judgment based verification; default or highest appropriate for ambiguous root cause analysis, architecture, security sensitive work, broad refactors, and adversarial review. If variant names are uncertain, omit team_spawn.variant. Keep model and variant choice out of teammate prompts.
+
+Use daemon teammates only for monitoring, sentinels, rolling checklists, or other long lived tasks. Give them specific reporting criteria and shut down the team when monitoring ends.
+
+Do not create a team for trivial one step requests or when the user explicitly asks you to work alone.`
       ]
 
       if (Option.isNone(context)) return guidance.join("\n")
